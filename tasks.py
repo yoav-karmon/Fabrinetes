@@ -30,10 +30,7 @@ def printlocals(locals_dict):
 
 @task()
 def build(ctx):
-    with ctx.cd("devcontainers"):
-        ctx.run("docker build -t fabrinetes-dev -f .devcontainer/Dockerfile .", pty=True)
-        ctx.run("docker image prune -f", pty=True)
-        ctx.run("docker images fabrinetes-dev", pty=True)
+    ctx.run("docker build -t fabrinetes-dev -f Dockerfile .", pty=True)
 
 @task
 def list(ctx):
@@ -48,7 +45,7 @@ def list(ctx):
 
 
 @task
-def run(ctx, rm=False,name=None, x11=False,usb=False,ask=True):
+def run(ctx, file,rm=True,name=None, x11=False,usb=False,ask=True):
    
    
     print("===============================")
@@ -63,12 +60,12 @@ def run(ctx, rm=False,name=None, x11=False,usb=False,ask=True):
 
    
 
-    database = toml.load("devcontainers/containers.toml")
+    database = toml.load(file)
     IMAGE_SETTINGS = database.get("Containers", {}).get(name, {})
     IMAGE_REPOSITORY = IMAGE_SETTINGS.get("REPOSITORY", None)
     IMAGE_TAG = IMAGE_SETTINGS.get("TAG", "latest")
     IMAGE_NAME = f"{IMAGE_REPOSITORY}:{IMAGE_TAG}"
-    
+    init_env    = IMAGE_SETTINGS.get("init_env", None)
     MOUNTS_LIST = IMAGE_SETTINGS.get("mounts", [])
     PATH_INJECT_LIST = IMAGE_SETTINGS.get("PATH", [])
     del database
@@ -77,13 +74,14 @@ def run(ctx, rm=False,name=None, x11=False,usb=False,ask=True):
     print("")
 
     cmd_parts=[]
-    cmd_parts = ["docker", "run", "-it"]
+    cmd_parts = ["docker", "run", "-dit"]
     if name:
         cmd_parts.extend(["--name", name])
     else:
         print("Error: You must provide a name for the container using --name")
         sys.exit(1)
-
+        
+   
     if rm:
         cmd_parts.append("--rm")
     if x11:
@@ -131,7 +129,9 @@ def run(ctx, rm=False,name=None, x11=False,usb=False,ask=True):
             print("Aborted.")
             return
     
-    with ctx.cd("devcontainers"):
-        ctx.run(cmd, pty=True)
+    ctx.run(cmd, pty=True)
+    if(init_env):
+        print(f"Copying init_env script to container {name}")
+        ctx.run(f"docker cp {init_env} {name}:/etc/profile.d/init_env.sh", pty=True)
 
    

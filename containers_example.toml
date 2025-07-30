@@ -2,7 +2,7 @@
 REPOSITORY      = "fabrinetes-dev"
 TAG             = "latest"
 mounts          =["/home/ykarmon/AMD/Vivado/2021.2:/opt/vivado","/home/ykarmon/repos:/root/repos"]
-PATH            =["/opt/vivado"]
+init_env         ="/home/ykarmon/repos/phy_project/Fabrinetes_init_env.sh"
 
 
 
