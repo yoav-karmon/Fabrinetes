@@ -1,0 +1,1 @@
+export PATH="/opt/vivado/bin:/opt/project_setup:$PATH"
