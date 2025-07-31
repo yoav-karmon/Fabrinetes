@@ -70,6 +70,16 @@ def run(ctx, file,rm=True,ver=None,name=None, x11=False,usb=False,ask=True):
     IMAGE_NAME = f"{IMAGE_REPOSITORY}:{IMAGE_TAG}"
     MOUNTS_LIST = IMAGE_SETTINGS.get("mounts", [])
     PATH_INJECT_LIST = IMAGE_SETTINGS.get("PATH", [])
+    FABRINETES_REPO_PATH = IMAGE_SETTINGS.get("FabrinetesRepoPath",None)
+    if FABRINETES_REPO_PATH:
+        FABRINETES_REPO_PATH = os.path.expanduser(FABRINETES_REPO_PATH)
+        if not os.path.exists(FABRINETES_REPO_PATH):
+            print(f"Error: FabrinetesRepoPath '{FABRINETES_REPO_PATH}' does not exist")
+            exit(1)
+    else:
+        print("Error: FabrinetesRepoPath is not defined in containers.toml. Please set it.")
+        exit(1)
+        
     del database
 
     printlocals(locals())
@@ -107,7 +117,10 @@ def run(ctx, file,rm=True,ver=None,name=None, x11=False,usb=False,ask=True):
             continue
 
         source_str, dest = mount.split(':', 1)
-        if(not source_str.startswith("/")):
+        if( source_str.startswith("$FabrinetesRepoPath") ):
+            source_str = source_str.replace("$FabrinetesRepoPath", FABRINETES_REPO_PATH)
+          
+        if(not source_str.startswith("/") ):
             source_path = folder_path / source_str
             source_path = source_path.resolve()
         else:
