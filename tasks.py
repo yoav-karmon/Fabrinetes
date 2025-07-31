@@ -16,9 +16,12 @@ from dataclasses import dataclass, asdict
 import os
 import toml
 from tabulate import tabulate
+import pathlib 
+import logging
 
 
-
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 
 def printlocals(locals_dict):
@@ -45,7 +48,7 @@ def list(ctx):
 
 
 @task
-def run(ctx, file,rm=True,name=None, x11=False,usb=False,ask=True):
+def run(ctx, file,rm=True,ver=None,name=None, x11=False,usb=False,ask=True):
    
    
     print("===============================")
@@ -61,11 +64,10 @@ def run(ctx, file,rm=True,name=None, x11=False,usb=False,ask=True):
    
 
     database = toml.load(file)
-    IMAGE_SETTINGS = database.get("Containers", {}).get(name, {})
+    IMAGE_SETTINGS = database.get("Containers", {}).get(ver, {})
     IMAGE_REPOSITORY = IMAGE_SETTINGS.get("REPOSITORY", None)
     IMAGE_TAG = IMAGE_SETTINGS.get("TAG", "latest")
     IMAGE_NAME = f"{IMAGE_REPOSITORY}:{IMAGE_TAG}"
-    init_env    = IMAGE_SETTINGS.get("init_env", None)
     MOUNTS_LIST = IMAGE_SETTINGS.get("mounts", [])
     PATH_INJECT_LIST = IMAGE_SETTINGS.get("PATH", [])
     del database
@@ -96,31 +98,27 @@ def run(ctx, file,rm=True,name=None, x11=False,usb=False,ask=True):
         cmd_parts.append("-v /dev/bus/usb:/dev/bus/usb")
 
 
+    file_path = pathlib.Path(file)
+    folder_path = file_path.resolve().parent.parent
     for mount in MOUNTS_LIST:
         # Expecting format: source:dest
         if ':' not in mount:
             print(f"Warning: Invalid mount format '{mount}' — expected source:dest. Skipping.")
             continue
 
-        source, dest = mount.split(':', 1)
+        source_str, dest = mount.split(':', 1)
+        if(not source_str.startswith("/")):
+            source_path = folder_path / source_str
+            source_path = source_path.resolve()
+        else:
+            source_path = pathlib.Path(source_str).resolve()
 
-        if not os.path.exists(source):
-            print(f"Warning: Mount source '{source}' does not exist. Skipping.")
+        if not source_path.exists():
+            print(f"Warning: Mount source '{source_path}' does not exist. Skipping.")
             continue
 
-        cmd_parts.append(f"-v {source}:{dest}")
+        cmd_parts.append(f"-v {str(source_path)}:{dest}")
     cmd_parts.append(IMAGE_NAME)
-    # cmd_parts = [
-    #     "docker", "run", "-it", "--rm",
-    #     "--net=host",
-    #     "-e", f"DISPLAY={os.environ['DISPLAY']}",
-    #     "-v", "/tmp/.X11-unix:/tmp/.X11-unix",
-    #     "-v", f"{os.environ['HOME']}/.Xauthority:/root/.Xauthority:ro",
-    #     "-v", "/dev/bus/usb:/dev/bus/usb",
-    #     "-v", "/home/ykarmon/AMD/Vivado/2021.2:/opt/vivado",
-    #     "-v", f"{os.path.expanduser('~')}/repos:/root/repos",
-    #     "fabrinetes-dev"
-    # ]
     cmd = " ".join(cmd_parts)
     print(f"Running command: {' '.join(cmd_parts)}")
     if(ask):
@@ -130,8 +128,7 @@ def run(ctx, file,rm=True,name=None, x11=False,usb=False,ask=True):
             return
     
     ctx.run(cmd, pty=True)
-    if(init_env):
-        print(f"Copying init_env script to container {name}")
-        ctx.run(f"docker cp {init_env} {name}:/etc/profile.d/init_env.sh", pty=True)
+    ctx.run(f"docker exec {name} git config --system --add safe.directory '*'",pty=True,echo=True)
+
 
    
