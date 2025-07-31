@@ -56,9 +56,45 @@ ENV LANG=en_US.UTF-8
 ENV LANGUAGE=en_US:en
 ENV LC_ALL=en_US.UTF-8
 
+# Create non-root user 'ykarmon' with UID/GID 1000 and passwordless sudo
+ARG USERNAME=ykarmon
+ARG UID=1000
+ARG GID=1000
+
+RUN set -eux; \
+    \
+    # Rename existing group with GID=1000 to $USERNAME, or create it
+    if getent group "$GID" > /dev/null; then \
+        groupmod -n "$USERNAME" "$(getent group "$GID" | cut -d: -f1)"; \
+    else \
+        groupadd --gid "$GID" "$USERNAME"; \
+    fi; \
+    \
+    # Rename existing user with UID=1000 to $USERNAME, or create it
+    if getent passwd "$UID" > /dev/null; then \
+        usermod -l "$USERNAME" "$(getent passwd "$UID" | cut -d: -f1)"; \
+        usermod -d "/home/$USERNAME" -m "$USERNAME"; \
+        groupmod -g "$GID" "$USERNAME"; \
+    else \
+        useradd --uid "$UID" --gid "$GID" --shell /bin/bash --create-home "$USERNAME"; \
+    fi; \
+    \
+    echo "$USERNAME ALL=(ALL) NOPASSWD:ALL" > "/etc/sudoers.d/$USERNAME"; \
+    chmod 0440 "/etc/sudoers.d/$USERNAME"
+
+
+
+
+    
 # Set working dir and hostname
-WORKDIR /root
+ENV HOME=/home/ykarmon
+ENV SHELL=/bin/bash
+
 RUN echo "devbox" > /etc/hostname
+
+WORKDIR /home/ykarmon
+USER ykarmon
+
 
 
 
