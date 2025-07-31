@@ -59,10 +59,6 @@ ENV LC_ALL=en_US.UTF-8
 WORKDIR /root
 RUN echo "devbox" > /etc/hostname
 
-# Copy source files
-COPY source/project_setup/ /opt/project_setup/
-COPY source/bashrc-root /root/.bashrc
-COPY source/init_env.sh /etc/profile.d/init_env.sh
 
 
 
