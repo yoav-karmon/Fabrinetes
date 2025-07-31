@@ -1,0 +1,21 @@
+#!/bin/bash
+LOGFILE="fabrinetes_$(date +%Y-%m-%d).log"
+
+if [ -z "$REPO_TOP" ]; then
+    echo "❌ REPO_TOP is not set. Please export REPO_TOP first."
+    exit 1
+fi
+
+TASKS_DIR="$REPO_TOP"
+export HDLFORGE_ORIG_PATH="$(pwd)"
+
+# Change to the tasks directory before running invoke
+cd "$TASKS_DIR" || {
+    echo "❌ Failed to cd into $TASKS_DIR"
+    echo "run update_repo_path correctly."
+    exit 1
+}
+
+# Run invoke as if we were in that directory
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] \$ invoke -c tasks $*" | tee -a "$LOGFILE"
+exec invoke -c tasks "$@" | tee -a "$LOGFILE"
