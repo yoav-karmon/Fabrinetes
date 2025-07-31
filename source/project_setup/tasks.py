@@ -271,7 +271,7 @@ def vivado(c,project=None,new=False,dryrun=False,reset=False,syn=False,imp=False
     vivado_settings  = project_data["vivado_settings"]
 
     PROJECT_FILES =  Path(working_path ) 
-    SCRIPT_DIR = REPO_TOP / "tools" / "project_setup"
+    SCRIPT_DIR = Path("/opt/project_setup")
 
     if not str(PROJECT_FILES.resolve()).startswith(str(REPO_TOP.resolve())):
         print(f"❌ PROJECT_FILES path '{PROJECT_FILES}' is not under REPO_TOP '{REPO_TOP}'")
