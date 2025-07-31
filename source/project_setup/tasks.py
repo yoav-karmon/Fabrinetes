@@ -154,28 +154,23 @@ def load_project_data(ProjectFilePath):
         return working_path, project_data
 
 def get_project_file_path(project_name_arg:Union[str,None]) -> tuple[str, Path]:
-    invoke_path= Path(os.environ["HDLFORGE_ORIG_PATH"] )
-
-    with open("hdlforge.toml", "rb") as f:
-        proejcts_dict=tomllib.load(f)
-        REPO_TOP = Path(os.environ["REPO_TOP"]) 
-        if(project_name_arg!=None):
-            for project_name, project_file in proejcts_dict["projects"].items():
-                if project_name_arg.strip() == project_name.strip() :
-                    project_file_path = REPO_TOP / "tools" /"project_setup" / project_file
-                    return project_name_arg,project_file_path
-            exit(f"❌ Project '{project_name_arg}' not found in hdlforge.toml. Available projects: {', '.join(proejcts_dict['projects'].keys())}")
+    invoke_path= Path(os.environ["HDLFORGE_ORIG_PATH"] )  
+    hdlforge_files = list(invoke_path.glob("*.hdlforge"))
+    if(project_name_arg==None):
+        if(len(hdlforge_files) == 1):
+            projects_dict=tomllib.load(f)
+            project_name_arg=str(projects_dict["settings"]["project_name"])
+            project_file_path = invoke_path / hdlforge_files[0]
+            return project_name_arg,project_file_path
         else:
-            for project_name, project_file in proejcts_dict["projects"].items():
-                _,_project_file_path=get_project_file_path(project_name)
-                _, _project_data=load_project_data(_project_file_path)
-                result_project_path = REPO_TOP / _project_data["settings"]["project_path"]
-                if result_project_path == invoke_path:
-                    print(f"ℹ️  Found project file for invoke path: {invoke_path} -> {result_project_path}")
-                    return project_name,_project_file_path
-           
-        exit(f"❌ No project found for invoke path: {invoke_path}. Please specify a project name or ensure you are in a valid project directory.")
-
+            print("No project file found in the current directory.")
+            print("you may have more then 1 *.hdlforge file in the current directory, please specify the project file using --project <project_name>")
+            exit(1)
+    else:
+        project_file_path = Path(str(invoke_path) + project_name_arg)
+        return project_name_arg,project_file_path
+    
+   
 def get_file_list_for_tool(tool_name: str, project_file: Path) -> List[str]:
     # Ensure project_file is a Path object and expand environment variables
     project_file = Path(os.path.expandvars(str(project_file))).resolve()
