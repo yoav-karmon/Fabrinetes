@@ -141,7 +141,19 @@ def run(ctx, file,rm=True,ver=None,name=None, x11=False,usb=False,ask=True):
             return
     
     ctx.run(cmd, pty=True)
+    ssh_host_path = "/home/ykarmon/.ssh"
+    ssh_container_path = "/root/.ssh"
     ctx.run(f"docker exec {name} git config --system --add safe.directory '*'",pty=True,echo=True)
+
+    print(f"🔁 Copying {ssh_host_path} to container {name}:{ssh_container_path}")
+    ctx.run(f"docker exec {name} mkdir -p {ssh_container_path}", pty=True, echo=True)
+    ctx.run(f"docker cp /home/ykarmon/.ssh/. vscode-home-office-x11:/root/.ssh", pty=True, echo=True)
+
+    print("🔐 Fixing permissions in container")
+    ctx.run(f"docker exec {name} chmod 700 {ssh_container_path}", pty=True, echo=True)
+    ctx.run(f"docker exec {name} sh -c 'chmod 600 /root/.ssh/*'", pty=True, echo=True)
+    ctx.run(f"docker exec {name} chown -R root:root /root/.ssh", pty=True, echo=True)
+
 
 
    
