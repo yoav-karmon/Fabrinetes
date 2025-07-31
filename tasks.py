@@ -101,7 +101,7 @@ def run(ctx, file,rm=True,ver=None,name=None, x11=False,usb=False,ask=True):
             "--net=host",
             "-e", f"DISPLAY={os.environ['DISPLAY']}",
             "-v", "/tmp/.X11-unix:/tmp/.X11-unix",
-            "-v", f"{os.environ['HOME']}/.Xauthority:/root/.Xauthority:ro"
+            "-v", f"{os.environ['HOME']}/.Xauthority:/home/ykarmon/.Xauthority:ro"
         ])
 
     if usb:
