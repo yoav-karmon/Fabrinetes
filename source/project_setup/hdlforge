@@ -5,7 +5,7 @@ if [ -z "$REPO_TOP" ]; then
     exit 1
 fi
 
-TASKS_DIR="$REPO_TOP/tools/project_setup"
+TASKS_DIR="/opt/project_setup"
 export HDLFORGE_ORIG_PATH="$(pwd)"
 
 # Change to the tasks directory before running invoke
