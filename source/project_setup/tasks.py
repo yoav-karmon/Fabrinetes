@@ -158,7 +158,8 @@ def get_project_file_path(project_name_arg:Union[str,None]) -> tuple[str, Path]:
     hdlforge_files = list(invoke_path.glob("*.hdlforge"))
     if(project_name_arg==None):
         if(len(hdlforge_files) == 1):
-            projects_dict=tomllib.load(f)
+            with open(hdlforge_files[0], "rb") as f:
+                projects_dict=tomllib.load(f)
             project_name_arg=str(projects_dict["settings"]["project_name"])
             project_file_path = invoke_path / hdlforge_files[0]
             return project_name_arg,project_file_path
