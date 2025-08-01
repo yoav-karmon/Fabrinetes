@@ -31,9 +31,22 @@ def printlocals(locals_dict):
             print(f"{key:10} = {value}")
     print("===============================")
 
-@task()
+@task
 def build(ctx):
-    ctx.run("docker build -t fabrinetes-dev -f Dockerfile .", pty=True)
+    username = os.getenv("USER") or os.getenv("USERNAME")
+    uid = os.getuid()
+    gid = os.getgid()
+    home_dir = os.path.expanduser("~")
+
+    ctx.run(
+        f"docker build "
+        f"--build-arg USERNAME={username} "
+        f"--build-arg UID={uid} "
+        f"--build-arg GID={gid} "
+        f"--build-arg HOME_DIR={home_dir} "
+        f"-t fabrinetes-dev -f Dockerfile .",
+        pty=True,
+    )
 
 @task
 def list(ctx):

@@ -2,7 +2,7 @@ FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install base packages + locales
+# Base system tools, Python, and utilities
 RUN apt-get update && apt-get install -y \
     curl \
     git \
@@ -18,9 +18,21 @@ RUN apt-get update && apt-get install -y \
     gtkwave \
     x11-apps \
     git-lfs \
+    tcpdump \
+    tshark \
+    wireshark \
+    verilator \
+    python3 \
+    python3-pip \
+    python3-setuptools \
+    python3-wheel \
+    tmux \
+    htop \
+    tree \
+    jq \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-RUN apt-get update && apt-get install -y verilator
+
 
 # Set up locales
 RUN locale-gen en_US.UTF-8 && update-locale LANG=en_US.UTF-8
@@ -30,21 +42,17 @@ RUN wget http://security.ubuntu.com/ubuntu/pool/universe/n/ncurses/libtinfo5_6.3
     dpkg -i libtinfo5_6.3-2ubuntu0.1_amd64.deb && \
     rm libtinfo5_6.3-2ubuntu0.1_amd64.deb
 
-# Install Python and pip-related tools
-RUN apt-get update && apt-get install -y \
-    python3 \
-    python3-pip \
-    python3-setuptools \
-    python3-wheel \
- && apt-get clean && rm -rf /var/lib/apt/lists/*
+
 
 # Install Python packages
-RUN pip3 install --break-system-packages invoke toml
-RUN pip3 install --break-system-packages tomli_w
-RUN pip3 install --break-system-packages pyparsing
-RUN pip3 install --break-system-packages cocotb
-RUN pip3 install --break-system-packages scapy
-RUN pip3 install --break-system-packages typeguard
+RUN pip3 install --break-system-packages \
+    invoke \
+    toml \
+    tomli_w \
+    pyparsing \
+    cocotb \
+    scapy \
+    typeguard
 
 
 
@@ -57,9 +65,11 @@ ENV LANGUAGE=en_US:en
 ENV LC_ALL=en_US.UTF-8
 
 # Create non-root user 'ykarmon' with UID/GID 1000 and passwordless sudo
-ARG USERNAME=ykarmon
-ARG UID=1000
-ARG GID=1000
+# Create non-root user with passwordless sudo
+ARG USERNAME
+ARG UID
+ARG GID
+ARG HOME_DIR
 
 RUN set -eux; \
     \
@@ -73,10 +83,10 @@ RUN set -eux; \
     # Rename existing user with UID=1000 to $USERNAME, or create it
     if getent passwd "$UID" > /dev/null; then \
         usermod -l "$USERNAME" "$(getent passwd "$UID" | cut -d: -f1)"; \
-        usermod -d "/home/$USERNAME" -m "$USERNAME"; \
+        usermod -d "${HOME_DIR}" -m "$USERNAME"; \
         groupmod -g "$GID" "$USERNAME"; \
     else \
-        useradd --uid "$UID" --gid "$GID" --shell /bin/bash --create-home "$USERNAME"; \
+        useradd --uid "$UID" --gid "$GID" --shell /bin/bash --create-home --home-dir "${HOME_DIR}" "$USERNAME"; \
     fi; \
     \
     echo "$USERNAME ALL=(ALL) NOPASSWD:ALL" > "/etc/sudoers.d/$USERNAME"; \
@@ -87,13 +97,14 @@ RUN set -eux; \
 
     
 # Set working dir and hostname
-ENV HOME=/home/ykarmon
+ARG HOME_DIR
+ENV HOME=${HOME_DIR}
 ENV SHELL=/bin/bash
 
 RUN echo "devbox" > /etc/hostname
 
-WORKDIR /home/ykarmon
-USER ykarmon
+WORKDIR ${HOME_DIR}
+USER ${USERNAME}
 
 
 
