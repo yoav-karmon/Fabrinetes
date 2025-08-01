@@ -188,6 +188,3 @@ Open a GitHub issue or email: **[yoav@karmon.biz](mailto:yoav@karmon.biz)**
 **Bring the power of Kubernetes to your FPGAs — one container at a time.**
 
 ```
-
-Let me know if you’d like this written to a file or turned into a GitHub repository structure!
-```
