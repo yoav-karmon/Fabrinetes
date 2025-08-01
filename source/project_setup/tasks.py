@@ -16,8 +16,7 @@ from cocotb.clock import Clock
 from cocotb.triggers import RisingEdge
 from cocotb.runner import get_runner
 from cocotb.triggers import Timer
-from typing import List, Dict, Any
-
+from typing import List, Dict, Any,Tuple
 
 def generate_vivado_tcl(
     output_path: Path,
@@ -101,7 +100,7 @@ def generate_vivado_tcl(
 
 
 
-def print_task_args(local_vars: dict,REPO_TOP:str):
+def print_task_args(local_vars: dict, REPO_TOP: str, allowed_values: dict[str, List[str]] = {}):
     # Get the calling function name automatically
     caller_name = inspect.stack()[1].function  
 
@@ -119,7 +118,8 @@ def print_task_args(local_vars: dict,REPO_TOP:str):
         if(not isinstance(value, dict) and not isinstance(value, list)):
             if REPO_TOP+"/" in str(value):
                 value = str(value).replace(REPO_TOP+"/", "$REPO_TOP/")
-            print(f"{key.ljust(max_key_len)} : {value}")
+
+            print(f"{key.ljust(max_key_len)} : {value} {'(allowed: ' + ', '.join( allowed_values[key] ) + ')' if key in allowed_values else ''}")
     print(border)
     
 def print_boxed(message: str, border_char: str = "=", padding: int = 2):
@@ -366,13 +366,15 @@ def vivado(c,project=None,list_runs=False,reset_run=None,new=False,dryrun=False,
     
 
 @task
-def VerlatorCompile(c,project=None,SimTargetName=None,clean=False, sim=False):
+def Verilator(c,project=None,step=None,clean=False,SimTargetName=None):
+    ALLOWED_STEPS = {"step":["compile", "run", "sim", "build", "all"]}
+
     REPO_TOP = Path(os.environ["REPO_TOP"])  # Fail fast if REPO_TOP is not set
     tool_name = "verilator"
     project,project_file_path = get_project_file_path(project)
     working_path,project_data = load_project_data(project_file_path)
     
-    print_task_args(locals(),str(REPO_TOP))
+    print_task_args(locals(),str(REPO_TOP),ALLOWED_STEPS)
       
     
     verilator_settings  = project_data["verilator_settings"]
@@ -401,44 +403,45 @@ def VerlatorCompile(c,project=None,SimTargetName=None,clean=False, sim=False):
 
     python_module = python_file_path.stem  
     
+    match (step):
+        case "build" | "sim":
+            try:
+                runner = get_runner("verilator")
 
-    try:
-        runner = get_runner("verilator")
+                print(f"ℹ️  Compiling Verilator sources into: {build_dir}")
+                veruilator_sources_file = []
+                for file in sources_files:
+                    veruilator_sources_file.append(Path(os.path.expandvars(str(file))).resolve())
 
-        print(f"ℹ️  Compiling Verilator sources into: {build_dir}")
-        veruilator_sources_file = []
-        for file in sources_files:
-            veruilator_sources_file.append(Path(os.path.expandvars(str(file))).resolve())
-
-        runner.build(
-                verilog_sources=veruilator_sources_file,
-                hdl_toplevel=f"{top_module}",
-                waves=True   ,
-                build_dir=f"{build_dir}",   
-                always=True,   
-                build_args=[
-                    "--public-flat-rw",       # Expose signals for RW
-                    "--trace",                # Needed for waves
-                    "--trace-structs"       # Better struct/array visibility (5.x)
-                ],
-                clean=clean   # force rebuild
-            )
-        print(f"✅ Verilator build completed")
-        print(f"ℹ️  Verilator simulation started:")
-        if(sim):    
-            runner.test(
-                hdl_toplevel=f"{top_module}",
-                test_module=f"{python_module}",  
-                build_dir=f"{build_dir}",   
-                waves=True                  # enables dump.vcd
-            )
-            print(f"✅ Verilator simulation completed")
-        else:
-            print(f"ℹ️  Skipping Verilator simulation")
-            
-    except Exception as e:
-        print("\n❌ Verilator build/simulation failed!")
-        print(f"Error: {e}")
+                runner.build(
+                        verilog_sources=veruilator_sources_file,
+                        hdl_toplevel=f"{top_module}",
+                        waves=True   ,
+                        build_dir=f"{build_dir}",   
+                        always=True,   
+                        build_args=[
+                            "--public-flat-rw",       # Expose signals for RW
+                            "--trace",                # Needed for waves
+                            "--trace-structs"       # Better struct/array visibility (5.x)
+                        ],
+                        clean=clean   # force rebuild
+                    )
+                print(f"✅ Verilator build completed")
+                print(f"ℹ️  Verilator simulation started:")
+                if(step=="sim"):    
+                    runner.test(
+                        hdl_toplevel=f"{top_module}",
+                        test_module=f"{python_module}",  
+                        build_dir=f"{build_dir}",   
+                        waves=True                  # enables dump.vcd
+                    )
+                    print(f"✅ Verilator simulation completed")
+                else:
+                    print(f"ℹ️  Skipping Verilator simulation")
+                    
+            except Exception as e:
+                print("\n❌ Verilator build/simulation failed!")
+                print(f"Error: {e}")
 
 @task
 def projects(c,set_project=None):
