@@ -181,7 +181,7 @@ We welcome contributions from the FPGA and open-source communities.
 ## 📬 Contact
 
 Questions or feedback?
-Open a GitHub issue or email: **[fabrinetes@protonmail.com](mailto:fabrinetes@protonmail.com)**
+Open a GitHub issue or email: **[yoav@karmon.biz](mailto:yoav@karmon.biz)**
 
 ---
 
