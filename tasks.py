@@ -18,17 +18,51 @@ import toml
 from tabulate import tabulate
 import pathlib 
 import logging
+from typing import List, Tuple
 
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
+def resolve_mounts(mounts: List[str], relative_path: pathlib.Path) -> List[Tuple[str, str]]:
+    """
+    Resolves a list of mount strings of the form 'host:container',
+    expanding environment variables and resolving relative host paths
+    against the provided relative_path.
+    """
+    resolved = []
 
-def printlocals(locals_dict):
+    for entry in mounts:
+        if ":" not in entry:
+            raise ValueError(f"Invalid mount format (expected 'host:container'): {entry}")
+        
+        host_raw, container_raw = entry.split(":", 1)
+
+        # Expand and resolve host path
+        host_expanded = os.path.expandvars(host_raw)
+        host_path = pathlib.Path(host_expanded)
+        if not host_path.is_absolute():
+            host_path = (relative_path / host_path).resolve()
+
+        # Expand environment variables in container path
+        container_path = os.path.expandvars(container_raw)
+
+        resolved.append((str(host_path), container_path))
+
+    return resolved
+
+
+def printlocals(locals_dict,verbose=False):
     print("=== Current Argument Values ===")
     for key, value in locals_dict.items():
-        if key != "ctx":  # Skip the context object unless you want to include it
-            print(f"{key:10} = {value}")
+        if key != "ctx":
+            if isinstance(value, dict) or isinstance(value, List):
+                if(verbose):
+                    print(f"{key:10} =")
+                    print(json.dumps(value, indent=2))
+            else:
+                print(f"{key:10} = {value}")
+        
     print("===============================")
 
 @task
@@ -61,7 +95,7 @@ def list(ctx):
 
 
 @task
-def run(ctx, file,rm=True,ver=None,name=None, x11=False,usb=False,ask=True):
+def run(ctx, file,rm=False,verbose=False,ver=None,name=None, x11=True,usb=False,ask=True):
    
    
     print("===============================")
@@ -74,34 +108,36 @@ def run(ctx, file,rm=True,ver=None,name=None, x11=False,usb=False,ask=True):
     print("")
 
 
-   
-
-    database = toml.load(file)
+    _config_file_path = pathlib.Path(file).resolve()
+    RELATIVE_PATH = _config_file_path.parent
+    database = toml.load(str(_config_file_path))
     IMAGE_SETTINGS = database.get("Containers", {}).get(ver, {})
-    IMAGE_REPOSITORY = IMAGE_SETTINGS.get("REPOSITORY", None)
-    IMAGE_TAG = IMAGE_SETTINGS.get("TAG", "latest")
-    IMAGE_NAME = f"{IMAGE_REPOSITORY}:{IMAGE_TAG}"
+
+    _image_repository = IMAGE_SETTINGS.get("REPOSITORY", None)
+    _image_tag = IMAGE_SETTINGS.get("TAG", "latest")
+    IMAGE_NAME = f"{_image_repository}:{_image_tag}"
+
     MOUNTS_LIST = IMAGE_SETTINGS.get("mounts", [])
-    PATH_INJECT_LIST = IMAGE_SETTINGS.get("PATH", [])
-    FABRINETES_REPO_PATH = IMAGE_SETTINGS.get("FabrinetesRepoPath",None)
-    if FABRINETES_REPO_PATH:
-        FABRINETES_REPO_PATH = os.path.expanduser(FABRINETES_REPO_PATH)
-        if not os.path.exists(FABRINETES_REPO_PATH):
-            print(f"Error: FabrinetesRepoPath '{FABRINETES_REPO_PATH}' does not exist")
-            exit(1)
-    else:
-        print("Error: FabrinetesRepoPath is not defined in containers.toml. Please set it.")
-        exit(1)
+    _this_file_path = pathlib.Path(__file__).resolve().parent
+
+    MOUNTS_LIST.append(f"{_this_file_path}/source/bashrc-root:{os.getenv('HOME')}/.bashrc")
+    MOUNTS_LIST.append(f"{_this_file_path}/source/project_setup/:/opt/project_setup")
+
+    RESOLVED_MOUNTS_LIST=resolve_mounts(MOUNTS_LIST, RELATIVE_PATH)
+    RESOLVED_MOUNTS_LIST:List[Tuple[str, str]]
         
     del database
+    del _image_repository
+    del _image_tag
+    del _config_file_path
 
-    printlocals(locals())
+    printlocals(locals(),verbose)
     print("")
 
     cmd_parts=[]
-    cmd_parts = ["docker", "run", "-dit"]
+    cmd_parts = ["docker run -dit"]
     if name:
-        cmd_parts.extend(["--name", name])
+        cmd_parts.append(f"--name {name}")
     else:
         print("Error: You must provide a name for the container using --name")
         sys.exit(1)
@@ -110,44 +146,42 @@ def run(ctx, file,rm=True,ver=None,name=None, x11=False,usb=False,ask=True):
     if rm:
         cmd_parts.append("--rm")
     if x11:
-        cmd_parts.extend([
-            "--net=host",
-            "-e", f"DISPLAY={os.environ['DISPLAY']}",
-            "-v", "/tmp/.X11-unix:/tmp/.X11-unix",
-            "-v", f"{os.environ['HOME']}/.Xauthority:/home/ykarmon/.Xauthority:ro"
-        ])
+        cmd_parts.append("--net=host")
+        cmd_parts.append(f"-e DISPLAY={os.environ['DISPLAY']}")
+        cmd_parts.append(f"-e /tmp/.X11-unix:/tmp/.X11-unix")
+        cmd_parts.append(f"-v {os.environ['HOME']}/.Xauthority:/home/ykarmon/.Xauthority:ro")
+       
 
     if usb:
         cmd_parts.append("-v /dev/bus/usb:/dev/bus/usb")
 
 
-    file_path = pathlib.Path(file)
-    folder_path = file_path.resolve().parent.parent
-    for mount in MOUNTS_LIST:
-        # Expecting format: source:dest
-        if ':' not in mount:
-            print(f"Warning: Invalid mount format '{mount}' — expected source:dest. Skipping.")
-            continue
+    need_to_exit = False
+    for mount in RESOLVED_MOUNTS_LIST:
+       
 
-        source_str, dest = mount.split(':', 1)
-        if( source_str.startswith("$FabrinetesRepoPath") ):
-            source_str = source_str.replace("$FabrinetesRepoPath", FABRINETES_REPO_PATH)
-          
-        if(not source_str.startswith("/") ):
-            source_path = folder_path / source_str
-            source_path = source_path.resolve()
-        else:
-            source_path = pathlib.Path(source_str).resolve()
+        source_str, dest = mount  
+        source_path = pathlib.Path(source_str)
 
         if not source_path.exists():
             print(f"Warning: Mount source '{source_path}' does not exist. Skipping.")
+            need_to_exit= True
             continue
 
         cmd_parts.append(f"-v {str(source_path)}:{dest}")
-    cmd_parts.append("--user 1000:1000")
+
+    if(need_to_exit):
+        print("Exiting due to missing mount source.")
+        sys.exit(1)
+
     cmd_parts.append(IMAGE_NAME)
     cmd = " ".join(cmd_parts)
-    print(f"Running command: {' '.join(cmd_parts)}")
+
+    print(f"Running command: {cmd}")
+    print(f"command parts:")
+    for part in cmd_parts:
+        print(part)
+
     if(ask):
         answer = input("Do you want to continue? [y/N]: ").strip().lower()
         if answer not in ("y", "yes"):
@@ -157,19 +191,8 @@ def run(ctx, file,rm=True,ver=None,name=None, x11=False,usb=False,ask=True):
     ctx.run(cmd, pty=True)
 
 
-    ssh_host_path = "/home/ykarmon/.ssh"
-    ssh_container_path = "/home/ykarmon/.ssh"  # Updated path to match USER
-
     ctx.run(f"docker exec {name} sudo git config --global --add safe.directory '*'", pty=True, echo=True, warn=True)
-
-    print(f"🔁 Copying {ssh_host_path} to container {name}:{ssh_container_path}")
-    ctx.run(f"docker exec {name}  mkdir -p {ssh_container_path}", pty=True, echo=True, warn=True)
-    ctx.run(f"docker cp {ssh_host_path}/. {name}:{ssh_container_path}", pty=True, echo=True, warn=True)
-
-    print("🔐 Fixing permissions in container")
-    ctx.run(f"docker exec {name} chmod 700 {ssh_container_path}", pty=True, echo=True, warn=True)
-    ctx.run(f"docker exec {name} sh -c 'chmod 600 {ssh_container_path}/*'", pty=True, echo=True, warn=True)
-
+    
     
     
 
