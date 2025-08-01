@@ -16,4 +16,4 @@ cd "$TASKS_DIR" || {
 }
 
 # Run invoke as if we were in that directory
-exec invoke -c tasks "$@"
+exec invoke -c tasks "$@" | tee -a $HDLFORGE_ORIG_PATH/hdlforge.log

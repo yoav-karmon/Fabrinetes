@@ -67,20 +67,16 @@ puts "========================================================"
 
 
 
-puts "====================stage=$stage========================="
 if { $stage == "bitstream"} {
-
+    puts "====================stage=$stage========================="
     # Launch all implementation runs
     puts "Launching all implementation runs..."
     foreach impl_run [get_runs -filter {IS_IMPLEMENTATION == True}] {
        write_bitstream -force [get_runs $impl_run]
     }
     wait_on_run [get_runs -filter {IS_IMPLEMENTATION == True}]
-} else {
-    puts "Skipping bitstream stage."
+    puts "========================================================"
 }
-
-puts "========================================================"
 
 
 

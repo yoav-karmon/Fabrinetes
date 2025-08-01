@@ -253,11 +253,8 @@ def run_invoke(command, cwd=None, log_file=None, pty=False):
 
 
 @task
-def vivado(c,project=None,new=False,dryrun=False,reset=False,syn=False,imp=False,all=False, bit=False, clean=False):
-    if dryrun and (syn or imp or bit or all):
-        print("❌ Dry run mode is incompatible with synthesis, implementation or bitstream generation. Exiting.")
-        exit(1)
-
+def vivado(c,project=None,list_runs=False,reset_run=None,new=False,dryrun=False,reset=False,syn=False,imp=False,all=False, bit=False, clean=False):
+    
     REPO_TOP = Path(os.environ["REPO_TOP"])  # Fail fast if REPO_TOP is not set
     invoke_path= Path(os.environ["HDLFORGE_ORIG_PATH"] )
     if(REPO_TOP not in invoke_path.resolve().parents):
@@ -277,7 +274,8 @@ def vivado(c,project=None,new=False,dryrun=False,reset=False,syn=False,imp=False
         print(f"❌ PROJECT_FILES path '{PROJECT_FILES}' is not under REPO_TOP '{REPO_TOP}'")
         print(f"Please run: update_repo_top")
         exit(1)
-
+    if dryrun:
+        print_boxed(f"ℹ️  Dry run mode enabled. No actions will be performed for Vivado project: {PROJECT_NAME}")
 
     VIVADO_BUILD_DIR        = PROJECT_FILES / vivado_settings["build_dir"]
     SOURCES_LIST            = get_file_list_for_tool(tool_name, project_file_path)
@@ -309,11 +307,13 @@ def vivado(c,project=None,new=False,dryrun=False,reset=False,syn=False,imp=False
                 print(f"✅ removed Vivado build directory: {BUILD_DIR}")
             else:
                 print(f"ℹ️  nothing to clean in Vivado build directory: {BUILD_DIR}")
-            c.run(f"mkdir {BUILD_DIR}")
+            c.run(f"mkdir -p {BUILD_DIR}")
+    
     if(clean):
         cleaning(VIVADO_BUILD_DIR,True)
 
     if(new):
+        c.run(f"mkdir -p {VIVADO_BUILD_DIR}")
         cleaning(VIVADO_BUILD_DIR,True)
         print(f"ℹ️  Creating new Vivado project: {PROJECT_NAME}")
 
@@ -326,31 +326,43 @@ def vivado(c,project=None,new=False,dryrun=False,reset=False,syn=False,imp=False
             defines=DEFINES,
             sources=SOURCES_LIST,
             runs=RUNS)
+        print(f"ℹ️  Creating Vivado project : {VIVADO_GEN_PRJ_TCL_PATH}")
         if(not dryrun):
-            print(f"ℹ️  Creating Vivado project : {VIVADO_GEN_PRJ_TCL_PATH}")
             with c.cd(str(VIVADO_BUILD_DIR)):
                 c.run(f"vivado -mode batch -source {VIVADO_GEN_PRJ_TCL_PATH}")
 
 
      
-    if(dryrun):
-        print_boxed(f"ℹ️  Dry run mode enabled. No actions will be performed for Vivado project: {PROJECT_NAME}")
+        
+    if(list_runs):
+        print(f"ℹ️  Listing Vivado runs for project: {PROJECT_NAME}")
         with c.cd(str(VIVADO_BUILD_DIR)):
-            c.run(f"vivado -mode batch -source {SCRIPT_DIR}/compile.tcl -notrace -tclargs  {PROJECT_NAME}.xpr dryrun",pty=True)
+            c.run(f"vivado -mode batch -source {SCRIPT_DIR}/project_tool.tcl -notrace -tclargs  list_all_runs  {PROJECT_NAME}.xpr",pty=True,echo=True)
+        
+    if(reset_run!= None):
+        print(f"ℹ️  Resetting Vivado run: {reset_run} for project: {PROJECT_NAME}")
+        with c.cd(str(VIVADO_BUILD_DIR)):
+            c.run(f"vivado -mode batch -source {SCRIPT_DIR}/project_tool.tcl -notrace -tclargs  reset_run  {PROJECT_NAME}.xpr {reset_run}",pty=True,echo=True)
+        exit(0)
 
     if(all):
         print(f"ℹ️  Running Vivado synthesis, implementation and bitstream generation for project: {PROJECT_NAME}")
+        if(not dryrun):
+            with c.cd(str(VIVADO_BUILD_DIR)):
+                c.run(f"vivado -mode batch -source {SCRIPT_DIR}/compile.tcl -notrace -tclargs  {PROJECT_NAME}.xpr all",pty=True,echo=True)
+        exit(0)
+
+    if(syn):
+        print(f"ℹ️  Running Vivado synthesis for project: {PROJECT_NAME}")
         with c.cd(str(VIVADO_BUILD_DIR)):
-            c.run(f"vivado -mode batch -source {SCRIPT_DIR}/compile.tcl -notrace -tclargs  {PROJECT_NAME}.xpr all",pty=True)
-    else:
-        if(syn):
-            print(f"ℹ️  Running Vivado synthesis for project: {PROJECT_NAME}")
-            with c.cd(str(VIVADO_BUILD_DIR)):
-                c.run(f"vivado -mode batch -source {SCRIPT_DIR}/compile.tcl -notrace -tclargs  {PROJECT_NAME}.xpr syn",pty=True)
-        if(imp):
-            print(f"ℹ️  Running Vivado implementation for project: {PROJECT_NAME}")
-            with c.cd(str(VIVADO_BUILD_DIR)):
-                c.run(f"vivado -mode batch -source {SCRIPT_DIR}/compile.tcl -notrace -tclargs  {PROJECT_NAME}.xpr impl",pty=True)
+            c.run(f"vivado -mode batch -source {SCRIPT_DIR}/compile.tcl -notrace -tclargs  {PROJECT_NAME}.xpr syn",pty=True,echo=True)
+        exit(0)
+
+    if(imp):
+        print(f"ℹ️  Running Vivado implementation for project: {PROJECT_NAME}")
+        with c.cd(str(VIVADO_BUILD_DIR)):
+            c.run(f"vivado -mode batch -source {SCRIPT_DIR}/compile.tcl -notrace -tclargs  {PROJECT_NAME}.xpr impl",pty=True)
+        exit(0)
     
 
 @task
