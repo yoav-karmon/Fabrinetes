@@ -1,4 +1,3 @@
-Here is the **final GitHub-ready `README.md`** for **Fabrinetes**, updated to reflect that all commands are now run via `./fabrinetes` instead of `inv`.
 
 ---
 
