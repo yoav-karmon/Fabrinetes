@@ -186,5 +186,3 @@ Open a GitHub issue or email: **[yoav@karmon.biz](mailto:yoav@karmon.biz)**
 ---
 
 **Bring the power of Kubernetes to your FPGAs — one container at a time.**
-
-```
