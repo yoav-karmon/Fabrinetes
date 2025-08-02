@@ -9,7 +9,6 @@ import tomli_w
 import cocotb
 from cocotb.clock import Clock
 from cocotb.triggers import RisingEdge
-from cocotb.runner import get_runner
 from cocotb.triggers import Timer
 
 from pyparsing import Union
@@ -30,7 +29,7 @@ def generate_vivado_tcl(
 
    
 
-    print(f"[i]  Generating Vivado TCL script: {output_path}")
+    print(f"[i] Generating Vivado TCL script: {output_path}")
     lines = []
 
     # Header
@@ -110,7 +109,7 @@ def print_task_args(local_vars: dict, REPO_TOP: str, allowed_values: dict[str, L
     border = "=" * (max_key_len + 30)
 
     print(border)
-    print(f"[i]  Task: {caller_name}")
+    print(f"[i] Task: {caller_name}")
     print(border)
     print(f"working directory: {os.getcwd()}")
     print("file executed: ", Path(__file__).resolve())
@@ -150,7 +149,7 @@ def load_project_data(ProjectFilePath):
             if not REPO_TOP:
                 exit(f"[!x!]  Environment variable '{repo_path_env}' is not set. Please set it to the repository top path.")
             working_path = REPO_TOP / working_path
-            print(f"[i]  Using repo_path_env: {repo_path_env} with value: {REPO_TOP}, working path: {working_path}")
+            # print(f"[i] Using repo_path_env: {repo_path_env} with value: {REPO_TOP}, working path: {working_path}")
         return working_path, project_data
 
 def get_project_file_path(project_name_arg:Union[str,None]) -> tuple[str, Path]:
@@ -176,7 +175,7 @@ def get_file_list_for_tool(tool_name: str, project_file: Path) -> List[str]:
     # Ensure project_file is a Path object and expand environment variables
     project_file = Path(os.path.expandvars(str(project_file))).resolve()
 
-    print(f"[i]  Searching for source files for tool: {tool_name} in project file: {project_file}")
+    print(f"[i] Searching for source files for tool: {tool_name} in project file: {project_file}")
    
     with open(project_file, "rb") as f:
         project_data=tomllib.load(f)
@@ -196,7 +195,7 @@ def get_file_list_for_tool(tool_name: str, project_file: Path) -> List[str]:
         source_files_relative_path = project_path_abs
         if(f"{REPO_TOP}" in str(source_files_relative_path)):
             source_files_relative_path = str(source_files_relative_path).replace(f"{REPO_TOP}", "$REPO_TOP")
-        print(f"[i]  Using relative path to project: {source_files_relative_path}")
+        print(f"[i] Using relative path to project: {source_files_relative_path}")
 
     all_source_files        =  project_data["sources"]["files"]
     tool_source_files= []
@@ -208,7 +207,7 @@ def get_file_list_for_tool(tool_name: str, project_file: Path) -> List[str]:
                 file_path = source_files_relative_path / Path(file_path)
             else:
                 file_path = Path(file_path)
-            print(f"[i]  source file #{file_order}: {str(file_path)} for tool: {tool_name}")
+            print(f"[i] source file #{file_order}: {str(file_path)} for tool: {tool_name}")
             file_order += 1
             tool_source_files.append(file_path)
     return tool_source_files
@@ -264,7 +263,7 @@ def vivado(c,project=None,list_runs=False,reset_run=None,new=False,dryrun=False,
         print(f"[!x!]  REPO_TOP '{REPO_TOP}' is not in the invoke path '{invoke_path}'")
         print(f"Please run: update_repo_top")
         exit(1)
-    print(f"[i]  invoke_path: {invoke_path}")
+    print(f"[i] invoke_path: {invoke_path}")
     tool_name = "vivado"
     project,project_file_path = get_project_file_path(project)
     working_path,project_data = load_project_data(project_file_path)
@@ -278,7 +277,7 @@ def vivado(c,project=None,list_runs=False,reset_run=None,new=False,dryrun=False,
         print(f"Please run: update_repo_top")
         exit(1)
     if dryrun:
-        print_boxed(f"[i]  Dry run mode enabled. No actions will be performed for Vivado project: {PROJECT_NAME}")
+        print_boxed(f"[i] Dry run mode enabled. No actions will be performed for Vivado project: {PROJECT_NAME}")
 
     VIVADO_BUILD_DIR        = PROJECT_FILES / vivado_settings["build_dir"]
     SOURCES_LIST            = get_file_list_for_tool(tool_name, project_file_path)
@@ -300,7 +299,7 @@ def vivado(c,project=None,list_runs=False,reset_run=None,new=False,dryrun=False,
 
     def cleaning(BUILD_DIR,clean):  
         if(clean):
-            print(f"[i]  Cleaning Vivado build directory: {BUILD_DIR}")
+            print(f"[i] Cleaning Vivado build directory: {BUILD_DIR}")
             if BUILD_DIR.exists():
                 response = input(f"{BUILD_DIR} will be deleted! (y/n): ")
                 if response.lower() != "y":
@@ -309,7 +308,7 @@ def vivado(c,project=None,list_runs=False,reset_run=None,new=False,dryrun=False,
                 c.run(f"rm -rf {BUILD_DIR}")
                 print(f"[+] removed Vivado build directory: {BUILD_DIR}")
             else:
-                print(f"[i]  nothing to clean in Vivado build directory: {BUILD_DIR}")
+                print(f"[i] nothing to clean in Vivado build directory: {BUILD_DIR}")
             c.run(f"mkdir -p {BUILD_DIR}")
     
     if(clean):
@@ -318,7 +317,7 @@ def vivado(c,project=None,list_runs=False,reset_run=None,new=False,dryrun=False,
     if(new):
         c.run(f"mkdir -p {VIVADO_BUILD_DIR}")
         cleaning(VIVADO_BUILD_DIR,True)
-        print(f"[i]  Creating new Vivado project: {PROJECT_NAME}")
+        print(f"[i] Creating new Vivado project: {PROJECT_NAME}")
 
         generate_vivado_tcl(
             output_path=VIVADO_GEN_PRJ_TCL_PATH,
@@ -329,7 +328,7 @@ def vivado(c,project=None,list_runs=False,reset_run=None,new=False,dryrun=False,
             defines=DEFINES,
             sources=SOURCES_LIST,
             runs=RUNS)
-        print(f"[i]  Creating Vivado project : {VIVADO_GEN_PRJ_TCL_PATH}")
+        print(f"[i] Creating Vivado project : {VIVADO_GEN_PRJ_TCL_PATH}")
         if(not dryrun):
             with c.cd(str(VIVADO_BUILD_DIR)):
                 c.run(f"vivado -mode batch -source {VIVADO_GEN_PRJ_TCL_PATH}")
@@ -338,31 +337,31 @@ def vivado(c,project=None,list_runs=False,reset_run=None,new=False,dryrun=False,
      
         
     if(list_runs):
-        print(f"[i]  Listing Vivado runs for project: {PROJECT_NAME}")
+        print(f"[i] Listing Vivado runs for project: {PROJECT_NAME}")
         with c.cd(str(VIVADO_BUILD_DIR)):
             c.run(f"vivado -mode batch -source {SCRIPT_DIR}/project_tool.tcl -notrace -tclargs  list_all_runs  {PROJECT_NAME}.xpr",pty=True,echo=True)
         
     if(reset_run!= None):
-        print(f"[i]  Resetting Vivado run: {reset_run} for project: {PROJECT_NAME}")
+        print(f"[i] Resetting Vivado run: {reset_run} for project: {PROJECT_NAME}")
         with c.cd(str(VIVADO_BUILD_DIR)):
             c.run(f"vivado -mode batch -source {SCRIPT_DIR}/project_tool.tcl -notrace -tclargs  reset_run  {PROJECT_NAME}.xpr {reset_run}",pty=True,echo=True)
         exit(0)
 
     if(all):
-        print(f"[i]  Running Vivado synthesis, implementation and bitstream generation for project: {PROJECT_NAME}")
+        print(f"[i] Running Vivado synthesis, implementation and bitstream generation for project: {PROJECT_NAME}")
         if(not dryrun):
             with c.cd(str(VIVADO_BUILD_DIR)):
                 c.run(f"vivado -mode batch -source {SCRIPT_DIR}/compile.tcl -notrace -tclargs  {PROJECT_NAME}.xpr all",pty=True,echo=True)
         exit(0)
 
     if(syn):
-        print(f"[i]  Running Vivado synthesis for project: {PROJECT_NAME}")
+        print(f"[i] Running Vivado synthesis for project: {PROJECT_NAME}")
         with c.cd(str(VIVADO_BUILD_DIR)):
             c.run(f"vivado -mode batch -source {SCRIPT_DIR}/compile.tcl -notrace -tclargs  {PROJECT_NAME}.xpr syn",pty=True,echo=True)
         exit(0)
 
     if(imp):
-        print(f"[i]  Running Vivado implementation for project: {PROJECT_NAME}")
+        print(f"[i] Running Vivado implementation for project: {PROJECT_NAME}")
         with c.cd(str(VIVADO_BUILD_DIR)):
             c.run(f"vivado -mode batch -source {SCRIPT_DIR}/compile.tcl -notrace -tclargs  {PROJECT_NAME}.xpr impl",pty=True)
         exit(0)
@@ -390,7 +389,7 @@ def Verilator(c,project=None,step=None,clean=False,SimTargetName=None):
             sim_targets_dic = verilator_settings["sim_targets"]
             # Get the first value in sim_targets
             SimTargetName = next(iter(sim_targets_dic.keys()))
-            print(f"[i]  Using first SimTargetName: {SimTargetName}")
+            print(f"[i] Using first SimTargetName: {SimTargetName}")
             
     if(SimTargetName not in verilator_settings["sim_targets"]):
         print(f"Available SimTargetNames: {', '.join(verilator_settings['sim_targets'].keys())}")
@@ -411,14 +410,16 @@ def Verilator(c,project=None,step=None,clean=False,SimTargetName=None):
         case "build" | "sim":
             try:
 
-                runner = get_runner("verilator")
+              
 
-                print(f"[i]  Compiling Verilator sources into: {build_dir}",flush=True)
+                print(f"[i] Compiling Verilator sources into: {build_dir}",flush=True)
                 veruilator_sources_file = []
                 for file in sources_files:
                     veruilator_sources_file.append(Path(os.path.expandvars(str(file))).resolve())
                 sys.stdout.flush()
-                print(f"================start of verilator output : build================",flush=True)
+                print(f"\n================start of verilator output : build================",flush=True)
+                from cocotb.runner import get_runner
+                runner = get_runner("verilator")
                 runner.build(
                         verilog_sources=veruilator_sources_file,
                         hdl_toplevel=f"{top_module}",
@@ -432,22 +433,22 @@ def Verilator(c,project=None,step=None,clean=False,SimTargetName=None):
                         ],
                         clean=clean   # force rebuild
                     )
-                print(f"================end of verilator output : build================",flush=True)
+                print(f"================end of verilator output : build================\n",flush=True)
                 print(f"[+] Verilator build completed",flush=True)
-                print(f"[i]  Verilator simulation started:",flush=True)
+                print(f"[i] Verilator simulation started:",flush=True)
                 
                 if(step=="sim"):  
-                    print(f"================start of verilator output : sim================",flush=True)  
+                    print(f"\n================start of verilator output : sim================",flush=True)  
                     runner.test(
                         hdl_toplevel=f"{top_module}",
                         test_module=f"{python_module}",  
                         build_dir=f"{build_dir}",   
                         waves=True                  # enables dump.vcd
                     )
-                    print(f"================end of verilator output : sim================",flush=True)
+                    print(f"================end of verilator output : sim================\n",flush=True)
                     print(f"[+] Verilator simulation completed",flush=True)
                 else:
-                    print(f"[i]  Skipping Verilator simulation",flush=True)
+                    print(f"[i] Skipping Verilator simulation",flush=True)
                     
             except Exception as e:
                 print("\n[!x!]  Verilator build/simulation failed!",flush=True)
