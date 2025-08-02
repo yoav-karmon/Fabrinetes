@@ -107,7 +107,11 @@ def run(ctx, file,rm=False,verbose=False,ver=None,name=None, x11=True,usb=False,
     print("===============================")
     print("")
 
-
+    if not os.path.isabs(file):
+        base_path = os.environ.get("HDLFORGE_ORIG_PATH", os.getcwd())
+        file = os.path.join(base_path, file)
+    file = os.path.expandvars(file)
+    file = os.path.abspath(file)
     _config_file_path = pathlib.Path(file).resolve()
     RELATIVE_PATH = _config_file_path.parent
     database = toml.load(str(_config_file_path))

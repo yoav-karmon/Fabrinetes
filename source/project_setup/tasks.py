@@ -201,17 +201,20 @@ def get_file_list_for_tool(tool_name: str, project_file: Path) -> List[str]:
     all_source_files        =  project_data["sources"]["files"]
     tool_source_files= []
     all_source_files:dict
+    file_order=1
     for file_path,tool_list in all_source_files.items():
         if(tool_name in tool_list):
             if(relative_to_project_path):
                 file_path = source_files_relative_path / Path(file_path)
             else:
                 file_path = Path(file_path)
-            print(f"ℹ️  source file: {str(file_path)} for tool: {tool_name}")
+            print(f"ℹ️  source file #{file_order}: {str(file_path)} for tool: {tool_name}")
+            file_order += 1
             tool_source_files.append(file_path)
     return tool_source_files
 
-def set_file_list_for_tool(tool_name: str, file_path:str, project_file: Path):
+
+def set_file_list_for_tool(tool_name: str, file_path:str, project_file: Path,number:int ) -> None:
     with open(project_file, "rb") as f:
         project_data=tomllib.load(f)
     all_source_files        =  project_data["sources"]
@@ -404,6 +407,7 @@ def Verilator(c,project=None,step=None,clean=False,SimTargetName=None):
     python_module = python_file_path.stem  
     
     match (step):
+      
         case "build" | "sim":
             try:
                 runner = get_runner("verilator")
