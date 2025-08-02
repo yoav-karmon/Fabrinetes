@@ -6,16 +6,16 @@ from pathlib import Path
 import inspect
 import tomllib
 import tomli_w
-
-
-from pyparsing import Union
-import invoke
-from invoke import task, run
 import cocotb
 from cocotb.clock import Clock
 from cocotb.triggers import RisingEdge
 from cocotb.runner import get_runner
 from cocotb.triggers import Timer
+
+from pyparsing import Union
+import invoke
+from invoke import task, run
+
 from typing import List, Dict, Any,Tuple
 
 def generate_vivado_tcl(
@@ -405,18 +405,20 @@ def Verilator(c,project=None,step=None,clean=False,SimTargetName=None):
     sys.path.insert(0, python_file_dir_path)
 
     python_module = python_file_path.stem  
-    
+    sys.stdout.flush()
     match (step):
       
         case "build" | "sim":
             try:
+
                 runner = get_runner("verilator")
 
-                print(f"[i]  Compiling Verilator sources into: {build_dir}")
+                print(f"[i]  Compiling Verilator sources into: {build_dir}",flush=True)
                 veruilator_sources_file = []
                 for file in sources_files:
                     veruilator_sources_file.append(Path(os.path.expandvars(str(file))).resolve())
-
+                sys.stdout.flush()
+                print(f"================start of verilator output : build================",flush=True)
                 runner.build(
                         verilog_sources=veruilator_sources_file,
                         hdl_toplevel=f"{top_module}",
@@ -430,22 +432,26 @@ def Verilator(c,project=None,step=None,clean=False,SimTargetName=None):
                         ],
                         clean=clean   # force rebuild
                     )
-                print(f"[+] Verilator build completed")
-                print(f"[i]  Verilator simulation started:")
-                if(step=="sim"):    
+                print(f"================end of verilator output : build================",flush=True)
+                print(f"[+] Verilator build completed",flush=True)
+                print(f"[i]  Verilator simulation started:",flush=True)
+                
+                if(step=="sim"):  
+                    print(f"================start of verilator output : sim================",flush=True)  
                     runner.test(
                         hdl_toplevel=f"{top_module}",
                         test_module=f"{python_module}",  
                         build_dir=f"{build_dir}",   
                         waves=True                  # enables dump.vcd
                     )
-                    print(f"[+] Verilator simulation completed")
+                    print(f"================end of verilator output : sim================",flush=True)
+                    print(f"[+] Verilator simulation completed",flush=True)
                 else:
-                    print(f"[i]  Skipping Verilator simulation")
+                    print(f"[i]  Skipping Verilator simulation",flush=True)
                     
             except Exception as e:
-                print("\n[!x!]  Verilator build/simulation failed!")
-                print(f"Error: {e}")
+                print("\n[!x!]  Verilator build/simulation failed!",flush=True)
+                print(f"Error: {e}",flush=True)
 
 @task
 def projects(c,set_project=None):
