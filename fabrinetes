@@ -1,12 +1,8 @@
 #!/bin/bash
 LOGFILE="fabrinetes_$(date +%Y-%m-%d).log"
+SCRIPT_PATH="$(readlink -f "$0")"
+TASKS_DIR="$(dirname "$SCRIPT_PATH")"
 
-if [ -z "$REPO_TOP" ]; then
-    echo "❌ REPO_TOP is not set. Please export REPO_TOP first."
-    exit 1
-fi
-
-TASKS_DIR="$REPO_TOP"
 export HDLFORGE_ORIG_PATH="$(pwd)"
 
 # Change to the tasks directory before running invoke
