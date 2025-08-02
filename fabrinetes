@@ -7,7 +7,7 @@ export HDLFORGE_ORIG_PATH="$(pwd)"
 
 # Change to the tasks directory before running invoke
 cd "$TASKS_DIR" || {
-    echo "❌ Failed to cd into $TASKS_DIR"
+    echo "[!x!]  Failed to cd into $TASKS_DIR"
     echo "run update_repo_path correctly."
     exit 1
 }
