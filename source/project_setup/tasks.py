@@ -154,7 +154,7 @@ def load_project_data(ProjectFilePath):
 
 def get_project_file_path(project_name_arg:Union[str,None]) -> tuple[str, Path]:
     invoke_path= Path(os.environ["HDLFORGE_ORIG_PATH"] )  
-    hdlforge_files = list(invoke_path.glob("*.hdlforge"))
+    hdlforge_files = list(invoke_path.glob("*.hdlforge.toml"))
     if(project_name_arg==None):
         if(len(hdlforge_files) == 1):
             with open(hdlforge_files[0], "rb") as f:
@@ -255,8 +255,8 @@ def run_invoke(command, cwd=None, log_file=None, pty=False):
 
 
 @task
-def vivado(c,project=None,list_runs=False,reset_run=None,new=False,dryrun=False,reset=False,syn=False,imp=False,all=False, bit=False, clean=False):
-    
+def vivado(c,project=None,step=None,clean=False,flow=None):
+    ALLOWED_STEPS = {"step":["newp","list_runs","reset_run", "syn", "imp", "bit"]}
     REPO_TOP = Path(os.environ["REPO_TOP"])  # Fail fast if REPO_TOP is not set
     invoke_path= Path(os.environ["HDLFORGE_ORIG_PATH"] )
     if(REPO_TOP not in invoke_path.resolve().parents):
