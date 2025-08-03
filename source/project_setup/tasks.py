@@ -393,7 +393,7 @@ def Verilator(c,project=None,step=None,clean=False,SimTargetName=None):
     
     verilator_settings  = project_data["verilator_settings"]
     build_dir           = Path(working_path ) / verilator_settings["build_dir"]
-    sources_files = get_file_list_for_tool(tool_name, project_file_path)
+    sources_files = get_file_list_for_tool(tool_name, project_data)
       
     
         
