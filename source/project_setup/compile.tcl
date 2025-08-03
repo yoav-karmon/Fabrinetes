@@ -107,6 +107,8 @@ if { $stage == "impl" } {
 
 # Final status report
 puts "==================== Final run statuses ===================="
-puts "$synth_run: [get_property STATUS [get_runs $synth_run]]"
-puts "$impl_run:  [get_property STATUS [get_runs $impl_run]]"
+set status       [get_property STATUS [get_runs $synth_run]]
+puts "$synth_run: $status"
+set status       [get_property STATUS [get_runs $impl_run]]
+puts "$impl_run: $status"
 puts "============================================================"
