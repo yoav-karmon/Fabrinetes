@@ -6,7 +6,13 @@ if [ -z "$REPO_TOP" ]; then
 fi
 
 TASKS_DIR="/opt/project_setup"
+shell_id="$PPID"
+timestamp=$(date +%Y%m%d)
+time=$(date +%H%M%S)
+
 export HDLFORGE_ORIG_PATH="$(pwd)"
+mkdir -p "$TASKS_DIR/logs"
+log_file="$TASKS_DIR/logs/hdlforge_${timestamp}_pid${shell_id}.log"
 
 # Change to the tasks directory before running invoke
 cd "$TASKS_DIR" || {
@@ -15,5 +21,10 @@ cd "$TASKS_DIR" || {
     exit 1
 }
 
+# If no arguments are passed, default to --list
+if [ $# -eq 0 ]; then
+    set -- --list
+fi
+echo "--------$(pwd): $Date: $timestamp Time $time------" >> "$log_file"
 # Run invoke as if we were in that directory
-exec invoke -c tasks "$@" | tee -a $HDLFORGE_ORIG_PATH/hdlforge.log
+exec invoke -c tasks "$@" | tee -a "$log_file"
