@@ -29,6 +29,7 @@ RUN apt-get update && apt-get install -y \
     tmux \
     htop \
     tree \
+    tabulate \
     jq \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 

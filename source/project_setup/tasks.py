@@ -10,12 +10,17 @@ import cocotb
 from cocotb.clock import Clock
 from cocotb.triggers import RisingEdge
 from cocotb.triggers import Timer
+from tabulate import tabulate
+
 
 from pyparsing import Union
 import invoke
 from invoke import task, run
 
 from typing import List, Dict, Any,Tuple
+import warnings
+
+
 
 def generate_vivado_tcl(
     output_path: Path,
@@ -113,12 +118,16 @@ def print_task_args(local_vars: dict, REPO_TOP: str, allowed_values: dict[str, L
     print(border)
     print(f"working directory: {os.getcwd()}")
     print("file executed: ", Path(__file__).resolve())
+    table=[["key","value","allowed"]]
     for key, value in args.items():
-        if(not isinstance(value, dict) and not isinstance(value, list)):
+        if( key in allowed_values):
+            table.append([key.ljust(max_key_len), value, f"(allowed: {', '.join(allowed_values[key])})"])
+        elif(not isinstance(value, dict) and not isinstance(value, list)):
             if REPO_TOP+"/" in str(value):
                 value = str(value).replace(REPO_TOP+"/", "$REPO_TOP/")
-
-            print(f"{key.ljust(max_key_len)} : {value} {'(allowed: ' + ', '.join( allowed_values[key] ) + ')' if key in allowed_values else ''}")
+            table.append([key.ljust(max_key_len), value, ""])
+    print(tabulate(table, headers="firstrow", tablefmt="fancy_grid",colalign=("left", "left", "center")))
+        
     print(border)
     
 def print_boxed(message: str, border_char: str = "=", padding: int = 2):
@@ -266,8 +275,10 @@ def verify_project_file_path(_working_path: Path, REPO_TOP: Path):
     return PROJECT_FILES
 
 @task
-def vivado(c,project_toml_file=None,verbose=False,step=None,clean=False,run_flow=None):
-    ALLOWED_STEPS = {"step":["new","list_runs","reset_run", "syn", "imp", "bit"]}
+def vivado(c,project_toml_file=None,verbose=False,step:List[str]=[],clean=False,run_flow=None):
+   
+
+    ALLOWED_STEPS = {"step":["new","list_runs","reset_run", "syn", "impl", "bit"]}
     TOOL_NAME = "vivado"
     SCRIPT_DIR                  = Path("/opt/project_setup")
 
@@ -297,7 +308,7 @@ def vivado(c,project_toml_file=None,verbose=False,step=None,clean=False,run_flow
     ##remove REPO_TOP  from sources list
 
 
-    print_task_args(locals(),str(REPO_TOP))
+    print_task_args(locals(),str(REPO_TOP),ALLOWED_STEPS)
 
     def cleaning(BUILD_DIR,clean):  
         if(clean):
@@ -316,62 +327,73 @@ def vivado(c,project_toml_file=None,verbose=False,step=None,clean=False,run_flow
     if(clean):
         cleaning(VIVADO_BUILD_DIR,True)
 
-    match (step):
-        case "new":
-            c.run(f"mkdir -p {VIVADO_BUILD_DIR}")
-            cleaning(VIVADO_BUILD_DIR,True)
-            print(f"[i] Creating new Vivado project: {PROJECT_NAME}")
+    def call_compile_tcl(step,syth_name,impl_name,debug_probe,paramaters,defines ):
+        with c.cd(str(VIVADO_BUILD_DIR)):
+            table=[["Step", step]]
+            table.append(["Synth", syth_name])
+            table.append(["Impl", impl_name])
+            table.append(["Debug Probe", debug_probe])
+            table.append(["Parameters", paramaters])
+            table.append(["Defines", defines])
+            print(tabulate(table, headers="firstrow", tablefmt="grid"))
 
-            generate_vivado_tcl(
-                output_path=VIVADO_GEN_PRJ_TCL_PATH,
-                project_name=PROJECT_NAME,
-                part=PART,
-                top_module=TOP_MODULE,
-                generics=GENERICS,
-                defines=DEFINES,
-                sources=SOURCES_LIST,
-                runs=RUNS)
-            print(f"[i] Creating Vivado project : {VIVADO_GEN_PRJ_TCL_PATH}")
-            with c.cd(str(VIVADO_BUILD_DIR)):
-                 c.run(f"vivado -mode batch -source {VIVADO_GEN_PRJ_TCL_PATH}")
-        case "list_runs":
-            print(f"[i] Listing Vivado runs for project: {PROJECT_NAME}")
-            with c.cd(str(VIVADO_BUILD_DIR)):
-                c.run(f"vivado -mode batch -source {SCRIPT_DIR}/project_tool.tcl -notrace -tclargs  list_all_runs  {PROJECT_NAME}.xpr",pty=True,echo=True)
-            
-        case "reset_run":
-            pass
-        case "syn":
-            print(f"[i] Running Vivado synthesis for project: {PROJECT_NAME}",flush=True)
-            if run_flow is None:
-                runs_flow=VIVADO_SETTING_DICT["runs_flow"]
-                print("[i] Available run_flow options:")
-                for key, value in VIVADO_SETTING_DICT["runs_flow"].items():
-                    print(f"--run-flow {key} ~  {key}: {value}")
-                print("[!x!] Please specify a valid run_flow argument using --run-flow <option>")
-                exit(1)
-            runs_flow=VIVADO_SETTING_DICT["runs_flow"][run_flow]
-            syth_name=runs_flow["synth_name"][0]
-            impl_name=runs_flow["impl"][0]
-            debug_probe = runs_flow.get("debug_probe", False)
-            paramaters = runs_flow.get("paramaters", [])
-            defines = runs_flow.get("defines", [])
-            paramaters= " ".join(paramaters)
-            defines= " ".join(defines)
-            with c.cd(str(VIVADO_BUILD_DIR)):
-                c.run(f"vivado -mode batch -source {SCRIPT_DIR}/compile.tcl -notrace -tclargs  {PROJECT_NAME}.xpr syn {syth_name} {impl_name} {debug_probe} '{paramaters}' '{defines}' ",pty=True,echo=True)
-        case "imp":
-            print(f"[i] Running Vivado implementation for project: {PROJECT_NAME}")
-            with c.cd(str(VIVADO_BUILD_DIR)):
-                c.run(f"vivado -mode batch -source {SCRIPT_DIR}/compile.tcl -notrace -tclargs  {PROJECT_NAME}.xpr impl",pty=True)
-        case "bit":
-            pass
-        case "all":
-            print(f"[i] Running Vivado synthesis, implementation and bitstream generation for project: {PROJECT_NAME}")
-            with c.cd(str(VIVADO_BUILD_DIR)):
-                 c.run(f"vivado -mode batch -source {SCRIPT_DIR}/compile.tcl -notrace -tclargs  {PROJECT_NAME}.xpr all",pty=True,echo=True)
-        case _:
-            pass
+            cmd= f"vivado -mode batch -source {SCRIPT_DIR}/compile.tcl -notrace -tclargs  {PROJECT_NAME}.xpr {step} {syth_name} {impl_name} {debug_probe} '{paramaters}' '{defines}'"
+            print(f"\n[i] Running Vivado compile TCL script with command: {cmd}\n",flush=True)
+            c.run(cmd,pty=True,echo=True)
+
+    for s in step:
+        match (s):
+            case "new":
+                c.run(f"mkdir -p {VIVADO_BUILD_DIR}")
+                cleaning(VIVADO_BUILD_DIR,True)
+                print(f"[i] Creating new Vivado project: {PROJECT_NAME}")
+
+                generate_vivado_tcl(
+                    output_path=VIVADO_GEN_PRJ_TCL_PATH,
+                    project_name=PROJECT_NAME,
+                    part=PART,
+                    top_module=TOP_MODULE,
+                    generics=GENERICS,
+                    defines=DEFINES,
+                    sources=SOURCES_LIST,
+                    runs=RUNS)
+                print(f"[i] Creating Vivado project : {VIVADO_GEN_PRJ_TCL_PATH}")
+                with c.cd(str(VIVADO_BUILD_DIR)):
+                    c.run(f"vivado -mode batch -source {VIVADO_GEN_PRJ_TCL_PATH}")
+            case "list_runs":
+                print(f"[i] Listing Vivado runs for project: {PROJECT_NAME}")
+                with c.cd(str(VIVADO_BUILD_DIR)):
+                    c.run(f"vivado -mode batch -source {SCRIPT_DIR}/project_tool.tcl -notrace -tclargs  list_all_runs  {PROJECT_NAME}.xpr",pty=True,echo=True)
+                
+            case "reset_run":
+                pass
+            case "syn" | "impl" | "bit" | "all":
+                print(f"[i] Running Vivado synthesis for project: {PROJECT_NAME}",flush=True)
+                if run_flow is None:
+                    runs_flow=VIVADO_SETTING_DICT["runs_flow"]
+                    print("[i] Available run_flow options:")
+                    for key, value in VIVADO_SETTING_DICT["runs_flow"].items():
+                        print(f"--run-flow {key} ~  {key}: {value}")
+                    print("[!x!] Please specify a valid run_flow argument using --run-flow <option>")
+                    exit(1)
+                runs_flow=VIVADO_SETTING_DICT["runs_flow"][run_flow]
+                syth_name=runs_flow["synth_name"][0]
+                impl_name=runs_flow["impl"][0]
+                debug_probe = runs_flow.get("debug_probe", False)
+                paramaters = runs_flow.get("paramaters", [])
+                defines = runs_flow.get("defines", [])
+                paramaters= " ".join(paramaters)
+                defines= " ".join(defines)
+                call_compile_tcl(f"{s}" ,f"{syth_name}" ,f"{impl_name}" ,f"{debug_probe}",f"'{paramaters}'" ,f"'{defines}'" )
+          
+            case "bit":
+                pass
+            case "all":
+                print(f"[i] Running Vivado synthesis, implementation and bitstream generation for project: {PROJECT_NAME}")
+                with c.cd(str(VIVADO_BUILD_DIR)):
+                    c.run(f"vivado -mode batch -source {SCRIPT_DIR}/compile.tcl -notrace -tclargs  {PROJECT_NAME}.xpr all",pty=True,echo=True)
+            case _:
+                pass
 
 
      
@@ -383,6 +405,11 @@ def vivado(c,project_toml_file=None,verbose=False,step=None,clean=False,run_flow
 def Verilator(c,project=None,step=None,clean=False,SimTargetName=None):
     ALLOWED_STEPS = {"step":["compile", "run", "sim", "build", "all"]}
 
+    if isinstance(step, str):  # Convert single input to list
+        step = [step]
+    elif step is None:
+        step = []
+    
     REPO_TOP = Path(os.environ["REPO_TOP"])  # Fail fast if REPO_TOP is not set
     tool_name = "verilator"
     project_file_path = get_project_file_path(project)
@@ -417,50 +444,58 @@ def Verilator(c,project=None,step=None,clean=False,SimTargetName=None):
 
     python_module = python_file_path.stem  
     sys.stdout.flush()
-    match (step):
-        case "build" | "sim":
-            try:
-                print(f"[i] Compiling Verilator sources into: {build_dir}",flush=True)
-                veruilator_sources_file = []
-                for file in sources_files:
-                    veruilator_sources_file.append(Path(os.path.expandvars(str(file))).resolve())
-                sys.stdout.flush()
-                print(f"\n================start of verilator output : build================",flush=True)
-                from cocotb.runner import get_runner
-                runner = get_runner("verilator")
-                runner.build(
-                        verilog_sources=veruilator_sources_file,
-                        hdl_toplevel=f"{top_module}",
-                        waves=True   ,
-                        build_dir=f"{build_dir}",   
-                        always=True,   
-                        build_args=[
-                            "--public-flat-rw",       # Expose signals for RW
-                            "--trace",                # Needed for waves
-                            "--trace-structs"       # Better struct/array visibility (5.x)
-                        ],
-                        clean=clean   # force rebuild
-                    )
-                print(f"================end of verilator output : build================\n",flush=True)
-                print(f"[+] Verilator build completed",flush=True)
-                print(f"[i] Verilator simulation started:",flush=True)
-                
-                if(step=="sim"):  
-                    print(f"\n================start of verilator output : sim================",flush=True)  
-                    runner.test(
-                        hdl_toplevel=f"{top_module}",
-                        test_module=f"{python_module}",  
-                        build_dir=f"{build_dir}",   
-                        waves=True                  # enables dump.vcd
-                    )
-                    print(f"================end of verilator output : sim================\n",flush=True)
-                    print(f"[+] Verilator simulation completed",flush=True)
-                else:
-                    print(f"[i] Skipping Verilator simulation",flush=True)
+    for s in step:
+        match (s):
+            case "build" | "sim":
+                try:
+                    print(f"[i] Compiling Verilator sources into: {build_dir}",flush=True)
+                    veruilator_sources_file = []
+                    for file in sources_files:
+                        veruilator_sources_file.append(Path(os.path.expandvars(str(file))).resolve())
+                    sys.stdout.flush()
+                    print(f"\n================start of verilator output : build================",flush=True)
+                    # Suppress the specific message before importing cocotb.runner
+                    warnings.filterwarnings(
+                        "ignore",
+                        message="Python runners and associated APIs are an experimental feature and subject to change.",
+                        category=UserWarning,
+                    )                
+                    from cocotb.runner import get_runner
+
+                    runner = get_runner("verilator")
+                    runner.build(
+                            verilog_sources=veruilator_sources_file,
+                            hdl_toplevel=f"{top_module}",
+                            waves=True   ,
+                            build_dir=f"{build_dir}",   
+                            always=True,   
+                            build_args=[
+                                "--public-flat-rw",       # Expose signals for RW
+                                "--trace",                # Needed for waves
+                                "--trace-structs"       # Better struct/array visibility (5.x)
+                            ],
+                            clean=clean   # force rebuild
+                        )
+                    print(f"================end of verilator output : build================\n",flush=True)
+                    print(f"[+] Verilator build completed",flush=True)
+                    print(f"[i] Verilator simulation started:",flush=True)
                     
-            except Exception as e:
-                print("\n[!x!]  Verilator build/simulation failed!",flush=True)
-                print(f"Error: {e}",flush=True)
+                    if(step=="sim"):  
+                        print(f"\n================start of verilator output : sim================",flush=True)  
+                        runner.test(
+                            hdl_toplevel=f"{top_module}",
+                            test_module=f"{python_module}",  
+                            build_dir=f"{build_dir}",   
+                            waves=True                  # enables dump.vcd
+                        )
+                        print(f"================end of verilator output : sim================\n",flush=True)
+                        print(f"[+] Verilator simulation completed",flush=True)
+                    else:
+                        print(f"[i] Skipping Verilator simulation",flush=True)
+                        
+                except Exception as e:
+                    print("\n[!x!]  Verilator build/simulation failed!",flush=True)
+                    print(f"Error: {e}",flush=True)
 
 @task
 def projects(c,set_project=None):
