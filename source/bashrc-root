@@ -4,9 +4,7 @@ case $- in
     *i*) ;;  # Interactive shell — continue
     *) return ;;
 esac
-echo "🔧 Sourcing .bashrc"
 # Mark this shell as sourced from .bashrc
-export FROM_BASHRC=1
 
 source /etc/profile.d/init_env.sh
 
@@ -14,7 +12,7 @@ source /etc/profile.d/init_env.sh
 update_repo_path() {
     # Require Bash
     if [ -z "$BASH_VERSION" ]; then
-        echo "❌ This function requires Bash." >&2
+        echo "[X] This function requires Bash." >&2
         return 1
     fi
 
@@ -26,26 +24,26 @@ update_repo_path() {
     repo_root=$(git rev-parse --show-toplevel 2>/dev/null)
     
     if [[ -z "$repo_root" ]]; then
-        [[ $is_interactive_shell -eq 1 ]] && echo "⚠️  Not inside a Git repository. PYTHONPATH not modified. ~ try git config --global --add safe.directory <full repo path>"
+        [[ $is_interactive_shell -eq 1 ]] && echo "[!]  Not inside a Git repository."
         return 1
     fi
     export REPO_TOP="$repo_root"
-
+    
     if [[ -f "$REPO_TOP/tools/update_paths.sh" ]]; then
         source "$REPO_TOP/tools/update_paths.sh"
-        [[ $is_interactive_shell -eq 1 ]] && echo "✅ sourcing $REPO_TOP/tools/update_paths.sh"
+        [[ $is_interactive_shell -eq 1 ]] && echo "[i] sourcing $REPO_TOP/tools/update_paths.sh"
     elif [[ $is_interactive_shell -eq 1 ]]; then
-        echo "⚠️  Missing $REPO_TOP/tools/update_paths.sh"
+        echo "[i]  Missing $REPO_TOP/tools/update_paths.sh"
     fi
 
     # Source tool_box.sh if it exists
     if [[ -f "$REPO_TOP/tools/tool_box/tool_box.sh" ]]; then
         source "$REPO_TOP/tools/tool_box/tool_box.sh"
     elif [[ $is_interactive_shell -eq 1 ]]; then
-        echo "⚠️  Missing $REPO_TOP/tools/tool_box/tool_box.sh"
+        echo "[!]  Missing $REPO_TOP/tools/tool_box/tool_box.sh"
     fi
 
-    [[ $is_interactive_shell -eq 1 ]] && echo "✅ REPO_TOP set to $REPO_TOP"
+    [[ $is_interactive_shell -eq 1 ]] && echo "[v] REPO_TOP set to $REPO_TOP"
 }
 
 update_repo_path
