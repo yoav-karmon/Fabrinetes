@@ -152,33 +152,28 @@ def load_project_data(ProjectFilePath):
             # print(f"[i] Using repo_path_env: {repo_path_env} with value: {REPO_TOP}, working path: {working_path}")
         return working_path, project_data
 
-def get_project_file_path(project_name_arg:Union[str,None]) -> tuple[str, Path]:
-    invoke_path= Path(os.environ["HDLFORGE_ORIG_PATH"] )  
-    hdlforge_files = list(invoke_path.glob("*.hdlforge.toml"))
+def get_project_file_path(project_name_arg:Union[str,None]) ->  Path:
+    INVOKE_PATH= Path(os.environ["HDLFORGE_ORIG_PATH"] )  
+    hdlforge_files = list(INVOKE_PATH.glob("*.hdlforge.toml"))
     if(project_name_arg==None):
         if(len(hdlforge_files) == 1):
             with open(hdlforge_files[0], "rb") as f:
                 projects_dict=tomllib.load(f)
             project_name_arg=str(projects_dict["settings"]["project_name"])
-            project_file_path = invoke_path / hdlforge_files[0]
-            return project_name_arg,project_file_path
+            project_file_path = INVOKE_PATH / hdlforge_files[0]
+            return project_file_path
         else:
             print("No project file found in the current directory.")
             print("you may have more then 1 *.hdlforge file in the current directory, please specify the project file using --project <project_name>")
             exit(1)
     else:
-        project_file_path = Path(str(invoke_path) + project_name_arg)
+        project_file_path = Path(str(INVOKE_PATH) + project_name_arg)
         return project_name_arg,project_file_path
     
    
-def get_file_list_for_tool(tool_name: str, project_file: Path) -> List[str]:
-    # Ensure project_file is a Path object and expand environment variables
-    project_file = Path(os.path.expandvars(str(project_file))).resolve()
-
-    print(f"[i] Searching for source files for tool: {tool_name} in project file: {project_file}")
+def get_file_list_for_tool(tool_name: str, project_data: dict,verbose: bool=False) -> List[str]:
    
-    with open(project_file, "rb") as f:
-        project_data=tomllib.load(f)
+   
     repo_path_env = project_data["settings"]["repo_path_env"]
     use_repo_path_env= project_data["settings"]["use_repo_path_env"]
     project_path = Path(project_data["settings"]["project_path"])
@@ -207,7 +202,7 @@ def get_file_list_for_tool(tool_name: str, project_file: Path) -> List[str]:
                 file_path = source_files_relative_path / Path(file_path)
             else:
                 file_path = Path(file_path)
-            print(f"[i] source file #{file_order}: {str(file_path)} for tool: {tool_name}")
+            if verbose: print(f"[i] source file #{file_order}: {str(file_path)} for tool: {tool_name}")
             file_order += 1
             tool_source_files.append(file_path)
     return tool_source_files
@@ -253,44 +248,51 @@ def run_invoke(command, cwd=None, log_file=None, pty=False):
         os.chdir(original_cwd)
 
 
-
-@task
-def vivado(c,project=None,step=None,clean=False,flow=None):
-    ALLOWED_STEPS = {"step":["newp","list_runs","reset_run", "syn", "imp", "bit"]}
+def get_and_verify_repo_top(INVOKE_PATH: Path):
     REPO_TOP = Path(os.environ["REPO_TOP"])  # Fail fast if REPO_TOP is not set
-    invoke_path= Path(os.environ["HDLFORGE_ORIG_PATH"] )
-    if(REPO_TOP not in invoke_path.resolve().parents):
-        print(f"[!x!]  REPO_TOP '{REPO_TOP}' is not in the invoke path '{invoke_path}'")
+    INVOKE_PATH= Path(os.environ["HDLFORGE_ORIG_PATH"] )
+    if(REPO_TOP not in INVOKE_PATH.resolve().parents):
+        print(f"[!x!]  REPO_TOP '{REPO_TOP}' is not in the invoke path '{INVOKE_PATH}'")
         print(f"Please run: update_repo_top")
         exit(1)
-    print(f"[i] invoke_path: {invoke_path}")
-    tool_name = "vivado"
-    project,project_file_path = get_project_file_path(project)
-    working_path,project_data = load_project_data(project_file_path)
-    vivado_settings  = project_data["vivado_settings"]
+    return INVOKE_PATH,REPO_TOP
 
-    PROJECT_FILES =  Path(working_path ) 
-    SCRIPT_DIR = Path("/opt/project_setup")
-
+def verify_project_file_path(_working_path: Path, REPO_TOP: Path):
+    PROJECT_FILES=Path(_working_path)
     if not str(PROJECT_FILES.resolve()).startswith(str(REPO_TOP.resolve())):
         print(f"[!x!]  PROJECT_FILES path '{PROJECT_FILES}' is not under REPO_TOP '{REPO_TOP}'")
         print(f"Please run: update_repo_top")
         exit(1)
-    if dryrun:
-        print_boxed(f"[i] Dry run mode enabled. No actions will be performed for Vivado project: {PROJECT_NAME}")
+    return PROJECT_FILES
 
-    VIVADO_BUILD_DIR        = PROJECT_FILES / vivado_settings["build_dir"]
-    SOURCES_LIST            = get_file_list_for_tool(tool_name, project_file_path)
-    VIVADO_GEN_PRJ_TCL_PATH = PROJECT_FILES / vivado_settings["project_tcl"]
-    PROJECT_NAME            = vivado_settings["project_name"].strip()  # strip spaces just in case
-    TOP_MODULE              = vivado_settings["top_module"]
-    PART                    = vivado_settings["part"]
-    IMPORT_ENV              = vivado_settings.get("import_env", [])
-    SET_VAR         = vivado_settings.get("set_var", [])
-    GENERICS        = vivado_settings.get("generics", [])
-    DEFINES         = vivado_settings.get("defines", [])
-    CODE            = vivado_settings.get("code", [])
-    RUNS            = vivado_settings.get("runs", [])
+@task
+def vivado(c,project_toml_file=None,verbose=False,step=None,clean=False,run_flow=None):
+    ALLOWED_STEPS = {"step":["new","list_runs","reset_run", "syn", "imp", "bit"]}
+    TOOL_NAME = "vivado"
+    SCRIPT_DIR                  = Path("/opt/project_setup")
+
+    INVOKE_PATH,REPO_TOP        = get_and_verify_repo_top(Path(os.environ["HDLFORGE_ORIG_PATH"]))
+
+
+    project_toml_file              = get_project_file_path(project_toml_file)
+    _working_path,PROJECT_DATA_DICT = load_project_data(project_toml_file)
+    VIVADO_SETTING_DICT             = PROJECT_DATA_DICT["vivado_settings"]
+    PROJECT_FILES                   = verify_project_file_path(_working_path, REPO_TOP)
+    del _working_path
+
+   
+    VIVADO_BUILD_DIR        = PROJECT_FILES / VIVADO_SETTING_DICT["build_dir"]
+    SOURCES_LIST            = get_file_list_for_tool(TOOL_NAME, PROJECT_DATA_DICT,verbose)
+    VIVADO_GEN_PRJ_TCL_PATH = PROJECT_FILES / VIVADO_SETTING_DICT["project_tcl"]
+    PROJECT_NAME            = VIVADO_SETTING_DICT["project_name"].strip()  # strip spaces just in case
+    TOP_MODULE              = VIVADO_SETTING_DICT["top_module"]
+    PART                    = VIVADO_SETTING_DICT["part"]
+    IMPORT_ENV              = VIVADO_SETTING_DICT.get("import_env", [])
+    SET_VAR         = VIVADO_SETTING_DICT.get("set_var", [])
+    GENERICS        = VIVADO_SETTING_DICT.get("generics", [])
+    DEFINES         = VIVADO_SETTING_DICT.get("defines", [])
+    CODE            = VIVADO_SETTING_DICT.get("code", [])
+    RUNS            = VIVADO_SETTING_DICT.get("runs", [])
 
     ##remove REPO_TOP  from sources list
 
@@ -314,57 +316,67 @@ def vivado(c,project=None,step=None,clean=False,flow=None):
     if(clean):
         cleaning(VIVADO_BUILD_DIR,True)
 
-    if(new):
-        c.run(f"mkdir -p {VIVADO_BUILD_DIR}")
-        cleaning(VIVADO_BUILD_DIR,True)
-        print(f"[i] Creating new Vivado project: {PROJECT_NAME}")
+    match (step):
+        case "new":
+            c.run(f"mkdir -p {VIVADO_BUILD_DIR}")
+            cleaning(VIVADO_BUILD_DIR,True)
+            print(f"[i] Creating new Vivado project: {PROJECT_NAME}")
 
-        generate_vivado_tcl(
-            output_path=VIVADO_GEN_PRJ_TCL_PATH,
-            project_name=PROJECT_NAME,
-            part=PART,
-            top_module=TOP_MODULE,
-            generics=GENERICS,
-            defines=DEFINES,
-            sources=SOURCES_LIST,
-            runs=RUNS)
-        print(f"[i] Creating Vivado project : {VIVADO_GEN_PRJ_TCL_PATH}")
-        if(not dryrun):
+            generate_vivado_tcl(
+                output_path=VIVADO_GEN_PRJ_TCL_PATH,
+                project_name=PROJECT_NAME,
+                part=PART,
+                top_module=TOP_MODULE,
+                generics=GENERICS,
+                defines=DEFINES,
+                sources=SOURCES_LIST,
+                runs=RUNS)
+            print(f"[i] Creating Vivado project : {VIVADO_GEN_PRJ_TCL_PATH}")
             with c.cd(str(VIVADO_BUILD_DIR)):
-                c.run(f"vivado -mode batch -source {VIVADO_GEN_PRJ_TCL_PATH}")
+                 c.run(f"vivado -mode batch -source {VIVADO_GEN_PRJ_TCL_PATH}")
+        case "list_runs":
+            print(f"[i] Listing Vivado runs for project: {PROJECT_NAME}")
+            with c.cd(str(VIVADO_BUILD_DIR)):
+                c.run(f"vivado -mode batch -source {SCRIPT_DIR}/project_tool.tcl -notrace -tclargs  list_all_runs  {PROJECT_NAME}.xpr",pty=True,echo=True)
+            
+        case "reset_run":
+            pass
+        case "syn":
+            print(f"[i] Running Vivado synthesis for project: {PROJECT_NAME}",flush=True)
+            if run_flow is None:
+                runs_flow=VIVADO_SETTING_DICT["runs_flow"]
+                print("[i] Available run_flow options:")
+                for key, value in VIVADO_SETTING_DICT["runs_flow"].items():
+                    print(f"--run-flow {key} ~  {key}: {value}")
+                print("[!x!] Please specify a valid run_flow argument using --run-flow <option>")
+                exit(1)
+            runs_flow=VIVADO_SETTING_DICT["runs_flow"][run_flow]
+            syth_name=runs_flow["synth_name"][0]
+            impl_name=runs_flow["impl"][0]
+            debug_probe = runs_flow.get("debug_probe", False)
+            paramaters = runs_flow.get("paramaters", [])
+            defines = runs_flow.get("defines", [])
+            paramaters= " ".join(paramaters)
+            defines= " ".join(defines)
+            with c.cd(str(VIVADO_BUILD_DIR)):
+                c.run(f"vivado -mode batch -source {SCRIPT_DIR}/compile.tcl -notrace -tclargs  {PROJECT_NAME}.xpr syn {syth_name} {impl_name} {debug_probe} '{paramaters}' '{defines}' ",pty=True,echo=True)
+        case "imp":
+            print(f"[i] Running Vivado implementation for project: {PROJECT_NAME}")
+            with c.cd(str(VIVADO_BUILD_DIR)):
+                c.run(f"vivado -mode batch -source {SCRIPT_DIR}/compile.tcl -notrace -tclargs  {PROJECT_NAME}.xpr impl",pty=True)
+        case "bit":
+            pass
+        case "all":
+            print(f"[i] Running Vivado synthesis, implementation and bitstream generation for project: {PROJECT_NAME}")
+            with c.cd(str(VIVADO_BUILD_DIR)):
+                 c.run(f"vivado -mode batch -source {SCRIPT_DIR}/compile.tcl -notrace -tclargs  {PROJECT_NAME}.xpr all",pty=True,echo=True)
+        case _:
+            pass
 
 
      
-        
-    if(list_runs):
-        print(f"[i] Listing Vivado runs for project: {PROJECT_NAME}")
-        with c.cd(str(VIVADO_BUILD_DIR)):
-            c.run(f"vivado -mode batch -source {SCRIPT_DIR}/project_tool.tcl -notrace -tclargs  list_all_runs  {PROJECT_NAME}.xpr",pty=True,echo=True)
-        
-    if(reset_run!= None):
-        print(f"[i] Resetting Vivado run: {reset_run} for project: {PROJECT_NAME}")
-        with c.cd(str(VIVADO_BUILD_DIR)):
-            c.run(f"vivado -mode batch -source {SCRIPT_DIR}/project_tool.tcl -notrace -tclargs  reset_run  {PROJECT_NAME}.xpr {reset_run}",pty=True,echo=True)
-        exit(0)
+   
 
-    if(all):
-        print(f"[i] Running Vivado synthesis, implementation and bitstream generation for project: {PROJECT_NAME}")
-        if(not dryrun):
-            with c.cd(str(VIVADO_BUILD_DIR)):
-                c.run(f"vivado -mode batch -source {SCRIPT_DIR}/compile.tcl -notrace -tclargs  {PROJECT_NAME}.xpr all",pty=True,echo=True)
-        exit(0)
-
-    if(syn):
-        print(f"[i] Running Vivado synthesis for project: {PROJECT_NAME}")
-        with c.cd(str(VIVADO_BUILD_DIR)):
-            c.run(f"vivado -mode batch -source {SCRIPT_DIR}/compile.tcl -notrace -tclargs  {PROJECT_NAME}.xpr syn",pty=True,echo=True)
-        exit(0)
-
-    if(imp):
-        print(f"[i] Running Vivado implementation for project: {PROJECT_NAME}")
-        with c.cd(str(VIVADO_BUILD_DIR)):
-            c.run(f"vivado -mode batch -source {SCRIPT_DIR}/compile.tcl -notrace -tclargs  {PROJECT_NAME}.xpr impl",pty=True)
-        exit(0)
     
 
 @task
@@ -373,7 +385,7 @@ def Verilator(c,project=None,step=None,clean=False,SimTargetName=None):
 
     REPO_TOP = Path(os.environ["REPO_TOP"])  # Fail fast if REPO_TOP is not set
     tool_name = "verilator"
-    project,project_file_path = get_project_file_path(project)
+    project_file_path = get_project_file_path(project)
     working_path,project_data = load_project_data(project_file_path)
     
     print_task_args(locals(),str(REPO_TOP),ALLOWED_STEPS)
@@ -406,12 +418,8 @@ def Verilator(c,project=None,step=None,clean=False,SimTargetName=None):
     python_module = python_file_path.stem  
     sys.stdout.flush()
     match (step):
-      
         case "build" | "sim":
             try:
-
-              
-
                 print(f"[i] Compiling Verilator sources into: {build_dir}",flush=True)
                 veruilator_sources_file = []
                 for file in sources_files:
