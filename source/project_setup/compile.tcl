@@ -66,19 +66,9 @@ if { $stage == "syn" | $stage == "all" } {
         reset_runs $synth_run
         launch_runs $synth_run -to_step synth_design -jobs 4
         wait_on_run [get_runs -filter {IS_SYNTHESIS == TRUE}]
-        if { $debug_probe } {
-            puts "(i) Writing debug probes..."
-            open_run $synth_run
-            write_debug_probes -file debug_probes.ltx -force
-        }
+       
     } else {
         puts "(!) Skipping $synth_run (STATUS: $status)"
-        if { $debug_probe } {
-            puts "(i) Writing debug probes..."
-            open_run $synth_run
-            write_debug_probes -file debug_probes.ltx -force
-            puts "(i) Writing debug probes completed."
-        }
     }
 
 } else {
