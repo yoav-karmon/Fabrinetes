@@ -440,14 +440,22 @@ def Verilator(c,project=None,step=None,clean=False,SimTargetName=None,flags=None
         exit(f"[!x!]  SimTargetName '{SimTargetName}' not found in verilator_settings['sim_targets']")
         
 
-    SimTarget = verilator_settings["sim_targets"][SimTargetName]
-    top_module = SimTarget["top_module"]
-    build_args = SimTarget.get("build_args", [])
-    python_file_path          =  Path(working_path ) / SimTarget["python_file"]   
+    SimTarget                 = verilator_settings["sim_targets"][SimTargetName]
+    top_module                = SimTarget["top_module"]
+    build_args                = SimTarget.get("build_args", [])
+    defines                   = SimTarget.get("defines", {})
+    parameters                = SimTarget.get("parameters", {})
+    python_file_path          =  Path(working_path ) / SimTarget["python_file"] 
+    found = any(os.path.isfile(python_file_path) for path in sys.path)
+    if not python_file_path.exists():
+        print(f"[!x!]  Python file '{python_file_path}' not found in path")
+        exit(1)
+  
+
     python_file_dir_path = str(Path(python_file_path).parent.resolve())
     sys.path.insert(0, python_file_dir_path)
 
-    python_module = python_file_path.stem  
+    
     sys.stdout.flush()
     for s in step:
         match (s):
@@ -468,13 +476,19 @@ def Verilator(c,project=None,step=None,clean=False,SimTargetName=None,flags=None
                     from cocotb.runner import get_runner
 
                     runner = get_runner("verilator")
-                    
+                    defines={}
+                    parameters={}
+                    log_file = None
                     runner.build(
                             verilog_sources=veruilator_sources_file,
                             hdl_toplevel=f"{top_module}",
                             waves=True   ,
+                            always=True, 
+                            verbose=False, 
                             build_dir=f"{build_dir}",   
-                            always=True,   
+                            defines=defines,  
+                            parameters=parameters,
+                            log_file=log_file,  # Use default logging
                             build_args=build_args,
                             clean=clean   # force rebuild
                         )
@@ -486,7 +500,7 @@ def Verilator(c,project=None,step=None,clean=False,SimTargetName=None,flags=None
                         print(f"\n================start of verilator output : sim================",flush=True)  
                         runner.test(
                             hdl_toplevel=f"{top_module}",
-                            test_module=f"{python_module}",  
+                            test_module=f"{python_file_path.stem}",  
                             build_dir=f"{build_dir}",   
                             waves=True                  # enables dump.vcd
                         )
