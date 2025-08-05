@@ -101,8 +101,23 @@ def generate_vivado_tcl(
     output_path.write_text("\n".join(lines))
 
 
+def add_python_paths_from_list(path_list):
+    print("\n[i] Updating PYTHONPATH with the following paths:", flush=True)
+    for path in path_list:
+        # Step 2: Resolve env vars
+        resolved = os.path.expandvars(path)
+        print(f"[~] Resolving path: {resolved}")
+        # Step 3: Absolute path
+        abs_path = os.path.abspath(resolved)
 
-
+        # Step 4: Add if not already in sys.path
+        if abs_path not in sys.path:
+            sys.path.insert(0, abs_path)
+            print(f"[OK] Added to PYTHONPATH: {abs_path}")
+        else:
+            print(f"[i] Already in PYTHONPATH: {abs_path}")
+    print("", flush=True)
+    
 
 def print_task_args(local_vars: dict, REPO_TOP: str, allowed_values: dict[str, List[str]] = {}):
     # Get the calling function name automatically
@@ -129,6 +144,7 @@ def print_task_args(local_vars: dict, REPO_TOP: str, allowed_values: dict[str, L
     print(tabulate(table, headers="firstrow", tablefmt="fancy_grid",colalign=("left", "left", "center")))
         
     print(border)
+    print("")
     
 def print_boxed(message: str, border_char: str = "=", padding: int = 2):
     lines = message.split("\n")
@@ -398,11 +414,23 @@ def vivado(c,project_toml_file=None,verbose=False,step:List[str]=[],clean=False,
 
      
    
+def verify_sim_target(SimTargetName, verilator_settings)    :
+    if SimTargetName is None:
+            sim_targets_dic = verilator_settings["sim_targets"]
+            # Get the first value in sim_targets
+            SimTargetName = next(iter(sim_targets_dic.keys()))
+            print(f"[i] Using first SimTargetName: {SimTargetName}")  
+            return SimTargetName    
+    elif(SimTargetName not in verilator_settings["sim_targets"]):
+        print(f"Available SimTargetNames: {', '.join(verilator_settings['sim_targets'].keys())}")
+        exit(f"[!x!]  SimTargetName '{SimTargetName}' not found in verilator_settings['sim_targets']")
 
-    
+    return SimTargetName
 
 @task
 def Verilator(c,project=None,step=None,clean=False,SimTargetName=None,flags=None):
+    tool_name = "verilator"
+
     ALLOWED_STEPS = {"step":["sim", "build"]}
     
     if isinstance(flags, str):  # Convert single input to list
@@ -416,8 +444,9 @@ def Verilator(c,project=None,step=None,clean=False,SimTargetName=None,flags=None
         step = []
     
     REPO_TOP = Path(os.environ["REPO_TOP"])  # Fail fast if REPO_TOP is not set
-    tool_name = "verilator"
+    
     project_file_path = get_project_file_path(project)
+    del project
     working_path,project_data = load_project_data(project_file_path)
     
     print_task_args(locals(),str(REPO_TOP),ALLOWED_STEPS)
@@ -428,39 +457,30 @@ def Verilator(c,project=None,step=None,clean=False,SimTargetName=None,flags=None
     sources_files = get_file_list_for_tool(tool_name, project_data)
       
     
-        
-    if SimTargetName is None:
-            sim_targets_dic = verilator_settings["sim_targets"]
-            # Get the first value in sim_targets
-            SimTargetName = next(iter(sim_targets_dic.keys()))
-            print(f"[i] Using first SimTargetName: {SimTargetName}")
-            
-    if(SimTargetName not in verilator_settings["sim_targets"]):
-        print(f"Available SimTargetNames: {', '.join(verilator_settings['sim_targets'].keys())}")
-        exit(f"[!x!]  SimTargetName '{SimTargetName}' not found in verilator_settings['sim_targets']")
-        
-
+    # Verify the parameters
+    SimTargetName=verify_sim_target(SimTargetName, verilator_settings)    
+   
+    
     SimTarget                 = verilator_settings["sim_targets"][SimTargetName]
     top_module                = SimTarget["top_module"]
     build_args                = SimTarget.get("build_args", [])
     defines                   = SimTarget.get("defines", {})
     parameters                = SimTarget.get("parameters", {})
     python_file_path          =  Path(working_path ) / SimTarget["python_file"] 
-    found = any(os.path.isfile(python_file_path) for path in sys.path)
-    if not python_file_path.exists():
-        print(f"[!x!]  Python file '{python_file_path}' not found in path")
-        exit(1)
+
+    PYTHONPATH = SimTarget.get("PYTHONPATH", [])
+    # PYTHONPATH.append(str(python_file_path.parent.resolve()))  # Add the directory of the Python file
+    add_python_paths_from_list(PYTHONPATH)
   
 
-    python_file_dir_path = str(Path(python_file_path).parent.resolve())
-    sys.path.insert(0, python_file_dir_path)
-
     
+    print(f"\n[~] processing steps {step}",flush=True)
     sys.stdout.flush()
     for s in step:
         match (s):
             case "build" | "sim":
                 try:
+                    print(f"[i] Verilator step: {s}",flush=True)
                     print(f"[i] Compiling Verilator sources into: {build_dir}",flush=True)
                     veruilator_sources_file = []
                     for file in sources_files:
@@ -505,7 +525,7 @@ def Verilator(c,project=None,step=None,clean=False,SimTargetName=None,flags=None
                             waves=True                  # enables dump.vcd
                         )
                         print(f"================end of verilator output : sim================\n",flush=True)
-                        print(f"[+] Verilator simulation completed",flush=True)
+                        print(f"[i] Verilator simulation completed",flush=True)
                     else:
                         print(f"[i] Skipping Verilator simulation",flush=True)
                         
