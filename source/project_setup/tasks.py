@@ -402,8 +402,13 @@ def vivado(c,project_toml_file=None,verbose=False,step:List[str]=[],clean=False,
     
 
 @task
-def Verilator(c,project=None,step=None,clean=False,SimTargetName=None):
-    ALLOWED_STEPS = {"step":["compile", "run", "sim", "build", "all"]}
+def Verilator(c,project=None,step=None,clean=False,SimTargetName=None,flags=None):
+    ALLOWED_STEPS = {"step":["sim", "build"]}
+    
+    if isinstance(flags, str):  # Convert single input to list
+        flags = [flags]
+    elif flags is None:
+        flags = []
 
     if isinstance(step, str):  # Convert single input to list
         step = [step]
@@ -436,8 +441,8 @@ def Verilator(c,project=None,step=None,clean=False,SimTargetName=None):
         
 
     SimTarget = verilator_settings["sim_targets"][SimTargetName]
-
     top_module = SimTarget["top_module"]
+    build_args = SimTarget.get("build_args", [])
     python_file_path          =  Path(working_path ) / SimTarget["python_file"]   
     python_file_dir_path = str(Path(python_file_path).parent.resolve())
     sys.path.insert(0, python_file_dir_path)
@@ -463,24 +468,21 @@ def Verilator(c,project=None,step=None,clean=False,SimTargetName=None):
                     from cocotb.runner import get_runner
 
                     runner = get_runner("verilator")
+                    
                     runner.build(
                             verilog_sources=veruilator_sources_file,
                             hdl_toplevel=f"{top_module}",
                             waves=True   ,
                             build_dir=f"{build_dir}",   
                             always=True,   
-                            build_args=[
-                                "--public-flat-rw",       # Expose signals for RW
-                                "--trace",                # Needed for waves
-                                "--trace-structs"       # Better struct/array visibility (5.x)
-                            ],
+                            build_args=build_args,
                             clean=clean   # force rebuild
                         )
                     print(f"================end of verilator output : build================\n",flush=True)
                     print(f"[+] Verilator build completed",flush=True)
                     print(f"[i] Verilator simulation started:",flush=True)
                     
-                    if(step=="sim"):  
+                    if(s=="sim"):  
                         print(f"\n================start of verilator output : sim================",flush=True)  
                         runner.test(
                             hdl_toplevel=f"{top_module}",
