@@ -27,10 +27,7 @@ def generate_vivado_tcl(
     project_name: str,
     part: str,
     top_module: str,
-    generics: List[Dict[str, Any]],
-    defines: List[Dict[str, Any]],
-    sources: List[str],
-    runs: List[Dict[str, Any]]) -> None:    
+    sources: List[str]) -> None:    
 
    
 
@@ -57,12 +54,7 @@ def generate_vivado_tcl(
     lines.append("#******************************************************")
     lines.append("create_project -force $project_name -part $PART")
     lines.append("set_property top $top_module [current_fileset]")
-    if generics:
-        gen_str = " ".join(generics)
-        lines.append(f"set_property generic {{{gen_str}}} [current_fileset]")
-    if defines:
-        defines_str = " ".join(defines)
-        lines.append(f"set_property verilog_define {{{defines_str}}} [current_fileset]")
+   
 
     lines.append("#******************************************************\n")
 
@@ -82,6 +74,8 @@ def generate_vivado_tcl(
             addcmd= "read_ip"
         elif(filepath.endswith(".xci")):
             addcmd= "read_ip"
+        elif(filepath.endswith(".tcl")):
+            addcmd= "source"
         else:
             addcmd="add_files"
             print(f"⚠️  Unknown file type for {filepath}, using add_files")
@@ -89,12 +83,7 @@ def generate_vivado_tcl(
     lines.append("")
     lines.append("#******************************************************\n")
 
-    # Runs
-    lines.append("#******************************************************")
-    for run in runs:
-        lines.append(run)
-    lines.append("delete_runs synth_1")
-    lines.append("#******************************************************\n")
+   
 
     # Write the TCL script
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -164,7 +153,8 @@ def load_project_data(ProjectFilePath):
         project_data=tomllib.load(f)
         project_data:dict
         working_path= project_data["settings"]["project_path"]
-        working_path = Path(working_path)
+        working_path = os.path.expandvars(working_path) 
+        working_path =  Path(working_path).resolve()
         repo_path_env = project_data["settings"].get("repo_path_env",None)
         if(repo_path_env == None):
             working_path = Path(working_path)
@@ -193,29 +183,19 @@ def get_project_file_path(project_name_arg:Union[str,None]) ->  Path:
             exit(1)
     else:
         project_file_path = Path(str(INVOKE_PATH) + project_name_arg)
-        return project_name_arg,project_file_path
+        return project_file_path
     
    
 def get_file_list_for_tool(tool_name: str, project_data: dict,verbose: bool=False) -> List[str]:
    
    
-    repo_path_env = project_data["settings"]["repo_path_env"]
-    use_repo_path_env= project_data["settings"]["use_repo_path_env"]
-    project_path = Path(project_data["settings"]["project_path"])
-    REPO_TOP = Path(os.environ[repo_path_env]) 
+    project_path_raw = Path(project_data["settings"]["project_path"])
+    project_path_expanded = os.path.expandvars(project_path_raw)
+    project_path_abs = Path(project_path_expanded).resolve()
 
-    if(use_repo_path_env):
-        
-        project_path_abs = REPO_TOP/project_path
-    else:
-        project_path_abs = project_path
 
     relative_to_project_path= project_data["sources"]["path"]["realtive_to_project_path"]
-    if(relative_to_project_path):
-        source_files_relative_path = project_path_abs
-        if(f"{REPO_TOP}" in str(source_files_relative_path)):
-            source_files_relative_path = str(source_files_relative_path).replace(f"{REPO_TOP}", "$REPO_TOP")
-        print(f"[i] Using relative path to project: {source_files_relative_path}")
+
 
     all_source_files        =  project_data["sources"]["files"]
     tool_source_files= []
@@ -224,53 +204,13 @@ def get_file_list_for_tool(tool_name: str, project_data: dict,verbose: bool=Fals
     for file_path,tool_list in all_source_files.items():
         if(tool_name in tool_list):
             if(relative_to_project_path):
-                file_path = source_files_relative_path / Path(file_path)
+                file_path = project_path_abs / Path(file_path)
             else:
                 file_path = Path(file_path)
             if verbose: print(f"[i] source file #{file_order}: {str(file_path)} for tool: {tool_name}")
             file_order += 1
             tool_source_files.append(file_path)
     return tool_source_files
-
-
-def set_file_list_for_tool(tool_name: str, file_path:str, project_file: Path,number:int ) -> None:
-    with open(project_file, "rb") as f:
-        project_data=tomllib.load(f)
-    all_source_files        =  project_data["sources"]
-    all_source_files:dict
-    if(file_path not in all_source_files):
-        all_source_files[file_path] = [tool_name]
-    else:
-        if(tool_name not in all_source_files[file_path]):
-            all_source_files[file_path].append(tool_name)
-    project_data["sources"] = all_source_files
-    with open(project_file, "wb") as f:
-        tomli_w.dump(project_data, f)
-    print(f"[+] Added {file_path} to {tool_name} sources")
-
-
-def run_invoke(command, cwd=None, log_file=None, pty=False):
-    """
-    Run a shell command using invoke with optional cwd and logging.
-
-    :param command: Command to run (str)
-    :param cwd: Working directory (str, optional)
-    :param log_file: Log file to save stdout (str, optional)
-    :param pty: Use pty=True for interactive apps (default False)
-    :return: Exit code (int)
-    """
-    original_cwd = os.getcwd()
-    try:
-        if cwd:
-            os.chdir(cwd)
-
-        if log_file:
-            command = f"bash -c 'set -o pipefail; {command} >> {log_file}'"
-
-        result = run(command, pty=pty, warn=True)  # warn=True prevents exception on nonzero exit
-        return result.exited
-    finally:
-        os.chdir(original_cwd)
 
 
 def get_and_verify_repo_top(INVOKE_PATH: Path):
@@ -319,7 +259,7 @@ def vivado(c,project_toml_file=None,verbose=False,step:List[str]=[],clean=False,
     GENERICS        = VIVADO_SETTING_DICT.get("generics", [])
     DEFINES         = VIVADO_SETTING_DICT.get("defines", [])
     CODE            = VIVADO_SETTING_DICT.get("code", [])
-    RUNS            = VIVADO_SETTING_DICT.get("runs", [])
+    RUNS            = VIVADO_SETTING_DICT["runs"].get("scripts", [])
 
     ##remove REPO_TOP  from sources list
 
@@ -343,17 +283,16 @@ def vivado(c,project_toml_file=None,verbose=False,step:List[str]=[],clean=False,
     if(clean):
         cleaning(VIVADO_BUILD_DIR,True)
 
-    def call_compile_tcl(step,syth_name,impl_name,debug_probe,paramaters,defines ):
+    def call_compile_tcl(step,syth_name,impl_name,paramaters,defines ):
         with c.cd(str(VIVADO_BUILD_DIR)):
             table=[["Step", step]]
             table.append(["Synth", syth_name])
             table.append(["Impl", impl_name])
-            table.append(["Debug Probe", debug_probe])
             table.append(["Parameters", paramaters])
             table.append(["Defines", defines])
             print(tabulate(table, headers="firstrow", tablefmt="grid"))
 
-            cmd= f"vivado -mode batch -source {SCRIPT_DIR}/compile.tcl -notrace -tclargs  {PROJECT_NAME}.xpr {step} {syth_name} {impl_name} {debug_probe} '{paramaters}' '{defines}'"
+            cmd= f"vivado -mode batch -source {SCRIPT_DIR}/compile.tcl -notrace -tclargs  {PROJECT_NAME}.xpr {step} {syth_name} {impl_name} '{paramaters}' '{defines}'"
             print(f"\n[i] Running Vivado compile TCL script with command: {cmd}\n",flush=True)
             c.run(cmd,pty=True,echo=True)
 
@@ -369,10 +308,7 @@ def vivado(c,project_toml_file=None,verbose=False,step:List[str]=[],clean=False,
                     project_name=PROJECT_NAME,
                     part=PART,
                     top_module=TOP_MODULE,
-                    generics=GENERICS,
-                    defines=DEFINES,
-                    sources=SOURCES_LIST,
-                    runs=RUNS)
+                    sources=SOURCES_LIST)
                 print(f"[i] Creating Vivado project : {VIVADO_GEN_PRJ_TCL_PATH}")
                 with c.cd(str(VIVADO_BUILD_DIR)):
                     c.run(f"vivado -mode batch -source {VIVADO_GEN_PRJ_TCL_PATH}")
@@ -393,14 +329,13 @@ def vivado(c,project_toml_file=None,verbose=False,step:List[str]=[],clean=False,
                     print("[!x!] Please specify a valid run_flow argument using --run-flow <option>")
                     exit(1)
                 runs_flow=VIVADO_SETTING_DICT["runs_flow"][run_flow]
-                syth_name=runs_flow["synth_name"][0]
-                impl_name=runs_flow["impl"][0]
-                debug_probe = runs_flow.get("debug_probe", False)
+                syth_name=runs_flow["synth_name"]
+                impl_name_list=runs_flow["impl"]
                 paramaters = runs_flow.get("paramaters", [])
                 defines = runs_flow.get("defines", [])
                 paramaters= " ".join(paramaters)
                 defines= " ".join(defines)
-                call_compile_tcl(f"{s}" ,f"{syth_name}" ,f"{impl_name}" ,f"{debug_probe}",f"'{paramaters}'" ,f"'{defines}'" )
+                call_compile_tcl(f"{s}" ,f"{syth_name}" ,f"{impl_name_list[0]}" ,f"'{paramaters}'" ,f"'{defines}'" )
           
             case "bit":
                 pass

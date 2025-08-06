@@ -3,9 +3,8 @@ set path_xpr      [lindex $argv 0]
 set stage         [lindex $argv 1]
 set synth_run     [lindex $argv 2]
 set impl_run      [lindex $argv 3]
-set debug_probe   [lindex $argv 4]
-set param_string  [lindex $argv 5]
-set define_string [lindex $argv 6]
+set param_string  [lindex $argv 4]
+set define_string [lindex $argv 5]
 
 puts "(i) print all arguments"
 puts "=========== TCL Arguments ==========="
@@ -13,7 +12,6 @@ puts "Project file:     $path_xpr"
 puts "Stage:            $stage"
 puts "Synthesis run:    $synth_run"
 puts "Implementation run: $impl_run"
-puts "Debug probe:      $debug_probe"
 puts "Parameters:       $param_string"
 puts "Defines:          $define_string"
 puts "====================================="
