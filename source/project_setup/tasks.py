@@ -120,7 +120,6 @@ def print_task_args(local_vars: dict, REPO_TOP: str, allowed_values: dict[str, L
     print(border)
     print(f"[i] Task: {caller_name}")
     print(border)
-    print(f"working directory: {os.getcwd()}")
     print("file executed: ", Path(__file__).resolve())
     table=[["key","value","allowed"]]
     for key, value in args.items():
@@ -148,23 +147,14 @@ def print_boxed(message: str, border_char: str = "=", padding: int = 2):
         
 def load_project_data(ProjectFilePath): 
     if( not ProjectFilePath.exists()):
-        exit(f"Project file not found: {ProjectFilePath}")       
+        exit(f"Project file not found: {ProjectFilePath}")    
+
     with open(ProjectFilePath, "rb") as f:
         project_data=tomllib.load(f)
         project_data:dict
         working_path= project_data["settings"]["project_path"]
         working_path = os.path.expandvars(working_path) 
         working_path =  Path(working_path).resolve()
-        repo_path_env = project_data["settings"].get("repo_path_env",None)
-        if(repo_path_env == None):
-            working_path = Path(working_path)
-            print(f"⚠️  No repo_path_env found in project file:(settings.repo_path_env), using absolute path")
-        else:
-            REPO_TOP = Path(os.environ.get(repo_path_env, "REPO_TOP"))
-            if not REPO_TOP:
-                exit(f"[!x!]  Environment variable '{repo_path_env}' is not set. Please set it to the repository top path.")
-            working_path = REPO_TOP / working_path
-            # print(f"[i] Using repo_path_env: {repo_path_env} with value: {REPO_TOP}, working path: {working_path}")
         return working_path, project_data
 
 def get_project_file_path(project_name_arg:Union[str,None]) ->  Path:
@@ -220,7 +210,7 @@ def get_and_verify_repo_top(INVOKE_PATH: Path):
         print(f"[!x!]  REPO_TOP '{REPO_TOP}' is not in the invoke path '{INVOKE_PATH}'")
         print(f"Please run: update_repo_top")
         exit(1)
-    return INVOKE_PATH,REPO_TOP
+    return REPO_TOP
 
 def verify_project_file_path(_working_path: Path, REPO_TOP: Path):
     PROJECT_FILES=Path(_working_path)
@@ -237,29 +227,20 @@ def vivado(c,project_toml_file=None,verbose=False,step:List[str]=[],clean=False,
     ALLOWED_STEPS = {"step":["new","list_runs","reset_run", "syn", "impl", "bit"]}
     TOOL_NAME = "vivado"
     SCRIPT_DIR                  = Path("/opt/project_setup")
-
-    INVOKE_PATH,REPO_TOP        = get_and_verify_repo_top(Path(os.environ["HDLFORGE_ORIG_PATH"]))
+    REPO_TOP        = get_and_verify_repo_top(Path(os.environ["HDLFORGE_ORIG_PATH"]))
 
 
     project_toml_file              = get_project_file_path(project_toml_file)
-    _working_path,PROJECT_DATA_DICT = load_project_data(project_toml_file)
+    WORKING_PATH,PROJECT_DATA_DICT = load_project_data(project_toml_file)
     VIVADO_SETTING_DICT             = PROJECT_DATA_DICT["vivado_settings"]
-    PROJECT_FILES                   = verify_project_file_path(_working_path, REPO_TOP)
-    del _working_path
 
    
-    VIVADO_BUILD_DIR        = PROJECT_FILES / VIVADO_SETTING_DICT["build_dir"]
+    VIVADO_BUILD_DIR        = WORKING_PATH / VIVADO_SETTING_DICT["build_dir"]
     SOURCES_LIST            = get_file_list_for_tool(TOOL_NAME, PROJECT_DATA_DICT,verbose)
-    VIVADO_GEN_PRJ_TCL_PATH = PROJECT_FILES / VIVADO_SETTING_DICT["project_tcl"]
+    VIVADO_GEN_PRJ_TCL_PATH = WORKING_PATH / VIVADO_SETTING_DICT["project_tcl"]
     PROJECT_NAME            = VIVADO_SETTING_DICT["project_name"].strip()  # strip spaces just in case
     TOP_MODULE              = VIVADO_SETTING_DICT["top_module"]
     PART                    = VIVADO_SETTING_DICT["part"]
-    IMPORT_ENV              = VIVADO_SETTING_DICT.get("import_env", [])
-    SET_VAR         = VIVADO_SETTING_DICT.get("set_var", [])
-    GENERICS        = VIVADO_SETTING_DICT.get("generics", [])
-    DEFINES         = VIVADO_SETTING_DICT.get("defines", [])
-    CODE            = VIVADO_SETTING_DICT.get("code", [])
-    RUNS            = VIVADO_SETTING_DICT["runs"].get("scripts", [])
 
     ##remove REPO_TOP  from sources list
 
@@ -329,7 +310,7 @@ def vivado(c,project_toml_file=None,verbose=False,step:List[str]=[],clean=False,
                     print("[!x!] Please specify a valid run_flow argument using --run-flow <option>")
                     exit(1)
                 runs_flow=VIVADO_SETTING_DICT["runs_flow"][run_flow]
-                syth_name=runs_flow["synth_name"]
+                syth_name=runs_flow["synth"]
                 impl_name_list=runs_flow["impl"]
                 paramaters = runs_flow.get("paramaters", [])
                 defines = runs_flow.get("defines", [])
