@@ -27,7 +27,7 @@ def generate_vivado_tcl(
     project_name: str,
     part: str,
     top_module: str,
-    sources: List[str]) -> None:    
+    sources_dict_list) -> None:    
 
    
 
@@ -60,26 +60,40 @@ def generate_vivado_tcl(
 
 # [+] Add sources from multiple list files using add_files_from_list.tcl
     lines.append("#******************************************************")
-    for filepath in sources:
-        filepath = str(filepath)
-        if(filepath.endswith(".vhd")):
-            addcmd= "read_vhdl -vhdl2008"
-        elif(filepath.endswith(".v")):
-            addcmd= "read_verilog -sv"
-        elif(filepath.endswith(".sv")):
-            addcmd= "read_verilog -sv"
-        elif(filepath.endswith(".xdc")):
-            addcmd= "read_xdc"
-        elif(filepath.endswith(".xcix")):
-            addcmd= "read_ip"
-        elif(filepath.endswith(".xci")):
-            addcmd= "read_ip"
-        elif(filepath.endswith(".tcl")):
-            addcmd= "source"
+    constrset_list=[]
+    sources_list=[]
+    tcl_files_list=[]
+    for filedict in sources_dict_list:
+        if("vivado_fileset" in filedict):
+            if(isinstance(filedict["vivado_fileset"], str)):
+                vivado_fileset = [filedict["vivado_fileset"]]
+            else:
+                vivado_fileset = filedict["vivado_fileset"]
         else:
-            addcmd="add_files"
-            print(f"⚠️  Unknown file type for {filepath}, using add_files")
-        lines.append(f"{addcmd} [file normalize [subst {filepath}]]")
+            vivado_fileset = None
+        if(vivado_fileset != None):
+            for fs in vivado_fileset:
+       
+                if fs not in constrset_list:
+                    lines.append(f"create_fileset -constrset {fs} ")
+                    constrset_list.append(fs)
+                lines.append(f"add_files -fileset {fs} [file normalize [subst {filedict["file"]}]]")
+        else:
+            sources_list.append(filedict["file"])
+
+    addcmd="add_files "
+    for file in sources_list:
+        addcmd += f"{file} "
+        if(file.endswith(".tcl") ):
+            tcl_files_list.append(file)
+    lines.append(f"{addcmd}")
+
+
+
+    lines.append("set_property file_type {VHDL 2008}  [get_files  *.vhd]")
+    lines.append("set_property file_type {SystemVerilog}  [get_files  *.sv]")
+    for file in tcl_files_list:
+        lines.append(f"source  {file}")
     lines.append("")
     lines.append("#******************************************************\n")
 
@@ -176,7 +190,7 @@ def get_project_file_path(project_name_arg:Union[str,None]) ->  Path:
         return project_file_path
     
    
-def get_file_list_for_tool(tool_name: str, project_data: dict,verbose: bool=False) -> List[str]:
+def get_file_list_for_tool(tool_name: str, project_data: dict,verbose: bool=False) -> List[dict]:
    
    
     project_path_raw = Path(project_data["settings"]["project_path"])
@@ -184,22 +198,24 @@ def get_file_list_for_tool(tool_name: str, project_data: dict,verbose: bool=Fals
     project_path_abs = Path(project_path_expanded).resolve()
 
 
-    relative_to_project_path= project_data["sources"]["path"]["realtive_to_project_path"]
 
 
     all_source_files        =  project_data["sources"]["files"]
     tool_source_files= []
     all_source_files:dict
     file_order=1
-    for file_path,tool_list in all_source_files.items():
-        if(tool_name in tool_list):
+    for file_dict in all_source_files:
+        if(tool_name in file_dict and file_dict[tool_name] is True):
+            relative_to_project_path = file_dict.get("relative_to_project_path", False)
+            file_path = file_dict["file"]
             if(relative_to_project_path):
                 file_path = project_path_abs / Path(file_path)
             else:
                 file_path = Path(file_path)
             if verbose: print(f"[i] source file #{file_order}: {str(file_path)} for tool: {tool_name}")
             file_order += 1
-            tool_source_files.append(file_path)
+            file_dict["file"] = str(file_path)
+            tool_source_files.append(file_dict)
     return tool_source_files
 
 
@@ -236,7 +252,7 @@ def vivado(c,project_toml_file=None,verbose=False,step:List[str]=[],clean=False,
 
    
     VIVADO_BUILD_DIR        = WORKING_PATH / VIVADO_SETTING_DICT["build_dir"]
-    SOURCES_LIST            = get_file_list_for_tool(TOOL_NAME, PROJECT_DATA_DICT,verbose)
+    SOURCES_DICT_LIST       = get_file_list_for_tool(TOOL_NAME, PROJECT_DATA_DICT,verbose)
     VIVADO_GEN_PRJ_TCL_PATH = WORKING_PATH / VIVADO_SETTING_DICT["project_tcl"]
     PROJECT_NAME            = VIVADO_SETTING_DICT["project_name"].strip()  # strip spaces just in case
     TOP_MODULE              = VIVADO_SETTING_DICT["top_module"]
@@ -289,10 +305,11 @@ def vivado(c,project_toml_file=None,verbose=False,step:List[str]=[],clean=False,
                     project_name=PROJECT_NAME,
                     part=PART,
                     top_module=TOP_MODULE,
-                    sources=SOURCES_LIST)
+                    sources_dict_list=SOURCES_DICT_LIST)
                 print(f"[i] Creating Vivado project : {VIVADO_GEN_PRJ_TCL_PATH}")
                 with c.cd(str(VIVADO_BUILD_DIR)):
-                    c.run(f"vivado -mode batch -source {VIVADO_GEN_PRJ_TCL_PATH}")
+                    c.run(f"vivado -mode batch -source {VIVADO_GEN_PRJ_TCL_PATH} -notrace")
+
             case "list_runs":
                 print(f"[i] Listing Vivado runs for project: {PROJECT_NAME}")
                 with c.cd(str(VIVADO_BUILD_DIR)):
@@ -370,7 +387,7 @@ def Verilator(c,project=None,step=None,clean=False,SimTargetName=None,flags=None
     
     verilator_settings  = project_data["verilator_settings"]
     build_dir           = Path(working_path ) / verilator_settings["build_dir"]
-    sources_files = get_file_list_for_tool(tool_name, project_data)
+    SOURCES_DICT_LIST = get_file_list_for_tool(tool_name, project_data)
       
     
     # Verify the parameters
@@ -399,8 +416,8 @@ def Verilator(c,project=None,step=None,clean=False,SimTargetName=None,flags=None
                     print(f"[i] Verilator step: {s}",flush=True)
                     print(f"[i] Compiling Verilator sources into: {build_dir}",flush=True)
                     veruilator_sources_file = []
-                    for file in sources_files:
-                        veruilator_sources_file.append(Path(os.path.expandvars(str(file))).resolve())
+                    for file_dict in SOURCES_DICT_LIST:
+                        veruilator_sources_file.append(Path(os.path.expandvars(str(file_dict["file"]))).resolve())
                     sys.stdout.flush()
                     print(f"\n================start of verilator output : build================",flush=True)
                     # Suppress the specific message before importing cocotb.runner
@@ -415,6 +432,9 @@ def Verilator(c,project=None,step=None,clean=False,SimTargetName=None,flags=None
                     defines={}
                     parameters={}
                     log_file = None
+                    includes_paths_list=[]
+                    for _ in verilator_settings["includes_paths"]:
+                        includes_paths_list.append(Path(os.path.expandvars(str(_))).resolve())
                     runner.build(
                             verilog_sources=veruilator_sources_file,
                             hdl_toplevel=f"{top_module}",
@@ -423,6 +443,7 @@ def Verilator(c,project=None,step=None,clean=False,SimTargetName=None,flags=None
                             verbose=False, 
                             build_dir=f"{build_dir}",   
                             defines=defines,  
+                            includes=includes_paths_list,
                             parameters=parameters,
                             log_file=log_file,  # Use default logging
                             build_args=build_args,

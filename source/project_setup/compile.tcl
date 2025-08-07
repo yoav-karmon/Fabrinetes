@@ -21,7 +21,7 @@ set project_file "${path_xpr}"
 open_project $project_file
 puts "================== stage = synthesis =================="
 
-if { $stage == "syn" | $stage == "all" } {
+if { $stage == "syn" | $stage == "all" | $stage == "impl" } {
     puts "(i) preparing synthesis run OPTIONS"
     set more_opts ""
     set run_obj [get_runs $synth_run]
