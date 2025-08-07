@@ -27,6 +27,7 @@ if { $stage == "syn" | $stage == "all" } {
     set run_obj [get_runs $synth_run]
 
 
+
     if { $define_string ne "" } {
         foreach define [split $define_string " "] {
             append more_opts " -verilog_define $define"
@@ -52,18 +53,22 @@ if { $stage == "syn" | $stage == "all" } {
 
 
 
-    set progress     [get_property PROGRESS [get_runs $synth_run]]
-    set need_refresh [get_property NEEDS_REFRESH [get_runs $synth_run]]
-    set status       [get_property STATUS [get_runs $synth_run]]
+    set progress     [get_property PROGRESS $run_obj ]
+    set need_refresh [get_property NEEDS_REFRESH $run_obj ]
+    set status       [get_property STATUS $run_obj ]
     set status_lower [string tolower $status]
 
     puts "(i) $synth_run: $status (PROGRESS: $progress), needs_refresh: $need_refresh"
 
-    if { [string match "*complete*" $status_lower] == 0 || $need_refresh == 1 } {
+    if { [string match "*complete*" $status_lower] == 0 || $need_refresh == 0 } {
         puts "(!) Resetting and launching synthesis run: $synth_run"
+        puts "(!) Current run properties:"
+        puts "======================================================"
+        puts "setting current_run: $synth_run"
+        current_run $run_obj
         reset_runs $synth_run
         launch_runs $synth_run -to_step synth_design -jobs 4
-        wait_on_run [get_runs -filter {IS_SYNTHESIS == TRUE}]
+        wait_on_run $run_obj
        
     } else {
         puts "(!) Skipping $synth_run (STATUS: $status)"
@@ -83,6 +88,7 @@ puts "================== stage = Implementation ============"
 
 if { $stage == "impl" | $stage == "all" } {
     # Implementation
+    set run_obj [get_runs $impl_run]
     set progress     [get_property PROGRESS [get_runs $impl_run]]
     set need_refresh [get_property NEEDS_REFRESH [get_runs $impl_run]]
     set status       [get_property STATUS [get_runs $impl_run]]
@@ -94,15 +100,15 @@ if { $stage == "impl" | $stage == "all" } {
         puts "Resetting and launching implementation run: $impl_run"
         reset_runs $impl_run
         launch_runs $impl_run -to_step write_bitstream -jobs 4
-        wait_on_run [get_runs -filter {IS_IMPLEMENTATION == TRUE}]
+        wait_on_run $run_obj
     } else {
         puts "Skipping $impl_run (STATUS: $status)"
     }
 
 } elseif { $stage == "bit" } {
     puts "Writing bitstream for: $impl_run"
-    write_bitstream -force [get_runs $impl_run]
-    wait_on_run [get_runs -filter {IS_IMPLEMENTATION == TRUE}]
+    write_bitstream -force $run_obj
+    wait_on_run $run_obj
 } else {
     puts "(!) Skipping implementation / bit stage"
 }
@@ -112,10 +118,10 @@ puts ""
 
 puts "(i) Final status report"
 puts "==================== Final run statuses ===================="
-set status       [get_property STATUS [get_runs $synth_run]]
-puts "$synth_run: $status"
-set status       [get_property STATUS [get_runs $impl_run]]
-puts "$impl_run: $status"
+puts "$synth_run status"
+report_property  [get_runs $synth_run]
+puts "$impl_run: status"
+report_property  [get_runs $impl_run]
 puts "============================================================"
 
 puts "(i) tcl script completed."
