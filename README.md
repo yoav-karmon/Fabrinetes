@@ -17,8 +17,16 @@ We focus on:
 - **Multi-container support** via TOML launcher files
 
 ---
+## prerequisite:
 
-## 🧰 Tools & Technologies
+| Tool         | Purpose                                      |
+|--------------|----------------------------------------------|
+| `python`     | 3.10                                         |
+| `docker   `  | Out-of-the-box simulation engine             |
+| `VScode`     | Python-based testbench framework             |
+| `MobaXterm`  | X11 GUI support from Windows hosts           |
+
+## Tools & Technologies
 
 | Tool         | Purpose                                      |
 |--------------|----------------------------------------------|
@@ -32,8 +40,9 @@ We focus on:
 | `MobaXterm`  | X11 GUI support from Windows hosts           |
 
 ---
+## How to:
 
-## 🚀 Key Features
+## Key Features
 
 ✅ Designed for **VS Code** remote containers  
 ✅ Run **Verilator + Cocotb** simulation with one command  
