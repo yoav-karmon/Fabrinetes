@@ -1,0 +1,15 @@
+#make sure you have access to docker:
+sudo code --no-sandbox^C
+sudo groupadd docker 2>/dev/null || true
+sudo usermod -aG docker $USER
+newgrp docker                # refresh groups in the current shell
+     
+
+#build container under Fabrinetes repo
+ykarmon@ykarmon-Z590-UD-AC:~/repos/Fabrinetes$ ./fabrinetes build
+
+
+#run using containers.toml from your repo, point to one of the types of run in the toml file
+ykarmon@ykarmon-Z590-UD-AC:~/repos/phy_project/Fabrinetes$ ../../Fabrinetes/fabrinetes run --name fabrinetes-vscode-no-vivado -f containers.toml
+
+#

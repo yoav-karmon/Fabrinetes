@@ -20,7 +20,6 @@ RUN apt-get update && apt-get install -y \
     git-lfs \
     tcpdump \
     tshark \
-    wireshark \
     verilator \
     python3 \
     python3-pip \
@@ -29,7 +28,6 @@ RUN apt-get update && apt-get install -y \
     tmux \
     htop \
     tree \
-    tabulate \
     jq \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
@@ -53,7 +51,8 @@ RUN pip3 install --break-system-packages \
     pyparsing \
     cocotb \
     scapy \
-    typeguard
+    typeguard \
+    tabulate
 
 
 
