@@ -115,9 +115,14 @@ def run(ctx, file,rm=False,verbose=False,ver=None,name=None, x11=True,usb=False,
     _config_file_path = pathlib.Path(file).resolve()
     RELATIVE_PATH = _config_file_path.parent
     database = toml.load(str(_config_file_path))
-    IMAGE_SETTINGS = database.get("Containers", {}).get(ver, {})
+    if(name not in database["Containers"]):
+        print(f"avialble config setups (use with--name)")
+        for _name in database["Containers"]:
+            print(_name)
+        exit()
+    IMAGE_SETTINGS = database["Containers"][name]
 
-    _image_repository = IMAGE_SETTINGS.get("REPOSITORY", None)
+    _image_repository = IMAGE_SETTINGS["REPOSITORY"]
     _image_tag = IMAGE_SETTINGS.get("TAG", "latest")
     IMAGE_NAME = f"{_image_repository}:{_image_tag}"
 
