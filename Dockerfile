@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y \
     git \
     sudo \
     vim \
+    rsync \
     bash-completion \
     less \
     ca-certificates \
@@ -19,6 +20,7 @@ RUN apt-get update && apt-get install -y \
     x11-apps \
     git-lfs \
     tcpdump \
+    wireshark \
     tshark \
     verilator \
     python3 \

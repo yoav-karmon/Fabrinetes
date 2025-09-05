@@ -103,7 +103,7 @@ def run(ctx, file,rm=False,verbose=False,ver=None,name=None, x11=True,usb=False,
     print("===============================")
     print("")
     print("===============================")
-    ctx.run("docker ps -a", pty=True)
+    ctx.run("docker ps", pty=True)
     print("===============================")
     print("")
 
