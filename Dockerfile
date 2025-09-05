@@ -54,7 +54,9 @@ RUN pip3 install --break-system-packages \
     cocotb \
     scapy \
     typeguard \
-    tabulate
+    tabulate \
+    pcapng
+
 
 
 
