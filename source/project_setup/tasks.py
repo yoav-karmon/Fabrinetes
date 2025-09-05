@@ -207,15 +207,22 @@ def get_file_list_for_tool(tool_name: str, project_data: dict,verbose: bool=Fals
     for file_dict in all_source_files:
         if(tool_name in file_dict and file_dict[tool_name] is True):
             relative_to_project_path = file_dict.get("relative_to_project_path", False)
-            file_path = file_dict["file"]
-            if(relative_to_project_path):
-                file_path = project_path_abs / Path(file_path)
-            else:
-                file_path = Path(file_path)
-            if verbose: print(f"[i] source file #{file_order}: {str(file_path)} for tool: {tool_name}")
-            file_order += 1
-            file_dict["file"] = str(file_path)
-            tool_source_files.append(file_dict)
+            if(not isinstance(file_dict["file"] ,list)):
+                file_dict_copy = file_dict.copy()  # Create a copy to avoid modifying the original
+                file_dict_copy["file"] = []  # Initialize as a list
+                file_dict_copy["file"].append(file_dict["file"])
+
+            for idx, f in enumerate(file_dict_copy["file"]):
+                file_path = file_dict_copy["file"][idx]
+                if(relative_to_project_path):
+                    file_path = project_path_abs / Path(file_path)
+                else:
+                    file_path = Path(file_path)
+                if verbose: print(f"[i] source file #{file_order}: {str(file_path)} for tool: {tool_name}")
+                file_order += 1
+                file_dict_copy["file"] = str(file_path)
+                tool_source_files.append(file_dict_copy)
+           
     return tool_source_files
 
 
