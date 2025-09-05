@@ -198,30 +198,28 @@ def get_file_list_for_tool(tool_name: str, project_data: dict,verbose: bool=Fals
     project_path_abs = Path(project_path_expanded).resolve()
 
 
-
-
-    all_source_files        =  project_data["sources"]["files"]
+    all_source_files        =  project_data["sources"]["files"].copy()
     tool_source_files= []
-    all_source_files:dict
     file_order=1
     for file_dict in all_source_files:
         if(tool_name in file_dict and file_dict[tool_name] is True):
             relative_to_project_path = file_dict.get("relative_to_project_path", False)
             if(not isinstance(file_dict["file"] ,list)):
-                file_dict_copy = file_dict.copy()  # Create a copy to avoid modifying the original
-                file_dict_copy["file"] = []  # Initialize as a list
-                file_dict_copy["file"].append(file_dict["file"])
+                _file= file_dict["file"]
+                file_dict["file"] = []  # Initialize as a list
+                file_dict["file"].append(_file)
 
-            for idx, f in enumerate(file_dict_copy["file"]):
-                file_path = file_dict_copy["file"][idx]
+            for idx in range(len(file_dict["file"])):
+                file_path = file_dict["file"][idx]
                 if(relative_to_project_path):
                     file_path = project_path_abs / Path(file_path)
                 else:
                     file_path = Path(file_path)
                 if verbose: print(f"[i] source file #{file_order}: {str(file_path)} for tool: {tool_name}")
+                _file_dict = file_dict.copy()  # Create a shallow copy of the dictionary
+                _file_dict["file"] = str(file_path)
+                tool_source_files.append(_file_dict)
                 file_order += 1
-                file_dict_copy["file"] = str(file_path)
-                tool_source_files.append(file_dict_copy)
            
     return tool_source_files
 
