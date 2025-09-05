@@ -405,6 +405,7 @@ def Verilator(c,project=None,step=None,clean=False,SimTargetName=None,flags=None
     defines                   = SimTarget.get("defines", {})
     parameters                = SimTarget.get("parameters", {})
     python_file_path          =  Path(working_path ) / SimTarget["python_file"] 
+    test_name                = SimTarget.get("test_name",None)
 
     PYTHONPATH = SimTarget.get("PYTHONPATH", [])
     # PYTHONPATH.append(str(python_file_path.parent.resolve()))  # Add the directory of the Python file
@@ -463,7 +464,9 @@ def Verilator(c,project=None,step=None,clean=False,SimTargetName=None,flags=None
                         runner.test(
                             hdl_toplevel=f"{top_module}",
                             test_module=f"{python_file_path.stem}",  
+                            testcase=test_name,          
                             build_dir=f"{build_dir}",   
+                            test_dir=f"{build_dir}/{SimTargetName}",      # Directory for test outputs
                             waves=True                  # enables dump.vcd
                         )
                         print(f"================end of verilator output : sim================\n",flush=True)
