@@ -1,5 +1,18 @@
 #make sure you have access to docker:
-sudo code --no-sandbox^C
+freash Ubunto 24.04
+
+1. 
+sudo apt update
+sudo apt install python3-pip
+2.
+ sudo apt install python3-invoke
+ sudo apt install python3-toml
+ sudo apt install python3-tomli
+ sudo apt install python3-tabulate
+
+
+ 
+sudo code --no-sandbox
 sudo groupadd docker 2>/dev/null || true
 sudo usermod -aG docker $USER
 newgrp docker                # refresh groups in the current shell
