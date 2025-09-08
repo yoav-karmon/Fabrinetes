@@ -1,4 +1,3 @@
-#make sure you have access to docker:
 freash Ubunto 24.04
 
 1. 
@@ -10,16 +9,48 @@ sudo apt install python3-pip
  sudo apt install python3-tomli
  sudo apt install python3-tabulate
 
+3. run  ./fabrinetes
 
- 
-sudo code --no-sandbox
+should give you help printout.
+
+
+
+4. make sure you have access to docker:
+sudo apt-get update
+sudo apt-get install -y \
+    ca-certificates \
+    curl \
+    gnupg \
+    lsb-release
+
 sudo groupadd docker 2>/dev/null || true
 sudo usermod -aG docker $USER
 newgrp docker                # refresh groups in the current shell
      
 
-#build container under Fabrinetes repo
-ykarmon@ykarmon-Z590-UD-AC:~/repos/Fabrinetes$ ./fabrinetes build
+5. build container under Fabrinetes repo  - go to a folder with  containers.toml file on your repo:
+ 
+ example:
+
+--------------------------------------------------------------------------------
+[Containers.fabrinetes-vscode-Z590-UD-AC]
+REPOSITORY          = "fabrinetes-dev"
+TAG                 = "latest"
+mounts              =[
+"vscode/.vscode-server/:$HOME/.vscode-server",      #<======critical mount!
+"Fabrinetes_init_env.sh:/etc/profile.d/init_env.sh",#<======critical mount!
+"$HOME/.ssh:$HOME/.ssh",                            #<======critical mount!
+"$HOME/repos:$HOME/repos",
+#"$HOME/AMD/Vivado/2021.2:/opt/vivado",
+]
+
+--------------------------------------------------------------------------------
+
+run build :
+
+
+<path back to Fabrinetes reop>/Fabrinetes/fabrinetes build
+
 
 
 #run using containers.toml from your repo, point to one of the types of run in the toml file
