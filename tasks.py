@@ -114,14 +114,19 @@ def run(ctx, file,rm=False,verbose=False,ver=None,name=None, x11=True,usb=False,
     file = os.path.abspath(file)
     _config_file_path = pathlib.Path(file).resolve()
     RELATIVE_PATH = _config_file_path.parent
-    database = toml.load(str(_config_file_path))
+    print("_config_file_path:", _config_file_path)
+    try:
+        database = toml.load(str(_config_file_path))
+    except Exception as e:
+        sys.exit(1)
+        print(f"Error loading toml file '{file}': {e}")
+    
     if(name not in database["Containers"]):
         print(f"avialble config setups (use with--name)")
         for _name in database["Containers"]:
             print(_name)
         exit()
     IMAGE_SETTINGS = database["Containers"][name]
-
     _image_repository = IMAGE_SETTINGS["REPOSITORY"]
     _image_tag = IMAGE_SETTINGS.get("TAG", "latest")
     IMAGE_NAME = f"{_image_repository}:{_image_tag}"
@@ -156,9 +161,13 @@ def run(ctx, file,rm=False,verbose=False,ver=None,name=None, x11=True,usb=False,
     if rm:
         cmd_parts.append("--rm")
     if x11:
-        if(sys.path(X11_path).exists()==False):
+        print(f"X11 support enabled at {X11_path}")
+        X11_path = os.path.expandvars(X11_path)
+        X11_path = pathlib.Path(X11_path)
+        if not X11_path.exists():
             print(f"Error: X11 socket {X11_path} does not exist")
             sys.exit(1)
+        
         
         cmd_parts.append("--net=host")
         cmd_parts.append(f"-e DISPLAY={os.environ['DISPLAY']}")
