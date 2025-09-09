@@ -157,7 +157,7 @@ def run(ctx, file,rm=False,verbose=False,ver=None,name=None, x11=True,usb=False,
     if x11:
         cmd_parts.append("--net=host")
         cmd_parts.append(f"-e DISPLAY={os.environ['DISPLAY']}")
-        cmd_parts.append(f"-e /tmp/.X11-unix:/tmp/.X11-unix")
+        cmd_parts.append(f"-v /mnt/wslg/.X11-unix:/tmp/.X11-unix")
         cmd_parts.append(f"-v {os.environ['HOME']}/.Xauthority:/home/ykarmon/.Xauthority:ro")
        
 
