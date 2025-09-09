@@ -127,6 +127,7 @@ def run(ctx, file,rm=False,verbose=False,ver=None,name=None, x11=True,usb=False,
     IMAGE_NAME = f"{_image_repository}:{_image_tag}"
 
     MOUNTS_LIST = IMAGE_SETTINGS.get("mounts", [])
+    X11_path = IMAGE_SETTINGS.get("X11_path", None)
     _this_file_path = pathlib.Path(__file__).resolve().parent
 
     MOUNTS_LIST.append(f"{_this_file_path}/source/bashrc-root:{os.getenv('HOME')}/.bashrc")
@@ -155,9 +156,13 @@ def run(ctx, file,rm=False,verbose=False,ver=None,name=None, x11=True,usb=False,
     if rm:
         cmd_parts.append("--rm")
     if x11:
+        if(sys.path(X11_path).exists()==False):
+            print(f"Error: X11 socket {X11_path} does not exist")
+            sys.exit(1)
+        
         cmd_parts.append("--net=host")
         cmd_parts.append(f"-e DISPLAY={os.environ['DISPLAY']}")
-        cmd_parts.append(f"-v /mnt/wslg/.X11-unix:/tmp/.X11-unix")
+        cmd_parts.append(f"-v {X11_path}:/tmp/.X11-unix")
         cmd_parts.append(f"-v {os.environ['HOME']}/.Xauthority:/home/ykarmon/.Xauthority:ro")
        
 
