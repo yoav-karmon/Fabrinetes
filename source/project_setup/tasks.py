@@ -143,6 +143,11 @@ def print_task_args(local_vars: dict, REPO_TOP: str, allowed_values: dict[str, L
             if REPO_TOP+"/" in str(value):
                 value = str(value).replace(REPO_TOP+"/", "$REPO_TOP/")
             table.append([key.ljust(max_key_len), value, ""])
+        elif(isinstance(value,dict)):
+            print_str=str(value)
+            if(len(print_str) > 40):
+                print_str=print_str[0:37]+"..."
+            table.append([key.ljust(max_key_len), print_str, ""])
     print(tabulate(table, headers="firstrow", tablefmt="fancy_grid",colalign=("left", "left", "center")))
         
     print(border)
@@ -366,10 +371,11 @@ def verify_sim_target(SimTargetName, verilator_settings)    :
     return SimTargetName
 
 @task
-def Verilator(c,project=None,step=None,clean=False,SimTargetName=None,flags=None):
+def Verilator(c,project=None,step=None,clean=False,SimTargetName=None,flags=None,extra_env=None):
+    extra_env= dict(item.split('=') for item in extra_env.split(',') if '=' in item) if extra_env else {}
     tool_name = "verilator"
 
-    ALLOWED_STEPS = {"step":["sim", "build"]}
+    ALLOWED_STEPS = {"step":["sim", "build"],"extra_env":["DEBUG=1"]}
     
     if isinstance(flags, str):  # Convert single input to list
         flags = [flags]
@@ -404,8 +410,8 @@ def Verilator(c,project=None,step=None,clean=False,SimTargetName=None,flags=None
     build_args                = SimTarget.get("build_args", [])
     defines                   = SimTarget.get("defines", {})
     parameters                = SimTarget.get("parameters", {})
-    python_file_path          =  Path(working_path ) / SimTarget["python_file"] 
-    test_name                = SimTarget.get("test_name",None)
+    python_file_path          = Path(working_path ) / SimTarget["python_file"] 
+    test_name                 = SimTarget.get("test_name",None)
 
     PYTHONPATH = SimTarget.get("PYTHONPATH", [])
     # PYTHONPATH.append(str(python_file_path.parent.resolve()))  # Add the directory of the Python file
@@ -466,6 +472,7 @@ def Verilator(c,project=None,step=None,clean=False,SimTargetName=None,flags=None
                             test_module=f"{python_file_path.stem}",  
                             testcase=test_name,          
                             build_dir=f"{build_dir}",   
+                            extra_env=extra_env,
                             test_dir=f"{build_dir}/{SimTargetName}",      # Directory for test outputs
                             waves=True                  # enables dump.vcd
                         )
