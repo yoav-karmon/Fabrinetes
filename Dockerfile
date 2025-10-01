@@ -22,7 +22,7 @@ RUN apt-get update && apt-get install -y \
     tcpdump \
     wireshark \
     tshark \
-    verilator \
+    verilator=5.020-1 \    
     python3 \
     python3-pip \
     python3-setuptools \
@@ -33,25 +33,23 @@ RUN apt-get update && apt-get install -y \
     jq \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-
-
-# Set up locales
-RUN locale-gen en_US.UTF-8 && update-locale LANG=en_US.UTF-8
-
-# Install libtinfo5 from Ubuntu 22.04
-RUN wget http://security.ubuntu.com/ubuntu/pool/universe/n/ncurses/libtinfo5_6.3-2ubuntu0.1_amd64.deb && \
+    
+    
+    # Set up locales
+    RUN locale-gen en_US.UTF-8 && update-locale LANG=en_US.UTF-8
+    
+    # Install libtinfo5 from Ubuntu 22.04
+    RUN wget http://security.ubuntu.com/ubuntu/pool/universe/n/ncurses/libtinfo5_6.3-2ubuntu0.1_amd64.deb && \
     dpkg -i libtinfo5_6.3-2ubuntu0.1_amd64.deb && \
     rm libtinfo5_6.3-2ubuntu0.1_amd64.deb
-
-
-
-# Install Python packages
-RUN pip3 install --break-system-packages \
+    
+    
+RUN pip3 install --no-cache-dir --break-system-packages \
+    cocotb==1.9.1 \
     invoke \
     toml \
     tomli_w \
     pyparsing \
-    cocotb \
     scapy \
     typeguard \
     tabulate \
