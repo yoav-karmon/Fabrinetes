@@ -176,22 +176,27 @@ def load_project_data(ProjectFilePath):
         working_path =  Path(working_path).resolve()
         return working_path, project_data
 
-def get_project_file_path(project_name_arg:Union[str,None]) ->  Path:
+def get_project_file_path(project_file_arg:Union[str,None]) ->  Path:
     INVOKE_PATH= Path(os.environ["HDLFORGE_ORIG_PATH"] )  
     hdlforge_files = list(INVOKE_PATH.glob("*.hdlforge.toml"))
-    if(project_name_arg==None):
-        if(len(hdlforge_files) == 1):
-            with open(hdlforge_files[0], "rb") as f:
-                projects_dict=tomllib.load(f)
-            project_name_arg=str(projects_dict["settings"]["project_name"])
-            project_file_path = INVOKE_PATH / hdlforge_files[0]
-            return project_file_path
-        else:
-            print("No project file found in the current directory.")
-            print("you may have more then 1 *.hdlforge file in the current directory, please specify the project file using --project <project_name>")
-            exit(1)
+    
+    if(project_file_arg==None):
+        print("Available project files in current directory:")
+        for i, file in enumerate(hdlforge_files):
+            print(f"  [{i+1}] {file.name}")
+        print("")
+        print("Please specify the project file using --project <project_file.hdlforge.toml>")
+        print("Example: hdlforge Verilator --project phy10gbaser.hdlforge.toml --step build --SimTargetName main")
+        exit(1)
     else:
-        project_file_path = Path(str(INVOKE_PATH) + project_name_arg)
+        # Look for the project file in the current directory
+        project_file_path = INVOKE_PATH / project_file_arg
+        if not project_file_path.exists():
+            print(f"Project file not found: {project_file_path}")
+            print("Available project files in current directory:")
+            for i, file in enumerate(hdlforge_files):
+                print(f"  [{i+1}] {file.name}")
+            exit(1)
         return project_file_path
     
    
@@ -229,14 +234,6 @@ def get_file_list_for_tool(tool_name: str, project_data: dict,verbose: bool=Fals
     return tool_source_files
 
 
-def get_and_verify_repo_top(INVOKE_PATH: Path):
-    REPO_TOP = Path(os.environ["REPO_TOP"])  # Fail fast if REPO_TOP is not set
-    INVOKE_PATH= Path(os.environ["HDLFORGE_ORIG_PATH"] )
-    if(REPO_TOP not in INVOKE_PATH.resolve().parents):
-        print(f"[!x!]  REPO_TOP '{REPO_TOP}' is not in the invoke path '{INVOKE_PATH}'")
-        print(f"Please run: update_repo_path")
-        exit(1)
-    return REPO_TOP
 
 def verify_project_file_path(_working_path: Path, REPO_TOP: Path):
     PROJECT_FILES=Path(_working_path)
@@ -247,11 +244,18 @@ def verify_project_file_path(_working_path: Path, REPO_TOP: Path):
     return PROJECT_FILES
 
 def capture_environment_variables(c: invoke.Context):
-    """Capture environment variables set by update_repo_path function"""
-    original_dir = os.environ.get('HDLFORGE_ORIG_PATH', os.getcwd())
+    """Capture environment variables set by update_repo_path function and validate repository environment"""
+    invoked_dir = os.environ.get('HDLFORGE_ORIG_PATH', os.getcwd())
     
     # Run update_repo_path and capture environment variables
-    result = c.run(f"cd {original_dir} && bash -i -c 'source ~/.bashrc && update_repo_path && echo REPO_TOP=$REPO_TOP && echo PATH=$PATH && echo PYTHONPATH=$PYTHONPATH'", hide=True)
+    try:
+        result = c.run(f"cd {invoked_dir} && bash -i -c 'source ~/.bashrc && update_repo_path && env | grep -E \"^(REPO_TOP|PATH|PYTHONPATH)=\"'", hide=True)
+    except Exception as e:
+        print("❌ ERROR: Failed to run update_repo_path")
+        print("   This usually means you're not in a Git repository")
+        print(f"   Current directory: {invoked_dir}")
+        print("   Please run: cd <your_git_repo> && hdlforge <command>")
+        exit(1)
     
     # Parse the captured environment variables
     captured_vars = {}
@@ -268,6 +272,9 @@ def capture_environment_variables(c: invoke.Context):
             pythonpath = line.split('=', 1)[1]
             os.environ['PYTHONPATH'] = pythonpath
             captured_vars['PYTHONPATH'] = pythonpath
+    
+    # Validate repository environment
+    validate_repository_environment(captured_vars, invoked_dir)
     
     # Print captured environment variables nicely
     print("=" * 60)
@@ -295,18 +302,78 @@ def capture_environment_variables(c: invoke.Context):
     
     return captured_vars
 
+def validate_repository_environment(captured_vars: dict, invoked_dir: str):
+    """Validate that we're in a proper repository environment based on update_repo_path results"""
+    
+    # Check if REPO_TOP was captured
+    if 'REPO_TOP' not in captured_vars or not captured_vars['REPO_TOP']:
+        print("❌ ERROR: REPO_TOP not set by update_repo_path")
+        print("   This usually means you're not in a Git repository")
+        print("   Please run: cd <your_git_repo> && hdlforge <command>")
+        exit(1)
+    
+    repo_top = captured_vars['REPO_TOP']
+    repo_top_path = Path(repo_top)
+    invoked_path = Path(invoked_dir)
+    
+    # Validate REPO_TOP directory exists
+    if not repo_top_path.exists():
+        print(f"❌ ERROR: REPO_TOP directory does not exist: {repo_top}")
+        print("   Please check your Git repository structure")
+        exit(1)
+    
+    # Validate REPO_TOP is a Git repository
+    git_dir = repo_top_path / '.git'
+    if not git_dir.exists():
+        print(f"❌ ERROR: REPO_TOP is not a Git repository: {repo_top}")
+        print("   Missing .git directory")
+        exit(1)
+    
+    # Validate current directory is under REPO_TOP
+    try:
+        invoked_resolved = invoked_path.resolve()
+        repo_top_resolved = repo_top_path.resolve()
+        
+        # Check if invoked directory is under REPO_TOP
+        if not str(invoked_resolved).startswith(str(repo_top_resolved)):
+            print(f"❌ ERROR: Current directory is not under REPO_TOP")
+            print(f"   Current directory: {invoked_resolved}")
+            print(f"   REPO_TOP: {repo_top_resolved}")
+            print("   Please run HDLForge commands from within the repository")
+            exit(1)
+            
+    except Exception as e:
+        print(f"❌ ERROR: Failed to validate directory structure: {e}")
+        exit(1)
+    
+    # Validate PATH contains expected repository tools
+    if 'PATH' in captured_vars:
+        path_entries = captured_vars['PATH'].split(':')
+        repo_tools_path = str(repo_top_path / 'tools' / 'tool_box')
+        
+        if repo_tools_path not in path_entries:
+            print(f"⚠️  WARNING: Repository tools not found in PATH")
+            print(f"   Expected: {repo_tools_path}")
+            print("   This may cause issues with HDLForge tools")
+    
+    print("✅ Repository environment validation passed")
+    print(f"   REPO_TOP: {repo_top}")
+    print(f"   Current directory: {invoked_dir}")
+    print(f"   Git repository: ✓")
+    print(f"   Directory structure: ✓")
+
 @task
-def vivado(c,project_toml_file=None,verbose=False,step:List[str]=[],clean=False,run_flow=None):
+def vivado(c,project,verbose=False,step:List[str]=[],clean=False,run_flow=None):
     # Capture environment variables set by update_repo_path
     capture_environment_variables(c)
 
     ALLOWED_STEPS = {"step":["new","list_runs","reset_run", "syn", "impl", "bit"]}
     TOOL_NAME = "vivado"
     SCRIPT_DIR                  = Path("/opt/project_setup")
-    REPO_TOP        = get_and_verify_repo_top(Path(os.environ["HDLFORGE_ORIG_PATH"]))
+    REPO_TOP = Path(os.environ["REPO_TOP"]) 
 
 
-    project_toml_file              = get_project_file_path(project_toml_file)
+    project_toml_file              = get_project_file_path(project)
     WORKING_PATH,PROJECT_DATA_DICT = load_project_data(project_toml_file)
     VIVADO_SETTING_DICT             = PROJECT_DATA_DICT["vivado_settings"]
 
@@ -418,7 +485,7 @@ def verify_sim_target(SimTargetName, verilator_settings)    :
     return SimTargetName
 
 @task
-def Verilator(c,project=None,step=None,clean=False,SimTargetName=None,flags=None,extra_env=None):
+def Verilator(c,project,step=None,clean=False,SimTargetName=None,flags=None,extra_env=None):
     # Capture environment variables set by update_repo_path
     capture_environment_variables(c)
     
@@ -440,7 +507,6 @@ def Verilator(c,project=None,step=None,clean=False,SimTargetName=None,flags=None
     REPO_TOP = Path(os.environ["REPO_TOP"])  # Fail fast if REPO_TOP is not set
     
     project_file_path = get_project_file_path(project)
-    del project
     working_path,project_data = load_project_data(project_file_path)
     
     print_task_args(locals(),str(REPO_TOP),ALLOWED_STEPS)

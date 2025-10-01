@@ -7,14 +7,23 @@ version = "1.0"
 description = "Python-based build system that wraps Verilator and Vivado tools"
 format = "TOML configuration documentation"
 
+[tldr]
+working_directory= "<project_directory_path>"
+project_file = "working_directory/<project_name>.hdlforge.toml"
+verilator = "cd <working_directory> && hdlforge Verilator --project <project_file.hdlforge.toml> --step <build/sim> --SimTargetName <target_name> [--clean] [--extra-env DEBUG=1] [--flags <flags>]"
+vivado = "cd <working_directory> && hdlforge vivado --project <project_file.hdlforge.toml> --step <new/syn/impl/bit/list_runs/reset_run> [--run-flow <flow_name>] [--clean]"
+projects = "cd <working_directory> && hdlforge projects"
+help = "hdlforge help"
+
 [hdlforge]
 description = "Main HDLForge command - Python-based build system wrapper"
 command = "hdlforge"
 subcommands = ["Verilator", "projects", "vivado", "help"]
-command_pattern = "hdlforge <main_tool> <--command_flags_of_tool>"
-command_explanation = "HDLForge follows a consistent pattern: hdlforge <main_tool> <--command_flags_of_tool>"
-command_structure = "Main tool (Verilator/vivado/projects) followed by tool-specific command flags"
+command_pattern = "hdlforge <main_tool> --project <project_file.hdlforge.toml> <--command_flags_of_tool>"
+command_explanation = "HDLForge follows a consistent pattern: hdlforge <main_tool> --project <project_file.hdlforge.toml> <--command_flags_of_tool>"
+command_structure = "Main tool (Verilator/vivado/projects) followed by required --project parameter and tool-specific command flags"
 execution_location = "All commands must be run from the project directory containing the .hdlforge.toml file"
+project_requirement = "All HDLForge commands now require explicit --project <project_file.hdlforge.toml> parameter (no automatic selection)"
 
 [project]
 description = "HDLForge project structure and organization"
@@ -23,6 +32,9 @@ project_toml_file = "<project_name>.hdlforge.toml - Project configuration file l
 project_structure = "The project directory is the top folder where the .hdlforge.toml file is located"
 execution_context = "All HDLForge commands must be run from this project directory"
 project_examples = "Common project names: phy10gbaser, ethernet_core, uart_controller, spi_master"
+project_parameter_requirement = "All HDLForge commands now require explicit --project <project_file.hdlforge.toml> parameter"
+project_parameter_purpose = "Forces explicit project selection, eliminates automatic selection ambiguity"
+project_parameter_examples = "--project phy10gbaser.hdlforge.toml, --project ethernet_core.hdlforge.toml, --project my_project.hdlforge.toml"
 
 [project.settings]
 description = "Basic project settings section in .hdlforge.toml file"
@@ -81,11 +93,11 @@ fileset_assignment = "vivado_fileset - assigns files to specific Vivado filesets
 
 [[hdlforge.command_permutations]]
 description = "Compile SystemVerilog to C++ executable (run from project directory)"
-command = "cd <project_directory> && hdlforge Verilator --step build --SimTargetName <target_name> [--clean] [--extra-env DEBUG=1] [--flags <flags>]"
+command = "cd <project_directory> && hdlforge Verilator --project <project_file.hdlforge.toml> --step build --SimTargetName <target_name> [--clean] [--extra-env DEBUG=1] [--flags <flags>]"
 
 [[hdlforge.command_permutations]]
 description = "Run simulation (requires successful build first, run from project directory)"
-command = "cd <project_directory> && hdlforge Verilator --step sim --SimTargetName <target_name>"
+command = "cd <project_directory> && hdlforge Verilator --project <project_file.hdlforge.toml> --step sim --SimTargetName <target_name>"
 
 [[hdlforge.command_permutations]]
 description = "List available projects"
@@ -97,27 +109,27 @@ command = "hdlforge help"
 
 [[hdlforge.command_permutations]]
 description = "Create new Vivado project (run from project directory)"
-command = "cd <project_directory> && hdlforge vivado --step new --clean"
+command = "cd <project_directory> && hdlforge vivado --project <project_file.hdlforge.toml> --step new --clean"
 
 [[hdlforge.command_permutations]]
 description = "Run Vivado synthesis (run from project directory)"
-command = "cd <project_directory> && hdlforge vivado --step syn --run-flow <flow_name>"
+command = "cd <project_directory> && hdlforge vivado --project <project_file.hdlforge.toml> --step syn --run-flow <flow_name>"
 
 [[hdlforge.command_permutations]]
 description = "Run Vivado implementation (run from project directory)"
-command = "cd <project_directory> && hdlforge vivado --step impl --run-flow <flow_name>"
+command = "cd <project_directory> && hdlforge vivado --project <project_file.hdlforge.toml> --step impl --run-flow <flow_name>"
 
 [[hdlforge.command_permutations]]
 description = "Generate Vivado bitstream (run from project directory)"
-command = "cd <project_directory> && hdlforge vivado --step bit --run-flow <flow_name>"
+command = "cd <project_directory> && hdlforge vivado --project <project_file.hdlforge.toml> --step bit --run-flow <flow_name>"
 
 [[hdlforge.command_permutations]]
 description = "List Vivado runs (run from project directory)"
-command = "cd <project_directory> && hdlforge vivado --step list_runs"
+command = "cd <project_directory> && hdlforge vivado --project <project_file.hdlforge.toml> --step list_runs"
 
 [[hdlforge.command_permutations]]
 description = "Reset Vivado run (run from project directory)"
-command = "cd <project_directory> && hdlforge vivado --step reset_run"
+command = "cd <project_directory> && hdlforge vivado --project <project_file.hdlforge.toml> --step reset_run"
 
 [[hdlforge.command_permutations]]
 description = "Show Verilator help"
@@ -134,17 +146,17 @@ command = "hdlforge projects --help"
 
 [hdlforge.config_file]
 description = "Project configuration file that defines all HDLForge settings"
-filename = "<project_name>.hdlforge.toml"
+filename = "<project_file.hdlforge.toml>"
 location = "Located in the project directory (top folder)"
 purpose = "Defines project settings, source files, tool configurations, and build parameters"
 working_directory = "Directory where we run the command from (same as project directory)"
-project_name = "Placeholder for actual project name (e.g., phy10gbaser, my_project)"
+project_name = "Placeholder for actual project file name (e.g., phy10gbaser.hdlforge.toml, my_project.hdlforge.toml)"
 project_path = "Full project path"
 config_file = "Project configuration file"
 project_examples = "Common project names: phy10gbaser, ethernet_core, uart_controller, spi_master"
 
 [hdlforge.config_file.settings]
-project_name = "Project identifier"
+project_name = "Project file identifier"
 project_path = "Project directory path"
 
 [hdlforge.config_file.verilator_settings]
@@ -239,19 +251,19 @@ example_8 = "sudo ln -s <hdlforge_script> /usr/local/bin/hdlforge"
 [hdlforge.Verilator]
 description = "Simulation and verification builds using Verilator"
 command = "hdlforge Verilator"
-required_params = ["--step", "--SimTargetName"]
+required_params = ["--project", "--step", "--SimTargetName"]
 subcommands = ["build", "sim"]
 
 [hdlforge.Verilator.build]
 description = "Compile SystemVerilog to C++ executable"
-command = "hdlforge Verilator --step build --SimTargetName <target>"
-required_params = ["--SimTargetName"]
+command = "hdlforge Verilator --project <project_file.hdlforge.toml> --step build --SimTargetName <target>"
+required_params = ["--project", "--SimTargetName"]
 optional_params = ["--clean", "--extra-env", "--flags"]
 
 [hdlforge.Verilator.sim]
 description = "Run simulation (requires successful build first)"
-command = "hdlforge Verilator --step sim --SimTargetName <target>"
-required_params = ["--SimTargetName"]
+command = "hdlforge Verilator --project <project_file.hdlforge.toml> --step sim --SimTargetName <target>"
+required_params = ["--project", "--SimTargetName"]
 prerequisite = "Successful build step must be completed first"
 
 [hdlforge.projects]
@@ -270,29 +282,29 @@ command = "hdlforge help"
 [hdlforge.vivado]
 description = "Synthesis and implementation builds using Vivado"
 command = "hdlforge vivado"
-required_params = ["--step"]
+required_params = ["--project", "--step"]
 subcommands = ["new", "syn", "impl", "bit"]
 
 [hdlforge.vivado.new]
 description = "Create new Vivado project"
-command = "hdlforge vivado --step new --clean"
-required_params = ["--step new"]
+command = "hdlforge vivado --project <project_file.hdlforge.toml> --step new --clean"
+required_params = ["--project", "--step new"]
 optional_params = ["--clean"]
 
 [hdlforge.vivado.syn]
 description = "Run synthesis"
-command = "hdlforge vivado --step syn --run-flow <flow>"
-required_params = ["--step syn", "--run-flow"]
+command = "hdlforge vivado --project <project_file.hdlforge.toml> --step syn --run-flow <flow>"
+required_params = ["--project", "--step syn", "--run-flow"]
 
 [hdlforge.vivado.impl]
 description = "Run implementation"
-command = "hdlforge vivado --step impl --run-flow <flow>"
-required_params = ["--step impl", "--run-flow"]
+command = "hdlforge vivado --project <project_file.hdlforge.toml> --step impl --run-flow <flow>"
+required_params = ["--project", "--step impl", "--run-flow"]
 
 [hdlforge.vivado.bit]
 description = "Generate bitstream"
-command = "hdlforge vivado --step bit --run-flow <flow>"
-required_params = ["--step bit", "--run-flow"]
+command = "hdlforge vivado --project <project_file.hdlforge.toml> --step bit --run-flow <flow>"
+required_params = ["--project", "--step bit", "--run-flow"]
 
 [hdlforge.help]
 description = "Show comprehensive HDLForge help"
@@ -315,10 +327,19 @@ step_2 = "Offer specific solution(s) for the first error"
 step_3 = "Ask for permission before proceeding with fixes"
 step_4 = "Do NOT automatically fix errors without user approval"
 
+[error_handling_protocol.missing_project_parameter]
+error_message = "'<tool>' did not receive required positional arguments: 'project'"
+cause = "Missing --project <project_file.hdlforge.toml> parameter in command"
+solution_1 = "Add --project <project_file.hdlforge.toml> to your command"
+solution_2 = "Example: hdlforge Verilator --project phy10gbaser.hdlforge.toml --step build --SimTargetName main"
+solution_3 = "List available projects: hdlforge projects"
+solution_4 = "Check current directory for .hdlforge.toml files to identify project names"
+
 [best_practices]
 practice_1 = "Always run commands from the project directory"
-practice_2 = "Use specific simulation targets: Always specify --SimTargetName parameter"
-practice_3 = "Verify builds: Check for 0 errors and 0 warnings"
-practice_4 = "Manage dependencies: Ensure proper file order in TOML configuration"
-practice_5 = "Clean builds: Use --clean flag when encountering build issues"
-practice_6 = "Global access: hdlforge is available in PATH and can be called from anywhere"
+practice_2 = "Always specify project explicitly: Use --project <project_file.hdlforge.toml> parameter (required)"
+practice_3 = "Use specific simulation targets: Always specify --SimTargetName parameter"
+practice_4 = "Verify builds: Check for 0 errors and 0 warnings"
+practice_5 = "Manage dependencies: Ensure proper file order in TOML configuration"
+practice_6 = "Clean builds: Use --clean flag when encountering build issues"
+practice_7 = "Global access: hdlforge is available in PATH and can be called from anywhere"
