@@ -1,0 +1,267 @@
+# HDLForge Documentation Configuration
+# This file documents HDLForge settings, commands, and best practices
+
+[documentation]
+title = "HDLForge Documentation"
+version = "1.0"
+description = "Python-based build system that wraps Verilator and Vivado tools"
+format = "TOML configuration documentation"
+
+[hdlforge]
+description = "Main HDLForge command - Python-based build system wrapper"
+command = "hdlforge"
+subcommands = ["Verilator", "projects", "vivado", "help"]
+command_pattern = "hdlforge <main_tool> <--command_flags_of_tool>"
+command_explanation = "HDLForge follows a consistent pattern: hdlforge <main_tool> <--command_flags_of_tool>"
+command_structure = "Main tool (Verilator/vivado/projects) followed by tool-specific command flags"
+
+[[hdlforge.command_permutations]]
+description = "Compile SystemVerilog to C++ executable"
+command = "hdlforge Verilator --step build --SimTargetName <target_name> [--clean] [--extra-env DEBUG=1] [--flags <flags>]"
+
+[[hdlforge.command_permutations]]
+description = "Run simulation (requires successful build first)"
+command = "hdlforge Verilator --step sim --SimTargetName <target_name>"
+
+[[hdlforge.command_permutations]]
+description = "List available projects"
+command = "hdlforge projects"
+
+[[hdlforge.command_permutations]]
+description = "Show HDLForge help information"
+command = "hdlforge help"
+
+[[hdlforge.command_permutations]]
+description = "Create new Vivado project"
+command = "hdlforge vivado --step new --clean"
+
+[[hdlforge.command_permutations]]
+description = "Run Vivado synthesis"
+command = "hdlforge vivado --step syn --run-flow <flow_name>"
+
+[[hdlforge.command_permutations]]
+description = "Run Vivado implementation"
+command = "hdlforge vivado --step impl --run-flow <flow_name>"
+
+[[hdlforge.command_permutations]]
+description = "Generate Vivado bitstream"
+command = "hdlforge vivado --step bit --run-flow <flow_name>"
+
+[[hdlforge.command_permutations]]
+description = "List Vivado runs"
+command = "hdlforge vivado --step list_runs"
+
+[[hdlforge.command_permutations]]
+description = "Reset Vivado run"
+command = "hdlforge vivado --step reset_run"
+
+[[hdlforge.command_permutations]]
+description = "Show Verilator help"
+command = "hdlforge Verilator --help"
+
+[[hdlforge.command_permutations]]
+description = "Show Vivado help"
+command = "hdlforge vivado --help"
+
+[[hdlforge.command_permutations]]
+description = "Show projects help"
+command = "hdlforge projects --help"
+
+[hdlforge.path_references]
+note = "This documentation uses dynamic path references"
+repo_top = "Environment variable pointing to FPGA repository root"
+hdlforge_command = "Command available in PATH (no path needed)"
+
+[hdlforge.environment]
+required_variables = [
+    "hdlforge=<command_available_in_path>",
+    "REPO_TOP=<fpga_repository_root>"
+]
+working_directory = "Directory where we run the command from"
+config_file = "<project_name>.hdlforge.toml"
+
+[hdlforge.config_file]
+description = "Project configuration file that defines all HDLForge settings"
+filename = "<project_name>.hdlforge.toml"
+location = "Located in the project directory"
+purpose = "Defines project settings, source files, tool configurations, and build parameters"
+project_name = "Placeholder for actual project name (e.g., phy10gbaser, my_project)"
+project_path = "Full project path"
+config_file = "Project configuration file"
+project_examples = "Common project names: phy10gbaser, ethernet_core, uart_controller, spi_master"
+
+[hdlforge.config_file.settings]
+project_name = "Project identifier"
+project_path = "Project directory path"
+
+[hdlforge.config_file.verilator_settings]
+build_dir = "Build output directory (default: _verilator)"
+includes_paths = "Include directories for Verilator compilation"
+sim_targets = "Simulation target configurations"
+
+[hdlforge.config_file.verilator_settings.sim_targets]
+main = "Default simulation target"
+arp_test = "ARP-specific test target"
+custom_target = "User-defined simulation targets"
+
+[hdlforge.config_file.verilator_settings.sim_targets.target_configuration]
+top_module = "Top-level SystemVerilog module name"
+test_name = "Test case name"
+python_file = "Python test script file"
+build_args = "Verilator compilation arguments"
+defines = "Preprocessor defines"
+parameters = "Module parameters"
+PYTHONPATH = "Python path additions"
+
+[hdlforge.config_file.vivado_settings]
+build_dir = "Vivado build directory (default: _vivado)"
+project_name = "Vivado project name"
+top_module = "Top-level module for synthesis"
+part = "FPGA part number"
+runs_flow = "Build flow configurations"
+
+[hdlforge.config_file.vivado_settings.runs_flow]
+main = "Default build flow"
+custom_flow = "User-defined build flows"
+
+[hdlforge.config_file.vivado_settings.runs_flow.flow_configuration]
+synth = "Synthesis run name"
+impl = "Implementation run names"
+paramaters = "Synthesis parameters"
+defines = "Preprocessor defines"
+
+[hdlforge.config_file.sources]
+files = "Source file definitions"
+relative_to_project_path = "Path resolution method"
+
+[hdlforge.config_file.sources.file_definition]
+file = "Source file path or list of paths"
+verilator = "Include in Verilator builds (true/false)"
+vivado = "Include in Vivado builds (true/false)"
+relative_to_project_path = "Resolve paths relative to project directory"
+vivado_fileset = "Vivado fileset assignment"
+
+[hdlforge.config_file.dependency_management]
+packages = "Core SystemVerilog packages for constants, types, functions"
+interfaces = "Interface definitions (must be included first in compilation)"
+common_modules = "FIFOs, dual-port RAM, watchdog, exception handler"
+build_order = "Controlled by TOML file sections and file dependencies"
+
+[hdlforge.config_file.file_organization]
+sv_common = "SV/COMMON: Packages, interfaces, common modules"
+sv_mac = "SV/MAC: MAC layer modules (transmit, receive, 10G interfaces)"
+sv_network = "SV/NETWORK: Network protocols (ARP, UDP, TCP)"
+sv_interface = "SV/INTERFACE: Configuration interfaces"
+sv_top = "SV/TOP: Top-level modules"
+sv_pcs = "SV/PCS: Physical coding sublayer"
+vhdl_files = "VHDL files: Platform-specific components and GT wizard files"
+
+[hdlforge.config_file.troubleshooting]
+common_issue_1 = "Missing files: Reorder compilation order with dependencies - do NOT add include statements"
+common_issue_2 = "Include statements: Only include interface declarations (include \"interfaces.sv\"), do NOT specify path"
+common_issue_3 = "Dependencies: Files with dependencies must be included in order in project configuration file"
+
+[hdlforge.setup]
+description = "Setting up hdlforge as a global command (if not already in PATH)"
+option_1 = "Add to PATH: export PATH=\$PATH:<hdlforge_directory>"
+option_2 = "Create symlink: ln -s <hdlforge_script> /usr/local/bin/hdlforge"
+option_3 = "Add alias: alias hdlforge='<hdlforge_script>'"
+option_4 = "Copy to system: cp <hdlforge_script> /usr/local/bin/hdlforge"
+note = "If hdlforge is already in PATH, you can call it directly as 'hdlforge'"
+
+[hdlforge.setup_examples]
+example_1 = "# If hdlforge is already in PATH, just call it directly:"
+example_2 = "hdlforge --help"
+example_3 = "hdlforge --list"
+example_4 = ""
+example_5 = "# If NOT in PATH, add to PATH:"
+example_6 = "export PATH=\$PATH:<hdlforge_directory>"
+example_7 = "# Or create symlink:"
+example_8 = "sudo ln -s <hdlforge_script> /usr/local/bin/hdlforge"
+
+[hdlforge.Verilator]
+description = "Simulation and verification builds using Verilator"
+command = "hdlforge Verilator"
+required_params = ["--step", "--SimTargetName"]
+subcommands = ["build", "sim"]
+
+[hdlforge.Verilator.build]
+description = "Compile SystemVerilog to C++ executable"
+command = "hdlforge Verilator --step build --SimTargetName <target>"
+required_params = ["--SimTargetName"]
+optional_params = ["--clean", "--extra-env", "--flags"]
+
+[hdlforge.Verilator.sim]
+description = "Run simulation (requires successful build first)"
+command = "hdlforge Verilator --step sim --SimTargetName <target>"
+required_params = ["--SimTargetName"]
+prerequisite = "Successful build step must be completed first"
+
+[hdlforge.projects]
+description = "Project management tasks"
+command = "hdlforge projects"
+subcommands = ["list", "help"]
+
+[hdlforge.projects.list]
+description = "List available projects"
+command = "hdlforge projects"
+
+[hdlforge.projects.help]
+description = "Show HDLForge help information"
+command = "hdlforge help"
+
+[hdlforge.vivado]
+description = "Synthesis and implementation builds using Vivado"
+command = "hdlforge vivado"
+required_params = ["--step"]
+subcommands = ["new", "syn", "impl", "bit"]
+
+[hdlforge.vivado.new]
+description = "Create new Vivado project"
+command = "hdlforge vivado --step new --clean"
+required_params = ["--step new"]
+optional_params = ["--clean"]
+
+[hdlforge.vivado.syn]
+description = "Run synthesis"
+command = "hdlforge vivado --step syn --run-flow <flow>"
+required_params = ["--step syn", "--run-flow"]
+
+[hdlforge.vivado.impl]
+description = "Run implementation"
+command = "hdlforge vivado --step impl --run-flow <flow>"
+required_params = ["--step impl", "--run-flow"]
+
+[hdlforge.vivado.bit]
+description = "Generate bitstream"
+command = "hdlforge vivado --step bit --run-flow <flow>"
+required_params = ["--step bit", "--run-flow"]
+
+[hdlforge.help]
+description = "Show comprehensive HDLForge help"
+command = "hdlforge help"
+
+
+[file_organization]
+sv_common = "SV/COMMON: Packages, interfaces, common modules"
+sv_mac = "SV/MAC: MAC layer modules (transmit, receive, 10G interfaces)"
+sv_network = "SV/NETWORK: Network protocols (ARP, UDP, TCP)"
+sv_interface = "SV/INTERFACE: Configuration interfaces"
+sv_top = "SV/TOP: Top-level modules"
+sv_pcs = "SV/PCS: Physical coding sublayer"
+vhdl_files = "VHDL files: Platform-specific components and GT wizard files"
+
+
+[error_handling_protocol]
+step_1 = "Analyze the first error encountered"
+step_2 = "Offer specific solution(s) for the first error"
+step_3 = "Ask for permission before proceeding with fixes"
+step_4 = "Do NOT automatically fix errors without user approval"
+
+[best_practices]
+practice_1 = "Always run commands from the project directory"
+practice_2 = "Use specific simulation targets: Always specify --SimTargetName parameter"
+practice_3 = "Verify builds: Check for 0 errors and 0 warnings"
+practice_4 = "Manage dependencies: Ensure proper file order in TOML configuration"
+practice_5 = "Clean builds: Use --clean flag when encountering build issues"
+practice_6 = "Global access: hdlforge is available in PATH and can be called from anywhere"
