@@ -265,6 +265,7 @@ description = "Run simulation (requires successful build first)"
 command = "hdlforge Verilator --project <project_file.hdlforge.toml> --step sim --SimTargetName <target>"
 required_params = ["--project", "--SimTargetName"]
 prerequisite = "Successful build step must be completed first"
+sim_output_location = "Simulation output will be located at <verilator_settings.build_dir>/<sim target name>"
 
 [hdlforge.projects]
 description = "Project management tasks"
