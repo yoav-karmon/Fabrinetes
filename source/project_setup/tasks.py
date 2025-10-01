@@ -234,7 +234,7 @@ def get_and_verify_repo_top(INVOKE_PATH: Path):
     INVOKE_PATH= Path(os.environ["HDLFORGE_ORIG_PATH"] )
     if(REPO_TOP not in INVOKE_PATH.resolve().parents):
         print(f"[!x!]  REPO_TOP '{REPO_TOP}' is not in the invoke path '{INVOKE_PATH}'")
-        print(f"Please run: update_repo_top")
+        print(f"Please run: update_repo_path")
         exit(1)
     return REPO_TOP
 
@@ -242,39 +242,63 @@ def verify_project_file_path(_working_path: Path, REPO_TOP: Path):
     PROJECT_FILES=Path(_working_path)
     if not str(PROJECT_FILES.resolve()).startswith(str(REPO_TOP.resolve())):
         print(f"[!x!]  PROJECT_FILES path '{PROJECT_FILES}' is not under REPO_TOP '{REPO_TOP}'")
-        print(f"Please run: update_repo_top")
+        print(f"Please run: update_repo_path")
         exit(1)
     return PROJECT_FILES
 
+def capture_environment_variables(c: invoke.Context):
+    """Capture environment variables set by update_repo_path function"""
+    original_dir = os.environ.get('HDLFORGE_ORIG_PATH', os.getcwd())
+    
+    # Run update_repo_path and capture environment variables
+    result = c.run(f"cd {original_dir} && bash -i -c 'source ~/.bashrc && update_repo_path && echo REPO_TOP=$REPO_TOP && echo PATH=$PATH && echo PYTHONPATH=$PYTHONPATH'", hide=True)
+    
+    # Parse the captured environment variables
+    captured_vars = {}
+    for line in result.stdout.split('\n'):
+        if line.startswith('REPO_TOP='):
+            repo_top = line.split('=', 1)[1]
+            os.environ['REPO_TOP'] = repo_top
+            captured_vars['REPO_TOP'] = repo_top
+        elif line.startswith('PATH='):
+            path = line.split('=', 1)[1]
+            os.environ['PATH'] = path
+            captured_vars['PATH'] = path
+        elif line.startswith('PYTHONPATH='):
+            pythonpath = line.split('=', 1)[1]
+            os.environ['PYTHONPATH'] = pythonpath
+            captured_vars['PYTHONPATH'] = pythonpath
+    
+    # Print captured environment variables nicely
+    print("=" * 60)
+    print("ENVIRONMENT VARIABLES SET BY update_repo_path:")
+    print("=" * 60)
+    for var_name, var_value in captured_vars.items():
+        if var_name == 'PATH':
+            # Show PATH entries on separate lines for readability
+            path_entries = var_value.split(':')
+            print(f"{var_name}:")
+            for i, entry in enumerate(path_entries):
+                print(f"  [{i+1}] {entry}")
+        elif var_name == 'PYTHONPATH':
+            # Show PYTHONPATH entries on separate lines for readability
+            pythonpath_entries = var_value.split(':') if var_value else []
+            print(f"{var_name}:")
+            if pythonpath_entries:
+                for i, entry in enumerate(pythonpath_entries):
+                    print(f"  [{i+1}] {entry}")
+            else:
+                print("  (empty)")
+        else:
+            print(f"{var_name}: {var_value}")
+    print("=" * 60)
+    
+    return captured_vars
+
 @task
 def vivado(c,project_toml_file=None,verbose=False,step:List[str]=[],clean=False,run_flow=None):
-    """
-    Vivado FPGA Development Tasks
-    
-    Manages Xilinx Vivado projects for FPGA synthesis, implementation, and bitstream generation.
-    
-    Parameters:
-        project_toml_file: Path to project configuration file (*.hdlforge.toml)
-                          If None, auto-detects from current directory
-        verbose: Enable verbose output for debugging
-        step: List of build steps to execute. Available steps:
-              - "new": Create new Vivado project
-              - "list_runs": List available synthesis/implementation runs
-              - "reset_run": Reset a specific run
-              - "syn": Run synthesis only
-              - "impl": Run implementation only  
-              - "bit": Generate bitstream
-        clean: Clean build directory before running (removes existing project)
-        run_flow: Specify which run flow configuration to use from project file
-    
-    Examples:
-        hdlforge vivado --step new --clean
-        hdlforge vivado --step syn --run-flow default
-        hdlforge vivado --step impl --run-flow optimized
-        hdlforge vivado --step bit --verbose
-        hdlforge vivado --list-runs
-    """
-   
+    # Capture environment variables set by update_repo_path
+    capture_environment_variables(c)
 
     ALLOWED_STEPS = {"step":["new","list_runs","reset_run", "syn", "impl", "bit"]}
     TOOL_NAME = "vivado"
@@ -398,30 +422,9 @@ def verify_sim_target(SimTargetName, verilator_settings)    :
 
 @task
 def Verilator(c,project=None,step=None,clean=False,SimTargetName=None,flags=None,extra_env=None):
-    """
-    Verilator Simulation Tasks
+    # Capture environment variables set by update_repo_path
+    capture_environment_variables(c)
     
-    Compiles and runs Verilog/SystemVerilog simulations using Verilator and cocotb.
-    
-    Parameters:
-        project: Project configuration file (*.hdlforge.toml)
-                 If None, auto-detects from current directory
-        step: Simulation steps to execute. Available steps:
-              - "build": Compile Verilator simulation
-              - "sim": Run simulation with cocotb testbench
-        clean: Clean build directory before running
-        SimTargetName: Specific simulation target from project configuration
-                      If None, uses first available target
-        flags: Additional Verilator compilation flags
-        extra_env: Extra environment variables for simulation (format: "KEY1=value1,KEY2=value2")
-    
-    Examples:
-        hdlforge Verilator --step build --SimTargetName basic_test
-        hdlforge Verilator --step sim --clean
-        hdlforge Verilator --step build --flags "-Wall"
-        hdlforge Verilator --step sim --extra-env "DEBUG=1,TIMEOUT=1000"
-        hdlforge Verilator --step build --step sim --SimTargetName regression_test
-    """
     extra_env= dict(item.split('=') for item in extra_env.split(',') if '=' in item) if extra_env else {}
     tool_name = "verilator"
 
@@ -548,17 +551,76 @@ def Verilator(c,project=None,step=None,clean=False,SimTargetName=None,flags=None
 
 @task
 def projects(c,set_project=None):
-    """
-    Project Management Tasks
-    
-    Manages HDL project configurations and settings.
-    
-    Parameters:
-        set_project: Set the active project configuration
-                     If None, lists available projects in current directory
-    
-    Examples:
-        hdlforge projects
-        hdlforge projects --set-project my_fpga_project
-    """
     projects=get_project_file_path(None)
+
+
+@task
+def help(c):
+    """
+    Show HDLForge help information
+    
+    This task provides comprehensive help for HDLForge usage.
+    """
+    print("=" * 80)
+    print("HDLFORGE - Hardware Description Language Development Tool")
+    print("=" * 80)
+    print()
+    print("DESCRIPTION:")
+    print("  HDLForge is a unified command-line tool for FPGA development workflows.")
+    print("  It provides seamless integration between Vivado synthesis and Verilator simulation.")
+    print()
+    print("AVAILABLE TASKS:")
+    print()
+    
+    tasks_info = [
+        ("vivado", "FPGA Development Tasks", [
+            "Create and manage Xilinx Vivado projects",
+            "Run synthesis, implementation, and bitstream generation",
+            "Supports multiple build flows and configurations"
+        ]),
+        ("Verilator", "Simulation Tasks", [
+            "Compile and run Verilog/SystemVerilog simulations",
+            "Uses Verilator compiler with cocotb testbenches",
+            "Supports multiple simulation targets and environments"
+        ]),
+        ("projects", "Project Management", [
+            "Manage HDL project configurations",
+            "Set active project and list available projects"
+        ])
+    ]
+    
+    for task_name, description, features in tasks_info:
+        print(f"  {task_name:<12} - {description}")
+        for feature in features:
+            print(f"    • {feature}")
+        print()
+    
+    print("QUICK START:")
+    print("  1. Set up your project: hdlforge projects")
+    print("  2. Create Vivado project: hdlforge vivado --step new --clean")
+    print("  3. Run synthesis: hdlforge vivado --step syn --run-flow default")
+    print("  4. Run simulation: hdlforge Verilator --step build --step sim")
+    print()
+    print("GETTING HELP:")
+    print("  hdlforge help                    # Show this help")
+    print("  hdlforge --help <task_name>       # Get detailed help for specific task")
+    print("  hdlforge --list                   # List all available tasks")
+    print()
+    print("PROJECT CONFIGURATION:")
+    print("  Projects are configured using *.hdlforge.toml files in your working directory.")
+    print("  The tool automatically detects project files or you can specify them explicitly.")
+    print()
+    print("DOCUMENTATION:")
+    print("  • HDLForge_Documentation.toml - Comprehensive documentation and examples")
+    print("  • Contains detailed command structures, build processes, and best practices")
+    print("  • Includes troubleshooting guides and configuration examples")
+    print()
+    print("ENVIRONMENT REQUIREMENTS:")
+    print("  • REPO_TOP environment variable must be set")
+    print("  • Vivado installation (for FPGA tasks)")
+    print("  • Verilator installation (for simulation tasks)")
+    print("  • Python packages: invoke, cocotb, tabulate")
+    print()
+    print("=" * 80)
+
+
