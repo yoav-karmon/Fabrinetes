@@ -67,24 +67,13 @@ command = "hdlforge vivado --help"
 description = "Show projects help"
 command = "hdlforge projects --help"
 
-[hdlforge.path_references]
-note = "This documentation uses dynamic path references"
-repo_top = "Environment variable pointing to FPGA repository root"
-hdlforge_command = "Command available in PATH (no path needed)"
-
-[hdlforge.environment]
-required_variables = [
-    "hdlforge=<command_available_in_path>",
-    "REPO_TOP=<fpga_repository_root>"
-]
-working_directory = "Directory where we run the command from"
-config_file = "<project_name>.hdlforge.toml"
 
 [hdlforge.config_file]
 description = "Project configuration file that defines all HDLForge settings"
 filename = "<project_name>.hdlforge.toml"
 location = "Located in the project directory"
 purpose = "Defines project settings, source files, tool configurations, and build parameters"
+working_directory = "Directory where we run the command from"
 project_name = "Placeholder for actual project name (e.g., phy10gbaser, my_project)"
 project_path = "Full project path"
 config_file = "Project configuration file"
@@ -163,6 +152,10 @@ common_issue_3 = "Dependencies: Files with dependencies must be included in orde
 
 [hdlforge.setup]
 description = "Setting up hdlforge as a global command (if not already in PATH)"
+required_variables = [
+    "hdlforge=<command_available_in_path>",
+    "REPO_TOP=<fpga_repository_root>"
+]
 option_1 = "Add to PATH: export PATH=\$PATH:<hdlforge_directory>"
 option_2 = "Create symlink: ln -s <hdlforge_script> /usr/local/bin/hdlforge"
 option_3 = "Add alias: alias hdlforge='<hdlforge_script>'"
