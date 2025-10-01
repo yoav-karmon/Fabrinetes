@@ -47,6 +47,7 @@ update_repo_path() {
 }
 
 update_repo_path
+export BROWSER=/opt/firefox/firefox
 
 # Git prompt helper (optional)
 parse_git_branch() {

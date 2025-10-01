@@ -248,6 +248,32 @@ def verify_project_file_path(_working_path: Path, REPO_TOP: Path):
 
 @task
 def vivado(c,project_toml_file=None,verbose=False,step:List[str]=[],clean=False,run_flow=None):
+    """
+    Vivado FPGA Development Tasks
+    
+    Manages Xilinx Vivado projects for FPGA synthesis, implementation, and bitstream generation.
+    
+    Parameters:
+        project_toml_file: Path to project configuration file (*.hdlforge.toml)
+                          If None, auto-detects from current directory
+        verbose: Enable verbose output for debugging
+        step: List of build steps to execute. Available steps:
+              - "new": Create new Vivado project
+              - "list_runs": List available synthesis/implementation runs
+              - "reset_run": Reset a specific run
+              - "syn": Run synthesis only
+              - "impl": Run implementation only  
+              - "bit": Generate bitstream
+        clean: Clean build directory before running (removes existing project)
+        run_flow: Specify which run flow configuration to use from project file
+    
+    Examples:
+        hdlforge vivado --step new --clean
+        hdlforge vivado --step syn --run-flow default
+        hdlforge vivado --step impl --run-flow optimized
+        hdlforge vivado --step bit --verbose
+        hdlforge vivado --list-runs
+    """
    
 
     ALLOWED_STEPS = {"step":["new","list_runs","reset_run", "syn", "impl", "bit"]}
@@ -372,6 +398,30 @@ def verify_sim_target(SimTargetName, verilator_settings)    :
 
 @task
 def Verilator(c,project=None,step=None,clean=False,SimTargetName=None,flags=None,extra_env=None):
+    """
+    Verilator Simulation Tasks
+    
+    Compiles and runs Verilog/SystemVerilog simulations using Verilator and cocotb.
+    
+    Parameters:
+        project: Project configuration file (*.hdlforge.toml)
+                 If None, auto-detects from current directory
+        step: Simulation steps to execute. Available steps:
+              - "build": Compile Verilator simulation
+              - "sim": Run simulation with cocotb testbench
+        clean: Clean build directory before running
+        SimTargetName: Specific simulation target from project configuration
+                      If None, uses first available target
+        flags: Additional Verilator compilation flags
+        extra_env: Extra environment variables for simulation (format: "KEY1=value1,KEY2=value2")
+    
+    Examples:
+        hdlforge Verilator --step build --SimTargetName basic_test
+        hdlforge Verilator --step sim --clean
+        hdlforge Verilator --step build --flags "-Wall"
+        hdlforge Verilator --step sim --extra-env "DEBUG=1,TIMEOUT=1000"
+        hdlforge Verilator --step build --step sim --SimTargetName regression_test
+    """
     extra_env= dict(item.split('=') for item in extra_env.split(',') if '=' in item) if extra_env else {}
     tool_name = "verilator"
 
@@ -447,6 +497,17 @@ def Verilator(c,project=None,step=None,clean=False,SimTargetName=None,flags=None
                     includes_paths_list=[]
                     for _ in verilator_settings["includes_paths"]:
                         includes_paths_list.append(Path(os.path.expandvars(str(_))).resolve())
+                    # Add warning suppression flags to build_args
+                    warning_suppression_args = [
+                        "-Wno-WIDTHTRUNC",
+                        "-Wno-WIDTHEXPAND", 
+                        "-Wno-ASCRANGE"
+                        # "-Wno-MULTIDRIVEN",
+                        # "-Wno-CASEINCOMPLETE",
+                        # "-Wno-BLKANDNBLK"
+                    ]
+                    combined_build_args = build_args + warning_suppression_args
+                    
                     runner.build(
                             verilog_sources=veruilator_sources_file,
                             hdl_toplevel=f"{top_module}",
@@ -458,7 +519,7 @@ def Verilator(c,project=None,step=None,clean=False,SimTargetName=None,flags=None
                             includes=includes_paths_list,
                             parameters=parameters,
                             log_file=log_file,  # Use default logging
-                            build_args=build_args,
+                            build_args=combined_build_args,
                             clean=clean   # force rebuild
                         )
                     print(f"================end of verilator output : build================\n",flush=True)
@@ -487,4 +548,17 @@ def Verilator(c,project=None,step=None,clean=False,SimTargetName=None,flags=None
 
 @task
 def projects(c,set_project=None):
+    """
+    Project Management Tasks
+    
+    Manages HDL project configurations and settings.
+    
+    Parameters:
+        set_project: Set the active project configuration
+                     If None, lists available projects in current directory
+    
+    Examples:
+        hdlforge projects
+        hdlforge projects --set-project my_fpga_project
+    """
     projects=get_project_file_path(None)
