@@ -409,11 +409,8 @@ def vivado(c,project_toml_file=None,verbose=False,step:List[str]=[],clean=False,
    
 def verify_sim_target(SimTargetName, verilator_settings)    :
     if SimTargetName is None:
-            sim_targets_dic = verilator_settings["sim_targets"]
-            # Get the first value in sim_targets
-            SimTargetName = next(iter(sim_targets_dic.keys()))
-            print(f"[i] Using first SimTargetName: {SimTargetName}")  
-            return SimTargetName    
+        print(f"Available SimTargetNames: {', '.join(verilator_settings['sim_targets'].keys())}")
+        exit(f"[!x!]  SimTargetName must be specified. Use --SimTargetName <target_name>")
     elif(SimTargetName not in verilator_settings["sim_targets"]):
         print(f"Available SimTargetNames: {', '.join(verilator_settings['sim_targets'].keys())}")
         exit(f"[!x!]  SimTargetName '{SimTargetName}' not found in verilator_settings['sim_targets']")
@@ -527,9 +524,9 @@ def Verilator(c,project=None,step=None,clean=False,SimTargetName=None,flags=None
                         )
                     print(f"================end of verilator output : build================\n",flush=True)
                     print(f"[+] Verilator build completed",flush=True)
-                    print(f"[i] Verilator simulation started:",flush=True)
                     
                     if(s=="sim"):  
+                        print(f"[i] Verilator simulation started:",flush=True)
                         print(f"\n================start of verilator output : sim================",flush=True)  
                         runner.test(
                             hdl_toplevel=f"{top_module}",
