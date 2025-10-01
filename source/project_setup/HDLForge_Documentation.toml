@@ -14,14 +14,78 @@ subcommands = ["Verilator", "projects", "vivado", "help"]
 command_pattern = "hdlforge <main_tool> <--command_flags_of_tool>"
 command_explanation = "HDLForge follows a consistent pattern: hdlforge <main_tool> <--command_flags_of_tool>"
 command_structure = "Main tool (Verilator/vivado/projects) followed by tool-specific command flags"
+execution_location = "All commands must be run from the project directory containing the .hdlforge.toml file"
+
+[project]
+description = "HDLForge project structure and organization"
+project_directory = "Top-level folder containing the project configuration file"
+project_toml_file = "<project_name>.hdlforge.toml - Project configuration file located in the project directory"
+project_structure = "The project directory is the top folder where the .hdlforge.toml file is located"
+execution_context = "All HDLForge commands must be run from this project directory"
+project_examples = "Common project names: phy10gbaser, ethernet_core, uart_controller, spi_master"
+
+[project.settings]
+description = "Basic project settings section in .hdlforge.toml file"
+example_file = "Based on phy10gbaser.hdlforge.toml example"
+project_name = "Project identifier (e.g., phy10gbaser)"
+project_path = "Project directory path using REPO_TOP environment variable (e.g., $REPO_TOP/fpga_projects/phy10gbaser)"
+build_directories = "Tool-specific build directories: _verilator (Verilator), _vivado (Vivado)"
+source_organization = "Sources organized in subdirectories: SV/COMMON, SV/MAC, SV/NETWORK, SV/INTERFACE, SV/TOP, SV/PCS, PY"
+
+[project.sim_targets]
+main = "Default simulation target with top_module, test_name, python_file, build_args"
+arp_test = "ARP-specific test target with same configuration as main but different test_name"
+custom_targets = "User-defined simulation targets with specific configurations"
+
+[project.source_files]
+verilator_sources = "SystemVerilog files for Verilator simulation (SV/COMMON, SV/MAC, SV/NETWORK, SV/INTERFACE, SV/TOP, SV/PCS)"
+vivado_sources = "SystemVerilog and VHDL files for Vivado synthesis (includes platform-specific components)"
+constraint_files = "XDC constraint files assigned to specific Vivado filesets"
+python_tests = "Python test files for cocotb-based verification"
+
+[project.verilator_settings]
+description = "Verilator-specific configuration section in .hdlforge.toml"
+example_file = "Based on phy10gbaser.hdlforge.toml verilator_settings section"
+build_dir = "Build output directory (default: _verilator)"
+includes_paths = "Include directories for Verilator compilation (e.g., SV/COMMON)"
+sim_targets = "Simulation target configurations with specific parameters"
+
+[project.verilator_settings.sim_targets]
+description = "Simulation targets configuration within verilator_settings"
+main_target = "Default simulation target: top_module, test_name, python_file, build_args, defines, parameters"
+arp_test_target = "ARP-specific test target with same configuration as main but different test_name"
+custom_targets = "User-defined simulation targets with specific configurations"
+
+[project.vivado_settings]
+description = "Vivado-specific configuration section in .hdlforge.toml"
+example_file = "Based on phy10gbaser.hdlforge.toml vivado_settings section"
+build_dir = "Vivado build directory (default: _vivado)"
+project_name = "Vivado project name (can differ from HDLForge project name)"
+top_module = "Top-level module for synthesis (e.g., raven_top)"
+part = "FPGA part number (e.g., xcvu9p-flgb2104-3-e)"
+runs_flow = "Build flow configurations for synthesis and implementation"
+
+[project.vivado_settings.runs_flow]
+description = "Build flow configurations within vivado_settings"
+main_flow = "Default build flow: synth, impl, paramaters, defines"
+debug_flow = "Debug build flow with different synthesis and implementation runs"
+custom_flows = "User-defined build flows with specific configurations"
+
+[project.sources]
+description = "Source file definitions section in .hdlforge.toml"
+example_file = "Based on phy10gbaser.hdlforge.toml sources.files sections"
+file_entries = "Multiple [[sources.files]] entries defining different file groups"
+tool_flags = "verilator=true/false, vivado=true/false - determines which tools include the files"
+relative_paths = "relative_to_project_path=true - paths relative to project directory"
+fileset_assignment = "vivado_fileset - assigns files to specific Vivado filesets"
 
 [[hdlforge.command_permutations]]
-description = "Compile SystemVerilog to C++ executable"
-command = "hdlforge Verilator --step build --SimTargetName <target_name> [--clean] [--extra-env DEBUG=1] [--flags <flags>]"
+description = "Compile SystemVerilog to C++ executable (run from project directory)"
+command = "cd <project_directory> && hdlforge Verilator --step build --SimTargetName <target_name> [--clean] [--extra-env DEBUG=1] [--flags <flags>]"
 
 [[hdlforge.command_permutations]]
-description = "Run simulation (requires successful build first)"
-command = "hdlforge Verilator --step sim --SimTargetName <target_name>"
+description = "Run simulation (requires successful build first, run from project directory)"
+command = "cd <project_directory> && hdlforge Verilator --step sim --SimTargetName <target_name>"
 
 [[hdlforge.command_permutations]]
 description = "List available projects"
@@ -32,28 +96,28 @@ description = "Show HDLForge help information"
 command = "hdlforge help"
 
 [[hdlforge.command_permutations]]
-description = "Create new Vivado project"
-command = "hdlforge vivado --step new --clean"
+description = "Create new Vivado project (run from project directory)"
+command = "cd <project_directory> && hdlforge vivado --step new --clean"
 
 [[hdlforge.command_permutations]]
-description = "Run Vivado synthesis"
-command = "hdlforge vivado --step syn --run-flow <flow_name>"
+description = "Run Vivado synthesis (run from project directory)"
+command = "cd <project_directory> && hdlforge vivado --step syn --run-flow <flow_name>"
 
 [[hdlforge.command_permutations]]
-description = "Run Vivado implementation"
-command = "hdlforge vivado --step impl --run-flow <flow_name>"
+description = "Run Vivado implementation (run from project directory)"
+command = "cd <project_directory> && hdlforge vivado --step impl --run-flow <flow_name>"
 
 [[hdlforge.command_permutations]]
-description = "Generate Vivado bitstream"
-command = "hdlforge vivado --step bit --run-flow <flow_name>"
+description = "Generate Vivado bitstream (run from project directory)"
+command = "cd <project_directory> && hdlforge vivado --step bit --run-flow <flow_name>"
 
 [[hdlforge.command_permutations]]
-description = "List Vivado runs"
-command = "hdlforge vivado --step list_runs"
+description = "List Vivado runs (run from project directory)"
+command = "cd <project_directory> && hdlforge vivado --step list_runs"
 
 [[hdlforge.command_permutations]]
-description = "Reset Vivado run"
-command = "hdlforge vivado --step reset_run"
+description = "Reset Vivado run (run from project directory)"
+command = "cd <project_directory> && hdlforge vivado --step reset_run"
 
 [[hdlforge.command_permutations]]
 description = "Show Verilator help"
@@ -71,9 +135,9 @@ command = "hdlforge projects --help"
 [hdlforge.config_file]
 description = "Project configuration file that defines all HDLForge settings"
 filename = "<project_name>.hdlforge.toml"
-location = "Located in the project directory"
+location = "Located in the project directory (top folder)"
 purpose = "Defines project settings, source files, tool configurations, and build parameters"
-working_directory = "Directory where we run the command from"
+working_directory = "Directory where we run the command from (same as project directory)"
 project_name = "Placeholder for actual project name (e.g., phy10gbaser, my_project)"
 project_path = "Full project path"
 config_file = "Project configuration file"
