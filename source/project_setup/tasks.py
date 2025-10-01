@@ -302,6 +302,69 @@ def capture_environment_variables(c: invoke.Context):
     
     return captured_vars
 
+def convert_vcd_to_csv(c: invoke.Context, vcd_file_path: Path, csv_file_path: Path) -> bool:
+    """
+    Convert VCD (Value Change Dump) file to CSV format using command line tool.
+    
+    Args:
+        c: Invoke context for running commands
+        vcd_file_path: Path to the input VCD file
+        csv_file_path: Path to the output CSV file
+        
+    Returns:
+        bool: True if conversion successful, False otherwise
+    """
+    try:
+        print(f"[i] Converting VCD to CSV: {vcd_file_path} -> {csv_file_path}")
+        
+        if not vcd_file_path.exists():
+            print(f"[!x!] VCD file not found: {vcd_file_path}")
+            return False
+        
+        # Create output directory if it doesn't exist
+        csv_file_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Try different VCD to CSV conversion tools
+        conversion_tools = [
+            # Try vcd2csv if available
+            f"vcd2csv {vcd_file_path} {csv_file_path}",
+            # Try gtkwave with export functionality
+            f"gtkwave --vcd {vcd_file_path} --export {csv_file_path}",
+            # Try custom vcd_to_csv script if available
+            f"vcd_to_csv {vcd_file_path} {csv_file_path}",
+            # Fallback: use awk/sed for basic conversion
+            f"awk '/^\\$var/ {{print $4}}' {vcd_file_path} | head -20 > {csv_file_path}.tmp && echo 'time,' > {csv_file_path} && cat {csv_file_path}.tmp >> {csv_file_path} && rm {csv_file_path}.tmp"
+        ]
+        
+        conversion_successful = False
+        for tool_cmd in conversion_tools:
+            try:
+                print(f"[i] Trying conversion tool: {tool_cmd.split()[0]}")
+                result = c.run(tool_cmd, hide=True, warn=True)
+                if result.exited == 0 and csv_file_path.exists():
+                    print(f"[+] VCD to CSV conversion completed using: {tool_cmd.split()[0]}")
+                    conversion_successful = True
+                    break
+                else:
+                    print(f"[i] Tool {tool_cmd.split()[0]} not available or failed")
+            except Exception as e:
+                print(f"[i] Tool {tool_cmd.split()[0]} failed: {e}")
+                continue
+        
+        if not conversion_successful:
+            print(f"[!x!] No suitable VCD to CSV conversion tool found")
+            print(f"[i] Available tools to install:")
+            print(f"  - vcd2csv: pip install vcd2csv")
+            print(f"  - gtkwave: sudo apt-get install gtkwave")
+            print(f"  - Custom vcd_to_csv script")
+            return False
+        
+        return True
+        
+    except Exception as e:
+        print(f"[!x!] VCD to CSV conversion failed: {e}")
+        return False
+
 def validate_repository_environment(captured_vars: dict, invoked_dir: str):
     """Validate that we're in a proper repository environment based on update_repo_path results"""
     
@@ -605,6 +668,20 @@ def Verilator(c,project,step=None,clean=False,SimTargetName=None,flags=None,extr
                         )
                         print(f"================end of verilator output : sim================\n",flush=True)
                         print(f"[i] Verilator simulation completed",flush=True)
+                        
+                        # Convert VCD to CSV after simulation
+                        vcd_file_path = build_dir / SimTargetName / "dump.vcd"
+                        csv_file_path = build_dir / SimTargetName / "dump.csv"
+                        
+                        if vcd_file_path.exists():
+                            print(f"[i] Found VCD file: {vcd_file_path}")
+                            if convert_vcd_to_csv(c, vcd_file_path, csv_file_path):
+                                print(f"[+] VCD to CSV conversion successful: {csv_file_path}")
+                            else:
+                                print(f"[!x!] VCD to CSV conversion failed")
+                        else:
+                            print(f"[!x!] VCD file not found: {vcd_file_path}")
+                            print(f"[i] Simulation may not have generated VCD file (waves=True required)")
                     else:
                         print(f"[i] Skipping Verilator simulation",flush=True)
                         

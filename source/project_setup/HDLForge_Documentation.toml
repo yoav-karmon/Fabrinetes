@@ -266,6 +266,8 @@ command = "hdlforge Verilator --project <project_file.hdlforge.toml> --step sim 
 required_params = ["--project", "--SimTargetName"]
 prerequisite = "Successful build step must be completed first"
 sim_output_location = "Simulation output will be located at <verilator_settings.build_dir>/<sim target name>"
+vcd_to_csv_conversion = "Automatically converts dump.vcd to dump.csv after simulation completion"
+vcd_csv_output = "VCD file: build_dir/SimTargetName/dump.vcd, CSV file: build_dir/SimTargetName/dump.csv"
 
 [hdlforge.projects]
 description = "Project management tasks"
