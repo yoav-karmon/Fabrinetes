@@ -7,6 +7,24 @@ version = "1.0"
 description = "Python-based build system that wraps Verilator and Vivado tools"
 format = "TOML configuration documentation"
 
+[hdlforge.file_locations]
+description = "HDLForge file locations and installation paths"
+installed_files_location = "Installed HDLForge files are located in: /opt/project_setup/"
+repository_files_location = "Repository files for editing are located in: /home/ykarmon/repo/Fabrinetes/source/project_setup/"
+editing_note = "DO NOT edit the installed files directly - edit the repository files and reinstall"
+installation_process = "Changes to repository files require reinstallation to update the installed files"
+script_location = "Main HDLForge script: tasks.py (in repository) -> installed to system PATH"
+config_location = "HDLForge_Documentation.toml: repository documentation file (not installed)"
+
+[hdlforge.development_workflow]
+description = "Development workflow for modifying HDLForge"
+step_1 = "Edit files in repository: /path/to/repo/Fabrinetes/source/project_setup/"
+step_2 = "Test changes locally in repository directory"
+step_3 = "Commit changes to Git repository"
+step_4 = "Reinstall HDLForge to update system-installed files"
+step_5 = "Verify changes work in installed version"
+warning = "Never edit files in /opt/project_setup/ or /usr/local/bin/ directly"
+
 [tldr]
 working_directory= "<project_directory_path>"
 project_file = "working_directory/<project_name>.hdlforge.toml"
@@ -31,65 +49,59 @@ project_directory = "Top-level folder containing the project configuration file"
 project_toml_file = "<project_name>.hdlforge.toml - Project configuration file located in the project directory"
 project_structure = "The project directory is the top folder where the .hdlforge.toml file is located"
 execution_context = "All HDLForge commands must be run from this project directory"
-project_examples = "Common project names: phy10gbaser, ethernet_core, uart_controller, spi_master"
+project_examples = "Generic project naming patterns: <domain>_<function> (e.g., network_router, memory_controller, comm_uart)"
 project_parameter_requirement = "All HDLForge commands now require explicit --project <project_file.hdlforge.toml> parameter"
 project_parameter_purpose = "Forces explicit project selection, eliminates automatic selection ambiguity"
-project_parameter_examples = "--project phy10gbaser.hdlforge.toml, --project ethernet_core.hdlforge.toml, --project my_project.hdlforge.toml"
+project_parameter_examples = "--project <project_name>.hdlforge.toml, --project <another_project>.hdlforge.toml, --project <custom_project>.hdlforge.toml"
 
 [project.settings]
-description = "Basic project settings section in .hdlforge.toml file"
-example_file = "Based on phy10gbaser.hdlforge.toml example"
-project_name = "Project identifier (e.g., phy10gbaser)"
-project_path = "Project directory path using REPO_TOP environment variable (e.g., $REPO_TOP/fpga_projects/phy10gbaser)"
+description = "Defines basic project metadata and directory structure for HDLForge"
+purpose = "Establishes project identity, location, and organizational structure"
+example_file = "Generic project configuration template showing basic structure"
+project_name = "Unique project identifier that distinguishes this project from others"
+project_path = "Project directory path using REPO_TOP environment variable (e.g., $REPO_TOP/projects/<project_name>)"
 build_directories = "Tool-specific build directories: _verilator (Verilator), _vivado (Vivado)"
-source_organization = "Sources organized in subdirectories: SV/COMMON, SV/MAC, SV/NETWORK, SV/INTERFACE, SV/TOP, SV/PCS, PY"
+source_organization = "Sources organized in logical subdirectories by functionality and design hierarchy"
 
 [project.sim_targets]
-main = "Default simulation target with top_module, test_name, python_file, build_args"
-arp_test = "ARP-specific test target with same configuration as main but different test_name"
-custom_targets = "User-defined simulation targets with specific configurations"
+main = "Default simulation target configuration with standard test parameters"
+test_variants = "Alternative test configurations with different parameters or test cases"
+custom_targets = "User-defined simulation targets with specific configurations for different scenarios"
 
 [project.source_files]
-verilator_sources = "SystemVerilog files for Verilator simulation (SV/COMMON, SV/MAC, SV/NETWORK, SV/INTERFACE, SV/TOP, SV/PCS)"
-vivado_sources = "SystemVerilog and VHDL files for Vivado synthesis (includes platform-specific components)"
-constraint_files = "XDC constraint files assigned to specific Vivado filesets"
-python_tests = "Python test files for cocotb-based verification"
+verilator_sources = "SystemVerilog files organized by design hierarchy for Verilator simulation"
+vivado_sources = "SystemVerilog and VHDL files for Vivado synthesis including platform-specific components"
+constraint_files = "XDC constraint files assigned to specific Vivado filesets for timing and pin constraints"
+python_tests = "Python test files for cocotb-based verification and testbench automation"
 
 [project.verilator_settings]
-description = "Verilator-specific configuration section in .hdlforge.toml"
-example_file = "Based on phy10gbaser.hdlforge.toml verilator_settings section"
-build_dir = "Build output directory (default: _verilator)"
-includes_paths = "Include directories for Verilator compilation (e.g., SV/COMMON)"
-sim_targets = "Simulation target configurations with specific parameters"
+description = "Configures Verilator simulation environment and build parameters"
+purpose = "Defines how SystemVerilog code is compiled and simulated using Verilator"
+example_file = "Generic Verilator configuration template showing simulation setup"
+build_dir = "Build output directory where Verilator generates C++ simulation code (default: _verilator)"
+includes_paths = "Include directories for Verilator compilation containing shared headers and interfaces"
+sim_targets = "Simulation target configurations defining different test scenarios and parameters"
 
-[project.verilator_settings.sim_targets]
-description = "Simulation targets configuration within verilator_settings"
-main_target = "Default simulation target: top_module, test_name, python_file, build_args, defines, parameters"
-arp_test_target = "ARP-specific test target with same configuration as main but different test_name"
-custom_targets = "User-defined simulation targets with specific configurations"
 
 [project.vivado_settings]
-description = "Vivado-specific configuration section in .hdlforge.toml"
-example_file = "Based on phy10gbaser.hdlforge.toml vivado_settings section"
-build_dir = "Vivado build directory (default: _vivado)"
+description = "Configures Vivado synthesis and implementation environment"
+purpose = "Defines how HDL code is synthesized and implemented for FPGA targets"
+example_file = "Generic Vivado configuration template showing synthesis and implementation setup"
+build_dir = "Vivado build directory where project files and build artifacts are stored (default: _vivado)"
 project_name = "Vivado project name (can differ from HDLForge project name)"
-top_module = "Top-level module for synthesis (e.g., raven_top)"
-part = "FPGA part number (e.g., xcvu9p-flgb2104-3-e)"
+top_module = "Top-level module name for synthesis and implementation"
+part = "Target FPGA part number specifying device family, package, and speed grade"
 runs_flow = "Build flow configurations for synthesis and implementation"
 
-[project.vivado_settings.runs_flow]
-description = "Build flow configurations within vivado_settings"
-main_flow = "Default build flow: synth, impl, paramaters, defines"
-debug_flow = "Debug build flow with different synthesis and implementation runs"
-custom_flows = "User-defined build flows with specific configurations"
 
 [project.sources]
-description = "Source file definitions section in .hdlforge.toml"
-example_file = "Based on phy10gbaser.hdlforge.toml sources.files sections"
-file_entries = "Multiple [[sources.files]] entries defining different file groups"
-tool_flags = "verilator=true/false, vivado=true/false - determines which tools include the files"
-relative_paths = "relative_to_project_path=true - paths relative to project directory"
-fileset_assignment = "vivado_fileset - assigns files to specific Vivado filesets"
+description = "Defines source files and their organization for different build tools"
+purpose = "Specifies which files are used by which tools and how they are organized"
+example_file = "Generic source file configuration template showing file organization"
+file_entries = "Multiple [[sources.files]] entries organizing source files by tool usage and functionality"
+tool_flags = "Tool inclusion flags (verilator/vivado) determining which build tools process each file group"
+relative_paths = "Path resolution method: relative_to_project_path=true makes paths relative to project directory"
+fileset_assignment = "Vivado fileset assignment for organizing files into logical groups for synthesis"
 
 [[hdlforge.command_permutations]]
 description = "Compile SystemVerilog to C++ executable (run from project directory)"
@@ -150,24 +162,21 @@ filename = "<project_file.hdlforge.toml>"
 location = "Located in the project directory (top folder)"
 purpose = "Defines project settings, source files, tool configurations, and build parameters"
 working_directory = "Directory where we run the command from (same as project directory)"
-project_name = "Placeholder for actual project file name (e.g., phy10gbaser.hdlforge.toml, my_project.hdlforge.toml)"
-project_path = "Full project path"
 config_file = "Project configuration file"
-project_examples = "Common project names: phy10gbaser, ethernet_core, uart_controller, spi_master"
 
 [hdlforge.config_file.settings]
 project_name = "Project file identifier"
 project_path = "Project directory path"
 
 [hdlforge.config_file.verilator_settings]
+description = "Verilator-specific configuration section in .hdlforge.toml"
 build_dir = "Build output directory (default: _verilator)"
 includes_paths = "Include directories for Verilator compilation"
-sim_targets = "Simulation target configurations"
 
 [hdlforge.config_file.verilator_settings.sim_targets]
-main = "Default simulation target"
-arp_test = "ARP-specific test target"
-custom_target = "User-defined simulation targets"
+main = "Default simulation target with standard configuration"
+test_variants = "Alternative test configurations for different scenarios"
+custom_target = "User-defined simulation targets with specific requirements"
 
 [hdlforge.config_file.verilator_settings.sim_targets.target_configuration]
 top_module = "Top-level SystemVerilog module name"
@@ -183,7 +192,6 @@ build_dir = "Vivado build directory (default: _vivado)"
 project_name = "Vivado project name"
 top_module = "Top-level module for synthesis"
 part = "FPGA part number"
-runs_flow = "Build flow configurations"
 
 [hdlforge.config_file.vivado_settings.runs_flow]
 main = "Default build flow"
@@ -213,13 +221,12 @@ common_modules = "FIFOs, dual-port RAM, watchdog, exception handler"
 build_order = "Controlled by TOML file sections and file dependencies"
 
 [hdlforge.config_file.file_organization]
-sv_common = "SV/COMMON: Packages, interfaces, common modules"
-sv_mac = "SV/MAC: MAC layer modules (transmit, receive, 10G interfaces)"
-sv_network = "SV/NETWORK: Network protocols (ARP, UDP, TCP)"
-sv_interface = "SV/INTERFACE: Configuration interfaces"
-sv_top = "SV/TOP: Top-level modules"
-sv_pcs = "SV/PCS: Physical coding sublayer"
-vhdl_files = "VHDL files: Platform-specific components and GT wizard files"
+sv_common = "Common SystemVerilog files: packages, interfaces, shared modules"
+sv_functional = "Functional SystemVerilog modules: protocol implementations, data processing"
+sv_interface = "Interface SystemVerilog files: configuration, control, communication"
+sv_top = "Top-level SystemVerilog modules: system integration and hierarchy"
+sv_platform = "Platform-specific SystemVerilog files: hardware abstraction"
+vhdl_files = "VHDL files: platform-specific components, IP cores, generated files"
 
 [hdlforge.config_file.troubleshooting]
 common_issue_1 = "Missing files: Reorder compilation order with dependencies - do NOT add include statements"
@@ -232,7 +239,7 @@ required_variables = [
     "hdlforge=<command_available_in_path>",
     "REPO_TOP=<fpga_repository_root>"
 ]
-option_1 = "Add to PATH: export PATH=\$PATH:<hdlforge_directory>"
+option_1 = "Add to PATH: export PATH=$PATH:<hdlforge_directory>"
 option_2 = "Create symlink: ln -s <hdlforge_script> /usr/local/bin/hdlforge"
 option_3 = "Add alias: alias hdlforge='<hdlforge_script>'"
 option_4 = "Copy to system: cp <hdlforge_script> /usr/local/bin/hdlforge"
@@ -244,7 +251,7 @@ example_2 = "hdlforge --help"
 example_3 = "hdlforge --list"
 example_4 = ""
 example_5 = "# If NOT in PATH, add to PATH:"
-example_6 = "export PATH=\$PATH:<hdlforge_directory>"
+example_6 = "export PATH=$PATH:<hdlforge_directory>"
 example_7 = "# Or create symlink:"
 example_8 = "sudo ln -s <hdlforge_script> /usr/local/bin/hdlforge"
 
@@ -314,14 +321,6 @@ description = "Show comprehensive HDLForge help"
 command = "hdlforge help"
 
 
-[file_organization]
-sv_common = "SV/COMMON: Packages, interfaces, common modules"
-sv_mac = "SV/MAC: MAC layer modules (transmit, receive, 10G interfaces)"
-sv_network = "SV/NETWORK: Network protocols (ARP, UDP, TCP)"
-sv_interface = "SV/INTERFACE: Configuration interfaces"
-sv_top = "SV/TOP: Top-level modules"
-sv_pcs = "SV/PCS: Physical coding sublayer"
-vhdl_files = "VHDL files: Platform-specific components and GT wizard files"
 
 
 [error_handling_protocol]
@@ -334,7 +333,7 @@ step_4 = "Do NOT automatically fix errors without user approval"
 error_message = "'<tool>' did not receive required positional arguments: 'project'"
 cause = "Missing --project <project_file.hdlforge.toml> parameter in command"
 solution_1 = "Add --project <project_file.hdlforge.toml> to your command"
-solution_2 = "Example: hdlforge Verilator --project phy10gbaser.hdlforge.toml --step build --SimTargetName main"
+solution_2 = "Example: hdlforge Verilator --project <project_name>.hdlforge.toml --step build --SimTargetName main"
 solution_3 = "List available projects: hdlforge projects"
 solution_4 = "Check current directory for .hdlforge.toml files to identify project names"
 
