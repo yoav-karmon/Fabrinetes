@@ -626,16 +626,8 @@ def Verilator(c,project,step=None,clean=False,SimTargetName=None,flags=None,extr
                     includes_paths_list=[]
                     for _ in verilator_settings["includes_paths"]:
                         includes_paths_list.append(Path(os.path.expandvars(str(_))).resolve())
-                    # Add warning suppression flags to build_args
-                    warning_suppression_args = [
-                        "-Wno-WIDTHTRUNC",
-                        "-Wno-WIDTHEXPAND", 
-                        "-Wno-ASCRANGE"
-                        # "-Wno-MULTIDRIVEN",
-                        # "-Wno-CASEINCOMPLETE",
-                        # "-Wno-BLKANDNBLK"
-                    ]
-                    combined_build_args = build_args + warning_suppression_args
+                    # Use only the build_args from project configuration
+                    combined_build_args = build_args
                     
                     runner.build(
                             verilog_sources=veruilator_sources_file,
@@ -669,16 +661,13 @@ def Verilator(c,project,step=None,clean=False,SimTargetName=None,flags=None,extr
                         print(f"================end of verilator output : sim================\n",flush=True)
                         print(f"[i] Verilator simulation completed",flush=True)
                         
-                        # Convert VCD to CSV after simulation
+                        # VCD to CSV conversion disabled to prevent hanging
                         vcd_file_path = build_dir / SimTargetName / "dump.vcd"
                         csv_file_path = build_dir / SimTargetName / "dump.csv"
                         
                         if vcd_file_path.exists():
                             print(f"[i] Found VCD file: {vcd_file_path}")
-                            if convert_vcd_to_csv(c, vcd_file_path, csv_file_path):
-                                print(f"[+] VCD to CSV conversion successful: {csv_file_path}")
-                            else:
-                                print(f"[!x!] VCD to CSV conversion failed")
+                            print(f"[i] VCD to CSV conversion disabled to prevent hanging")
                         else:
                             print(f"[!x!] VCD file not found: {vcd_file_path}")
                             print(f"[i] Simulation may not have generated VCD file (waves=True required)")
