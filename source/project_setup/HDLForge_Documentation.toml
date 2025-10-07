@@ -273,8 +273,40 @@ command = "hdlforge Verilator --project <project_file.hdlforge.toml> --step sim 
 required_params = ["--project", "--SimTargetName"]
 prerequisite = "Successful build step must be completed first"
 sim_output_location = "Simulation output will be located at <verilator_settings.build_dir>/<sim target name>"
-vcd_to_csv_conversion = "Automatically converts dump.vcd to dump.csv after simulation completion"
-vcd_csv_output = "VCD file: build_dir/SimTargetName/dump.vcd, CSV file: build_dir/SimTargetName/dump.csv"
+test_folder_creation = "Creates test-specific folder named after SimTargetName for organized output storage"
+test_folder_structure = "Each SimTargetName gets its own subdirectory within the build directory"
+vcd_output = "VCD file: build_dir/SimTargetName/dump.vcd"
+
+[hdlforge.Verilator.output_organization]
+description = "How Verilator builds and simulations organize their output files and logs"
+build_outputs = "Verilator build artifacts are stored in the build directory specified by verilator_settings.build_dir"
+test_specific_folders = "Each simulation target (SimTargetName) gets its own subdirectory for test-specific outputs"
+folder_naming = "Test folders are named exactly after the SimTargetName parameter used in the command"
+multiple_tests = "Multiple simulation targets can coexist, each with their own organized output directory"
+
+[hdlforge.Verilator.output_organization.directory_structure]
+build_dir = "Main build directory (default: _verilator) containing all Verilator outputs"
+test_subdirs = "Subdirectories named after each SimTargetName containing test-specific files"
+example_structure = "project_dir/_verilator/main/ (for SimTargetName=main) and project_dir/_verilator/test_variant/ (for SimTargetName=test_variant)"
+
+[hdlforge.Verilator.output_organization.log_files]
+hdlforge_main_log = "All HDLForge command output is logged to /opt/project_setup/logs/hdlforge_YYYYMMDD_pidXXXXX.log"
+verilator_build_logs = "Verilator-specific build logs are managed by cocotb runner within the build directory"
+console_output = "Real-time output appears on console with clear start/end delimiters for build and simulation phases"
+log_capture = "All console output is automatically captured and saved to the main HDLForge log file"
+
+[hdlforge.Verilator.output_organization.test_outputs]
+vcd_files = "Waveform files (dump.vcd) are saved in the test-specific subdirectory"
+cocotb_files = "All files created by cocotb runner are automatically saved in the test-specific subdirectory"
+simulation_artifacts = "All simulation-specific outputs are organized within the test subdirectory"
+test_isolation = "Each test target maintains its own isolated output directory preventing cross-contamination"
+
+[hdlforge.Verilator.output_organization.cocotb_file_management]
+description = "How cocotb runner manages and organizes files within test-specific directories"
+test_dir_parameter = "cocotb runner.test() uses test_dir parameter set to build_dir/SimTargetName for file organization"
+automatic_file_placement = "All cocotb-generated files are automatically placed in the test-specific subdirectory"
+file_types = "Includes simulation logs, test results, debug outputs, and any files created by Python test scripts"
+directory_isolation = "Each SimTargetName gets its own isolated directory preventing file conflicts between different test targets"
 
 [hdlforge.projects]
 description = "Project management tasks"
