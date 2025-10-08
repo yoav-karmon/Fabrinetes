@@ -5,6 +5,7 @@ LOG_DIR="$TASKS_DIR/_log"
 LOGFILE="$LOG_DIR/fabrinetes_$(date +%Y-%m-%d).log"
 
 export HDLFORGE_ORIG_PATH="$(pwd)"
+export FABRINETES_CALLED="true"
 
 # Validate that we're running from the correct location
 if [[ ! -d "$TASKS_DIR/source" || ! -d "$TASKS_DIR/containers" ]]; then
@@ -40,10 +41,26 @@ else
         if [[ "$*" == *"--dry-run"* ]]; then
             echo "[$(date '+%Y-%m-%d %H:%M:%S')] \$ invoke -c tasks build --repo=$2 --dry-run" >> "$LOGFILE"
             invoke -c tasks build --repo="$2" --dry-run | tee -a "$LOGFILE"
+        # Check if --export flag is present
+        elif [[ "$*" == *"--export"* ]]; then
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] \$ invoke -c tasks build --repo=$2 --export" >> "$LOGFILE"
+            invoke -c tasks build --repo="$2" --export | tee -a "$LOGFILE"
         else
             echo "[$(date '+%Y-%m-%d %H:%M:%S')] \$ invoke -c tasks build --repo=$2" >> "$LOGFILE"
             invoke -c tasks build --repo="$2" | tee -a "$LOGFILE"
         fi
+    # Handle restore command
+    elif [[ "$1" == "restore" && -n "$2" ]]; then
+        repo_name="$2"
+        shift  # Remove 'restore' from arguments
+        shift  # Remove repository name from arguments
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] \$ invoke -c tasks restore --repo=$repo_name $*" >> "$LOGFILE"
+        invoke -c tasks restore --repo="$repo_name" "$@" | tee -a "$LOGFILE"
+    # Handle commit command
+    elif [[ "$1" == "commit" ]]; then
+        shift  # Remove 'commit' from arguments
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] \$ invoke -c tasks commit $*" >> "$LOGFILE"
+        invoke -c tasks commit "$@" | tee -a "$LOGFILE"
     # Handle exec command
     elif [[ "$1" == "exec" ]]; then
         shift  # Remove 'exec' from arguments
