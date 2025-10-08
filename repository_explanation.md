@@ -17,20 +17,30 @@ Fabrinetes includes a sophisticated PATH management system that automatically co
 
 ```
 Fabrinetes/
-├── containers/                    # Docker container definitions
-│   ├── fabrinetes-dev/           # Full FPGA development environment
-│   │   └── Dockerfile            # Complete FPGA toolchain
-│   └── fabrinetes-dev-testing/   # Lightweight testing environment
-│       └── Dockerfile            # Minimal testing setup
-├── source/                       # Container configuration files
-│   ├── bashrc-root              # Root user bash configuration
-│   └── project_setup/           # HDL development tools and scripts
-├── _log/                        # Log files directory
-├── fabrinetes                   # Main wrapper script
-├── fabrinetes.config           # Container configuration (TOML)
-├── tasks.py                     # Python invoke tasks
-├── PATH_MANAGEMENT.md          # PATH management documentation
-└── README.md                    # Project documentation
+├── containers/                           # Docker container definitions
+│   ├── fabrinetes-dev/                  # Full FPGA development environment
+│   │   ├── Dockerfile                   # Complete FPGA toolchain
+│   │   ├── Fabrinetes_init_env.sh       # Environment initialization
+│   │   └── config/
+│   │       └── fabrinetes.config        # Container-specific config
+│   ├── fabrinetes-dev-testing/          # Lightweight testing environment
+│   │   ├── Dockerfile                   # Minimal testing setup
+│   │   ├── Fabrinetes_init_env.sh       # Environment initialization
+│   │   └── config/
+│   │       └── fabrinetes.config        # Container-specific config
+│   └── fabrinetes-fpga-full/           # Full FPGA development with GUI
+│       ├── Fabrinetes_init_env.sh       # Environment initialization
+│       └── config/
+│           └── fabrinetes.config        # Container-specific config
+├── source/                              # Container configuration files
+│   ├── bashrc-root                      # Root user bash configuration
+│   └── project_setup/                   # HDL development tools and scripts
+├── _log/                               # Log files directory
+├── fabrinetes                          # Main wrapper script
+├── fabrinetes.config                   # Master container configuration (TOML)
+├── tasks.py                            # Python invoke tasks
+├── repository_explanation.md           # Repository documentation
+└── README.md                           # Project documentation
 ```
 
 ## Key Components
@@ -44,10 +54,11 @@ Fabrinetes/
 
 ### 2. Configuration System (`fabrinetes.config`)
 - **TOML format** for easy editing
-- **Container definitions** with `[container.<name>]` sections
+- **Master configuration** with all container definitions
+- **Individual container configs** in `containers/*/config/` directories
 - **Mount specifications** using `$HOME` variables
 - **Environment variables** support
-- **Multiple container types** (dev, testing, etc.)
+- **Self-contained containers** with local `Fabrinetes_init_env.sh` files
 
 ### 3. Task Automation (`tasks.py`)
 - **Invoke-based** task runner
@@ -59,22 +70,41 @@ Fabrinetes/
 ### 4. Container Definitions
 - **fabrinetes-dev**: Full FPGA development with Vivado, tools
 - **fabrinetes-dev-testing**: Lightweight testing environment
+- **fabrinetes-fpga-full**: Complete FPGA development with GUI support
+- **Self-contained**: Each container has its own config and init files
 - **User mapping**: Host user matches container user
 - **Volume mounts**: Repository and tool access
 
 ## Configuration Format
 
+### Master Configuration (`fabrinetes.config`)
 ```toml
 [container.fabrinetes-dev]
 TAG = "latest"
 mounts = ["$HOME/AMD/Vivado/2021.2:/opt/vivado", "$HOME/repo:/root/repos"]
-init_env = "/home/ykarmon/repo/phy_project/Fabrinetes_init_env.sh"
+init_env = "Fabrinetes_init_env.sh:/etc/profile.d/init_env.sh"
 
 [container.fabrinetes-dev-testing]
 TAG = "latest"
 mounts = ["$HOME/repo:/root/repos", "/tmp:/tmp"]
-init_env = "/home/ykarmon/repo/phy_project/Fabrinetes_init_env.sh"
+init_env = "Fabrinetes_init_env.sh:/etc/profile.d/init_env.sh"
+
+[container.fabrinetes-fpga-full]
+TAG = "firefox_cocotb_verilator_working"
+X11_path = "/mnt/wslg/.X11-unix"
+mounts = [
+    "vscode/.vscode-server/:$HOME/.vscode-server",
+    "Fabrinetes_init_env.sh:/etc/profile.d/init_env.sh",
+    "$HOME/.ssh:$HOME/.ssh",
+    # ... additional mounts
+]
 ```
+
+### Individual Container Configs
+Each container has its own configuration file in `containers/*/config/fabrinetes.config`:
+- **Self-contained**: No external dependencies
+- **Local init files**: `Fabrinetes_init_env.sh` in each container directory
+- **Portable**: Uses relative paths and `$HOME` variables
 
 ## Usage Examples
 
@@ -126,11 +156,13 @@ The repository includes a sophisticated PATH management system:
 ## Features
 
 - **Multi-container support**: Different environments for different needs
+- **Self-contained containers**: Each container has its own config and init files
 - **Automatic path resolution**: Environment variables and relative paths
 - **Unique naming**: Timestamp-based container names prevent conflicts
 - **Logging**: All operations logged to `_log/` directory
 - **Portable configuration**: Uses `$HOME` variables for cross-system compatibility
 - **Interactive help**: Built-in usage examples and container listing
+- **Modular structure**: Individual container directories for easy maintenance
 
 ## Integration Points
 
