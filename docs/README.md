@@ -23,6 +23,24 @@ SimTargets are a core feature of HDLForge for defining multiple simulation scena
   - Common patterns
   - Troubleshooting tips
 
+- **[SimTargets Architecture](SimTargets_Architecture.md)** - Technical architecture covering:
+  - System components and data flow
+  - Configuration schema
+  - Environment variables
+  - File system layout
+  - Error handling
+  - Integration with Cocotb and Verilator
+  - Performance characteristics
+
+- **[SimTargets Troubleshooting](SimTargets_Troubleshooting.md)** - Troubleshooting guide covering:
+  - Command line issues
+  - Configuration errors
+  - Build failures
+  - Simulation problems
+  - Output issues
+  - Environment problems
+  - Diagnostic commands
+
 ## Additional Documentation
 
 - **[HDLForge Documentation](../source/project_setup/HDLForge_Documentation.toml)** - Complete HDLForge configuration reference
