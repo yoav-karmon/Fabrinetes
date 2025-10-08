@@ -36,8 +36,14 @@ if [[ $# -eq 0 ]]; then
 else
     # Handle build command with repo parameter
     if [[ "$1" == "build" && -n "$2" ]]; then
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] \$ invoke -c tasks build --repo=$2" >> "$LOGFILE"
-        invoke -c tasks build --repo="$2" | tee -a "$LOGFILE"
+        # Check if --dry-run flag is present
+        if [[ "$*" == *"--dry-run"* ]]; then
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] \$ invoke -c tasks build --repo=$2 --dry-run" >> "$LOGFILE"
+            invoke -c tasks build --repo="$2" --dry-run | tee -a "$LOGFILE"
+        else
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] \$ invoke -c tasks build --repo=$2" >> "$LOGFILE"
+            invoke -c tasks build --repo="$2" | tee -a "$LOGFILE"
+        fi
     # Handle exec command
     elif [[ "$1" == "exec" ]]; then
         shift  # Remove 'exec' from arguments

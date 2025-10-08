@@ -177,6 +177,15 @@ Fabrinetes is licensed under the [MIT License](./LICENSE)
 
 ---
 
+## 📚 Documentation
+
+This repository contains additional documentation files:
+
+- **[Testing Guide](./testing_guide.md)** - Comprehensive guide for testing Fabrinetes functionality, including cleanup, build, run, exec, shell, and automated testing procedures
+- **[Repository Explanation](./repository_explanation.md)** - Detailed explanation of the repository structure, container organization, and configuration management
+
+---
+
 ## 🤝 Contributing
 
 We welcome contributions from the FPGA and open-source communities.

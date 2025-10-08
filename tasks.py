@@ -66,7 +66,7 @@ def printlocals(locals_dict,verbose=False):
     print("===============================")
 
 @task
-def build(ctx, repo=None):
+def build(ctx, repo=None, dry_run=False):
     """Build Docker image for the specified repository"""
     
     # Check for missing required arguments
@@ -86,17 +86,31 @@ def build(ctx, repo=None):
         if not os.path.exists(dockerfile_path):
             print(f"Warning: Dockerfile not found for {repo_name} at {dockerfile_path}")
             continue
-            
-        print(f"Building {repo_name}...")
-    ctx.run(
+        
+        # Build the docker command
+        docker_cmd = (
         f"docker build "
         f"--build-arg USERNAME={username} "
         f"--build-arg UID={uid} "
         f"--build-arg GID={gid} "
         f"--build-arg HOME_DIR={home_dir} "
-            f"-t {repo_name}:latest -f {dockerfile_path} containers/{repo_name}/",
-        pty=True,
-    )
+            f"-t {repo_name}:latest -f {dockerfile_path} containers/{repo_name}/"
+        )
+        
+        if dry_run:
+            print(f"[DRY RUN] Would build {repo_name}...")
+            print(f"[DRY RUN] Command: {docker_cmd}")
+            print(f"[DRY RUN] Dockerfile: {dockerfile_path}")
+            print(f"[DRY RUN] Build context: containers/{repo_name}/")
+            print(f"[DRY RUN] Build args:")
+            print(f"  USERNAME={username}")
+            print(f"  UID={uid}")
+            print(f"  GID={gid}")
+            print(f"  HOME_DIR={home_dir}")
+            print(f"[DRY RUN] Target image: {repo_name}:latest")
+        else:
+            print(f"Building {repo_name}...")
+            ctx.run(docker_cmd, pty=True)
 
 def show_command_help(command_name, command_data):
     """Show help for a specific command"""
@@ -177,14 +191,15 @@ COMMAND_HELP = {
         ]
     },
     'build': {
-        'syntax': './fabrinetes build <repository-name>',
+        'syntax': './fabrinetes build <repository-name> [--dry-run]',
         'description': 'Build Docker image for the specified repository',
         'arguments': [
-            ['repository-name', 'Name of the repository to build', 'Yes', 'fabrinetes-dev-testing, fabrinetes-dev, fabrinetes-fpga-full']
+            ['repository-name', 'Name of the repository to build', 'Yes', 'fabrinetes-dev-testing, fabrinetes-dev, fabrinetes-fpga-full'],
+            ['--dry-run', 'Show what would be built without actually building', 'No', 'optional flag']
         ],
         'examples': [
             './fabrinetes build fabrinetes-dev-testing',
-            './fabrinetes build fabrinetes-dev',
+            './fabrinetes build fabrinetes-dev --dry-run',
             './fabrinetes build fabrinetes-fpga-full'
         ]
     },
@@ -291,6 +306,7 @@ def help(ctx):
         ["--usb", "Enable USB device access", "optional flag"],
         ["--ask", "Ask for confirmation before running", "optional flag"],
         ["--verbose", "Show detailed output", "optional flag"],
+        ["--dry-run", "Show what would be built without actually building", "optional flag"],
         ["container-name", "Name of the running container", "From Docker Containers table above"],
         ["command", "Shell command to execute", "Any valid shell command"],
         ["--interactive", "Run command in interactive mode", "optional flag"]
@@ -371,7 +387,7 @@ def list(ctx):
 @task
 def run(ctx, file=None,rm=False,verbose=False,ver=None,name=None, x11=True,usb=False,ask=True):
     """Run a Docker container with the specified configuration"""
-    
+   
     # Check for missing required arguments
     if not file or not name:
         show_command_help('run', COMMAND_HELP['run'])
@@ -471,7 +487,7 @@ def run(ctx, file=None,rm=False,verbose=False,ver=None,name=None, x11=True,usb=F
         cmd_parts.append("--net=host")
         cmd_parts.append(f"-e DISPLAY={os.environ['DISPLAY']}")
         cmd_parts.append(f"-v {X11_path}:/tmp/.X11-unix")
-        cmd_parts.append(f"-v {os.environ['HOME']}/.Xauthority:/home/ykarmon/.Xauthority:ro")
+        cmd_parts.append(f"-v {os.environ['HOME']}/.Xauthority:/home/{os.getenv('USER', 'user')}/.Xauthority:ro")
        
 
     if usb:
