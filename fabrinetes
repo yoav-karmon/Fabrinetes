@@ -32,10 +32,12 @@ show_help_and_list() {
     fi
     
     echo ""
-    echo "Examples:"
-    echo "  ./fabrinetes build [repo]"
-    echo "  ./fabrinetes list"
-    echo "  ./fabrinetes run --file fabrinetes.config --name <repository> [--rm (auto-cleanup)] [--x11 (GUI support)] [--usb (hardware access)] [--ask (confirm)] [--verbose (details)]"
+           echo "Examples:"
+           echo "  ./fabrinetes build [repo]"
+           echo "  ./fabrinetes list"
+           echo "  ./fabrinetes run --file fabrinetes.config --name <repository> [--rm (auto-cleanup)] [--x11 (GUI support)] [--usb (hardware access)] [--ask (confirm)] [--verbose (details)]"
+           echo "  ./fabrinetes exec --container-name <name> --command '<cmd>' [--interactive]"
+           echo "  ./fabrinetes shell --container-name <name>"
     echo ""
     echo "=== Executing 'list' command ==="
     echo ""
@@ -45,17 +47,27 @@ show_help_and_list() {
     invoke -c tasks list | tee -a "$LOGFILE"
 }
 
-# Check if no arguments provided
-if [[ $# -eq 0 ]]; then
-    show_help_and_list
-else
-    # Handle build command with repo parameter
-    if [[ "$1" == "build" && -n "$2" ]]; then
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] \$ invoke -c tasks build --repo=$2" | tee -a "$LOGFILE"
-        invoke -c tasks build --repo="$2" | tee -a "$LOGFILE"
-    else
-        # Run invoke as if we were in that directory
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] \$ invoke -c tasks $*" | tee -a "$LOGFILE"
-        exec invoke -c tasks "$@" | tee -a "$LOGFILE"
-    fi
-fi
+       # Check if no arguments provided
+       if [[ $# -eq 0 ]]; then
+           show_help_and_list
+       else
+           # Handle build command with repo parameter
+           if [[ "$1" == "build" && -n "$2" ]]; then
+               echo "[$(date '+%Y-%m-%d %H:%M:%S')] \$ invoke -c tasks build --repo=$2" | tee -a "$LOGFILE"
+               invoke -c tasks build --repo="$2" | tee -a "$LOGFILE"
+           # Handle exec command
+           elif [[ "$1" == "exec" ]]; then
+               shift  # Remove 'exec' from arguments
+               echo "[$(date '+%Y-%m-%d %H:%M:%S')] \$ invoke -c tasks exec $*" | tee -a "$LOGFILE"
+               invoke -c tasks exec "$@" | tee -a "$LOGFILE"
+           # Handle shell command
+           elif [[ "$1" == "shell" ]]; then
+               shift  # Remove 'shell' from arguments
+               echo "[$(date '+%Y-%m-%d %H:%M:%S')] \$ invoke -c tasks shell $*" | tee -a "$LOGFILE"
+               invoke -c tasks shell "$@" | tee -a "$LOGFILE"
+           else
+               # Run invoke as if we were in that directory
+               echo "[$(date '+%Y-%m-%d %H:%M:%S')] \$ invoke -c tasks $*" | tee -a "$LOGFILE"
+               exec invoke -c tasks "$@" | tee -a "$LOGFILE"
+           fi
+       fi
