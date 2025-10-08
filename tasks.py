@@ -66,21 +66,34 @@ def printlocals(locals_dict,verbose=False):
     print("===============================")
 
 @task
-def build(ctx):
+def build(ctx, repo=None):
     username = os.getenv("USER") or os.getenv("USERNAME")
     uid = os.getuid()
     gid = os.getgid()
     home_dir = os.path.expanduser("~")
-
-    ctx.run(
-        f"docker build "
-        f"--build-arg USERNAME={username} "
-        f"--build-arg UID={uid} "
-        f"--build-arg GID={gid} "
-        f"--build-arg HOME_DIR={home_dir} "
-        f"-t fabrinetes-dev -f Dockerfile .",
-        pty=True,
-    )
+    
+    # If no repo specified, build all
+    if not repo:
+        repos = ["fabrinetes-dev", "fabrinetes-dev-testing"]
+    else:
+        repos = [repo]
+    
+    for repo_name in repos:
+        dockerfile_path = f"containers/{repo_name}/Dockerfile"
+        if not os.path.exists(dockerfile_path):
+            print(f"Warning: Dockerfile not found for {repo_name} at {dockerfile_path}")
+            continue
+            
+        print(f"Building {repo_name}...")
+        ctx.run(
+            f"docker build "
+            f"--build-arg USERNAME={username} "
+            f"--build-arg UID={uid} "
+            f"--build-arg GID={gid} "
+            f"--build-arg HOME_DIR={home_dir} "
+            f"-t {repo_name}:latest -f {dockerfile_path} containers/{repo_name}/",
+            pty=True,
+        )
 
 @task
 def list(ctx):
@@ -121,18 +134,26 @@ def run(ctx, file,rm=False,verbose=False,ver=None,name=None, x11=True,usb=False,
         sys.exit(1)
         print(f"Error loading toml file '{file}': {e}")
     
-    if(name not in database["Containers"]):
-        print(f"avialble config setups (use with--name)")
-        for _name in database["Containers"]:
-            print(_name)
+    # Find container config by name
+    container_config = None
+    for key, config in database.items():
+        if key.startswith("container.") and key == f"container.{name}":
+            container_config = config
+            break
+    
+    if not container_config:
+        print(f"Available config setups (use with --name):")
+        for key in database.keys():
+            if key.startswith("container."):
+                print(f"  {key.replace('container.', '')}")
         exit()
-    IMAGE_SETTINGS = database["Containers"][name]
-    _image_repository = IMAGE_SETTINGS["REPOSITORY"]
-    _image_tag = IMAGE_SETTINGS.get("TAG", "latest")
+    
+    _image_repository = name
+    _image_tag = container_config.get("TAG", "latest")
     IMAGE_NAME = f"{_image_repository}:{_image_tag}"
 
-    MOUNTS_LIST = IMAGE_SETTINGS.get("mounts", [])
-    X11_path = IMAGE_SETTINGS.get("X11_path", None)
+    MOUNTS_LIST = container_config.get("mounts", [])
+    X11_path = container_config.get("X11_path", None)
     _this_file_path = pathlib.Path(__file__).resolve().parent
 
     MOUNTS_LIST.append(f"{_this_file_path}/source/bashrc-root:{os.getenv('HOME')}/.bashrc")
@@ -152,7 +173,11 @@ def run(ctx, file,rm=False,verbose=False,ver=None,name=None, x11=True,usb=False,
     cmd_parts=[]
     cmd_parts = ["docker run -dit"]
     if name:
-        cmd_parts.append(f"--name {name}")
+        # Generate unique container name with timestamp
+        import datetime
+        timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        container_name = f"{name}-{timestamp}"
+        cmd_parts.append(f"--name {container_name}")
     else:
         print("Error: You must provide a name for the container using --name")
         sys.exit(1)
@@ -214,7 +239,7 @@ def run(ctx, file,rm=False,verbose=False,ver=None,name=None, x11=True,usb=False,
     ctx.run(cmd, pty=True)
 
 
-    ctx.run(f"docker exec {name} sudo git config --global --add safe.directory '*'", pty=True, echo=True, warn=True)
+    ctx.run(f"docker exec {container_name} sudo git config --global --add safe.directory '*'", pty=True, echo=True, warn=True)
     
     
     
