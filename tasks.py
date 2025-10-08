@@ -169,7 +169,7 @@ def list(ctx):
     print("=" * 80)
     
     # Get images with better formatting
-    result = ctx.run("docker images --format '{{.Repository}}\t{{.Tag}}\t{{.ImageID}}\t{{.CreatedAt}}\t{{.Size}}'", hide=True, warn=True)
+    result = ctx.run("docker images --format '{{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.CreatedAt}}\t{{.Size}}'", hide=True, warn=True)
     if result.stdout.strip():
         lines = result.stdout.strip().split('\n')
         headers = ["Repository", "Tag", "Image ID", "Created", "Size"]
@@ -273,11 +273,11 @@ def run(ctx, file,rm=False,verbose=False,ver=None,name=None, x11=True,usb=False,
     if x11:
         if X11_path:
             print(f"X11 support enabled at {X11_path}")
-        X11_path = os.path.expandvars(X11_path)
-        X11_path = pathlib.Path(X11_path)
-        if not X11_path.exists():
-            print(f"Error: X11 socket {X11_path} does not exist")
-            sys.exit(1)
+            X11_path = os.path.expandvars(X11_path)
+            X11_path = pathlib.Path(X11_path)
+            if not X11_path.exists():
+                print(f"Error: X11 socket {X11_path} does not exist")
+                sys.exit(1)
         else:
             # Default X11 socket path
             X11_path = pathlib.Path("/tmp/.X11-unix")
