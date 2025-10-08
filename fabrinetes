@@ -16,20 +16,15 @@ cd "$TASKS_DIR" || {
     exit 1
 }
 
-# Function to show interactive prompt when no args provided
-show_prompt() {
-    echo "=== Fabrinetes Interactive Menu ==="
+# Function to show help and execute list command when no args provided
+show_help_and_list() {
+    echo "=== Fabrinetes Help ==="
     echo ""
-    echo "Available tasks:"
-    echo "  build     - Build the Docker image"
-    echo "  list      - List Docker images and containers"
-    echo "  run       - Run a container with config"
-    echo ""
-    echo "Available container configs:"
+    echo "Available repositories:"
     
     # Parse config file to show available containers
     if [[ -f "fabrinetes.config" ]]; then
-        grep -E "^\[Containers\." fabrinetes.config | sed 's/\[Containers\.//g' | sed 's/\]//g' | while read container; do
+        grep -E "^\[container\." fabrinetes.config | sed 's/\[container\.//g' | sed 's/\]//g' | while read container; do
             echo "  $container"
         done
     else
@@ -38,43 +33,29 @@ show_prompt() {
     
     echo ""
     echo "Examples:"
-    echo "  ./fabrinetes build"
+    echo "  ./fabrinetes build [repo]"
     echo "  ./fabrinetes list"
-    echo "  ./fabrinetes run --file fabrinetes.config --name fabrinetes1"
+    echo "  ./fabrinetes run --file fabrinetes.config --name <repository> [--rm (auto-cleanup)] [--x11 (GUI support)] [--usb (hardware access)] [--ask (confirm)] [--verbose (details)]"
     echo ""
-    echo "Run options:"
-    echo "  --rm     - Auto-remove container when it exits (cleanup)"
-    echo "  --x11    - Enable X11 forwarding for GUI applications"
-    echo "  --usb    - Mount USB devices (/dev/bus/usb) for hardware access"
-    echo "  --ask    - Ask for confirmation before running (default: true)"
-    echo "  --verbose - Show detailed argument values"
+    echo "=== Executing 'list' command ==="
     echo ""
-    echo "Example commands:"
-    echo "  ./fabrinetes run --file fabrinetes.config --name fabrinetes1 --rm"
-    echo "  ./fabrinetes run --file fabrinetes.config --name fabrinetes1 --x11"
-    echo "  ./fabrinetes run --file fabrinetes.config --name fabrinetes1 --usb"
-    echo "  ./fabrinetes run --file fabrinetes.config --name fabrinetes1 --rm --x11 --usb"
-    echo ""
-    echo "Enter command (or 'q' to quit):"
-    read -r user_input
     
-    if [[ "$user_input" == "q" || "$user_input" == "quit" ]]; then
-        echo "Goodbye!"
-        exit 0
-    fi
-    
-    # Execute the user input
-    if [[ -n "$user_input" ]]; then
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] \$ invoke -c tasks $user_input" | tee -a "$LOGFILE"
-        invoke -c tasks $user_input | tee -a "$LOGFILE"
-    fi
+    # Execute the list command
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] \$ invoke -c tasks list" | tee -a "$LOGFILE"
+    invoke -c tasks list | tee -a "$LOGFILE"
 }
 
 # Check if no arguments provided
 if [[ $# -eq 0 ]]; then
-    show_prompt
+    show_help_and_list
 else
-    # Run invoke as if we were in that directory
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] \$ invoke -c tasks $*" | tee -a "$LOGFILE"
-    exec invoke -c tasks "$@" | tee -a "$LOGFILE"
+    # Handle build command with repo parameter
+    if [[ "$1" == "build" && -n "$2" ]]; then
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] \$ invoke -c tasks build --repo=$2" | tee -a "$LOGFILE"
+        invoke -c tasks build --repo="$2" | tee -a "$LOGFILE"
+    else
+        # Run invoke as if we were in that directory
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] \$ invoke -c tasks $*" | tee -a "$LOGFILE"
+        exec invoke -c tasks "$@" | tee -a "$LOGFILE"
+    fi
 fi
