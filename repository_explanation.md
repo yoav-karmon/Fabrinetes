@@ -1,0 +1,144 @@
+# Fabrinetes Repository
+
+## Overview
+Fabrinetes is a Docker container management system designed for FPGA development environments.
+It provides automated container building, running, and configuration management with support for multiple development setups.
+
+### PATH Management System
+Fabrinetes includes a sophisticated PATH management system that automatically configures environment variables based on the current Git repository context:
+
+- **Global PATH Management**: The container's bashrc contains an `update_repo_path()` function that detects Git repositories and manages PATH/PYTHONPATH
+- **Per-Repository Switching**: When switching between different Git repositories, the system automatically cleans and reconfigures PATH and PYTHONPATH
+- **Repository-Specific Configuration**: Each repository can define its own `tools/update_paths.sh` script for custom PATH configurations
+- **Automatic Detection**: The system works seamlessly when `cd`ing into different repositories or sourcing bashrc
+- **Clean Environment**: Each repository gets a fresh, isolated environment preventing conflicts between different projects
+
+## Repository Structure
+
+```
+Fabrinetes/
+├── containers/                    # Docker container definitions
+│   ├── fabrinetes-dev/           # Full FPGA development environment
+│   │   └── Dockerfile            # Complete FPGA toolchain
+│   └── fabrinetes-dev-testing/   # Lightweight testing environment
+│       └── Dockerfile            # Minimal testing setup
+├── source/                       # Container configuration files
+│   ├── bashrc-root              # Root user bash configuration
+│   └── project_setup/           # HDL development tools and scripts
+├── _log/                        # Log files directory
+├── fabrinetes                   # Main wrapper script
+├── fabrinetes.config           # Container configuration (TOML)
+├── tasks.py                     # Python invoke tasks
+├── PATH_MANAGEMENT.md          # PATH management documentation
+└── README.md                    # Project documentation
+```
+
+## Key Components
+
+### 1. Container Management (`fabrinetes` script)
+- **Wrapper script** for invoke tasks
+- **Interactive help** when run without arguments
+- **Dynamic container listing** from config file
+- **Logging** to `_log/` directory
+- **Parameter handling** for build/run commands
+
+### 2. Configuration System (`fabrinetes.config`)
+- **TOML format** for easy editing
+- **Container definitions** with `[container.<name>]` sections
+- **Mount specifications** using `$HOME` variables
+- **Environment variables** support
+- **Multiple container types** (dev, testing, etc.)
+
+### 3. Task Automation (`tasks.py`)
+- **Invoke-based** task runner
+- **Docker operations**: build, run, list
+- **Path resolution** for mounts and configs
+- **Unique container naming** with timestamps
+- **X11/USB support** for GUI and hardware access
+
+### 4. Container Definitions
+- **fabrinetes-dev**: Full FPGA development with Vivado, tools
+- **fabrinetes-dev-testing**: Lightweight testing environment
+- **User mapping**: Host user matches container user
+- **Volume mounts**: Repository and tool access
+
+## Configuration Format
+
+```toml
+[container.fabrinetes-dev]
+TAG = "latest"
+mounts = ["$HOME/AMD/Vivado/2021.2:/opt/vivado", "$HOME/repo:/root/repos"]
+init_env = "/home/ykarmon/repo/phy_project/Fabrinetes_init_env.sh"
+
+[container.fabrinetes-dev-testing]
+TAG = "latest"
+mounts = ["$HOME/repo:/root/repos", "/tmp:/tmp"]
+init_env = "/home/ykarmon/repo/phy_project/Fabrinetes_init_env.sh"
+```
+
+## Usage Examples
+
+### Basic Commands
+```bash
+# Show help and list containers
+./fabrinetes
+
+# Build specific container
+./fabrinetes build fabrinetes-dev-testing
+
+# Run container with options
+./fabrinetes run --file fabrinetes.config --name fabrinetes-dev-testing --no-ask
+
+# List running containers
+./fabrinetes list
+```
+
+### Container Options
+- `--rm`: Auto-cleanup on exit
+- `--x11`: GUI support (X11 forwarding)
+- `--usb`: Hardware device access
+- `--ask`: Confirmation prompt
+- `--verbose`: Detailed output
+
+## PATH Management System
+
+The repository includes a sophisticated PATH management system:
+
+### Bashrc Integration
+- **`update_repo_path()`** function in container bashrc
+- **Git repository detection** for automatic configuration
+- **Repository-specific scripts** via `tools/update_paths.sh`
+- **Clean PATH/PYTHONPATH** on repository switches
+
+### Environment Variables
+- **REPO_TOP**: Current repository root
+- **FABRINETES_ROOT**: Fabrinetes installation path
+- **HDLFORGE_ROOT**: HDL development tools path
+
+## Development Workflow
+
+1. **Configure**: Edit `fabrinetes.config` for your setup
+2. **Build**: Create container images with `./fabrinetes build`
+3. **Run**: Start containers with `./fabrinetes run`
+4. **Develop**: Work in isolated, configured environments
+5. **Switch**: Change repositories for different PATH configurations
+
+## Features
+
+- **Multi-container support**: Different environments for different needs
+- **Automatic path resolution**: Environment variables and relative paths
+- **Unique naming**: Timestamp-based container names prevent conflicts
+- **Logging**: All operations logged to `_log/` directory
+- **Portable configuration**: Uses `$HOME` variables for cross-system compatibility
+- **Interactive help**: Built-in usage examples and container listing
+
+## Integration Points
+
+- **Docker**: Container runtime and management
+- **Invoke**: Python task automation
+- **TOML**: Configuration file format
+- **Git**: Repository detection for PATH management
+- **X11**: GUI application support
+- **USB**: Hardware device access
+
+This repository provides a complete solution for managing FPGA development environments with Docker containers, offering flexibility, isolation, and ease of use.
