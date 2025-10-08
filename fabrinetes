@@ -12,6 +12,65 @@ cd "$TASKS_DIR" || {
     exit 1
 }
 
-# Run invoke as if we were in that directory
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] \$ invoke -c tasks $*" | tee -a "$LOGFILE"
-exec invoke -c tasks "$@" | tee -a "$LOGFILE"
+# Function to show interactive prompt when no args provided
+show_prompt() {
+    echo "=== Fabrinetes Interactive Menu ==="
+    echo ""
+    echo "Available tasks:"
+    echo "  build     - Build the Docker image"
+    echo "  list      - List Docker images and containers"
+    echo "  run       - Run a container with config"
+    echo ""
+    echo "Available container configs:"
+    
+    # Parse config file to show available containers
+    if [[ -f "fabrinetes.config" ]]; then
+        grep -E "^\[Containers\." fabrinetes.config | sed 's/\[Containers\.//g' | sed 's/\]//g' | while read container; do
+            echo "  $container"
+        done
+    else
+        echo "  No config file found (fabrinetes.config)"
+    fi
+    
+    echo ""
+    echo "Examples:"
+    echo "  ./fabrinetes build"
+    echo "  ./fabrinetes list"
+    echo "  ./fabrinetes run --file fabrinetes.config --name fabrinetes1"
+    echo ""
+    echo "Run options:"
+    echo "  --rm     - Auto-remove container when it exits (cleanup)"
+    echo "  --x11    - Enable X11 forwarding for GUI applications"
+    echo "  --usb    - Mount USB devices (/dev/bus/usb) for hardware access"
+    echo "  --ask    - Ask for confirmation before running (default: true)"
+    echo "  --verbose - Show detailed argument values"
+    echo ""
+    echo "Example commands:"
+    echo "  ./fabrinetes run --file fabrinetes.config --name fabrinetes1 --rm"
+    echo "  ./fabrinetes run --file fabrinetes.config --name fabrinetes1 --x11"
+    echo "  ./fabrinetes run --file fabrinetes.config --name fabrinetes1 --usb"
+    echo "  ./fabrinetes run --file fabrinetes.config --name fabrinetes1 --rm --x11 --usb"
+    echo ""
+    echo "Enter command (or 'q' to quit):"
+    read -r user_input
+    
+    if [[ "$user_input" == "q" || "$user_input" == "quit" ]]; then
+        echo "Goodbye!"
+        exit 0
+    fi
+    
+    # Execute the user input
+    if [[ -n "$user_input" ]]; then
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] \$ invoke -c tasks $user_input" | tee -a "$LOGFILE"
+        invoke -c tasks $user_input | tee -a "$LOGFILE"
+    fi
+}
+
+# Check if no arguments provided
+if [[ $# -eq 0 ]]; then
+    show_prompt
+else
+    # Run invoke as if we were in that directory
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] \$ invoke -c tasks $*" | tee -a "$LOGFILE"
+    exec invoke -c tasks "$@" | tee -a "$LOGFILE"
+fi
