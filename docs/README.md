@@ -8,6 +8,8 @@ Welcome to the Fabrinetes documentation!
 
 SimTargets are a core feature of HDLForge for defining multiple simulation scenarios within a single project.
 
+**Start Here:** 📋 [SimTargets Overview](SIMTARGETS_OVERVIEW.md) - Complete introduction and getting started guide
+
 - **[SimTargets Guide](SimTargets_Guide.md)** - Comprehensive guide covering:
   - What SimTargets are and why they're useful
   - Configuration structure and options
@@ -51,9 +53,10 @@ SimTargets are a core feature of HDLForge for defining multiple simulation scena
 If you're new to Fabrinetes and HDLForge:
 
 1. Start with the [Main README](../README.md) for project overview
-2. Read the [SimTargets Guide](SimTargets_Guide.md) to understand simulation targets
-3. Use the [SimTargets Quick Reference](SimTargets_Quick_Reference.md) for day-to-day usage
-4. Refer to [HDLForge Documentation](../source/project_setup/HDLForge_Documentation.toml) for detailed configuration options
+2. Read the [SimTargets Overview](SIMTARGETS_OVERVIEW.md) for a complete introduction
+3. Follow the [SimTargets Guide](SimTargets_Guide.md) to understand simulation targets in depth
+4. Use the [SimTargets Quick Reference](SimTargets_Quick_Reference.md) for day-to-day usage
+5. Refer to [HDLForge Documentation](../source/project_setup/HDLForge_Documentation.toml) for detailed configuration options
 
 ## Contributing
 
