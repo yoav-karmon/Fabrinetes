@@ -69,12 +69,13 @@ By doing this, the developer environment becomes a **Git versioned asset**, just
 ## 🧪 Simulation in One Line
 
 ```bash
-./fabrinetes Verilator --project router --step sim
+./fabrinetes Verilator --project router --step sim --SimTargetName main
 ````
 
 * Generates VCD (`dump.vcd`)
 * Uses Cocotb Python testbench
 * GTKWave is preinstalled and usable inside container
+* Define multiple **SimTargets** for different test scenarios (see [SimTargets Guide](docs/SimTargets_Guide.md))
 
 ---
 
@@ -128,10 +129,23 @@ part           = "xc7a200tfbg484-1"
 build_dir      = "vivado_build"
 defines        = ["DEBUG"]
 generics       = ["G_APP_ID=123"]
+
+[verilator_settings]
+build_dir = "_verilator"
+includes_paths = ["$REPO_TOP/rtl/includes"]
+
+[verilator_settings.sim_targets.main]
+top_module = "router_top"
+python_file = "tests/test_router.py"
+build_args = ["--trace", "--timing"]
 ```
 
 This becomes your **single source of truth**:
 → All tools (Vivado, Verilator) pull configuration, source lists, and build logic from it.
+
+**Learn more:**
+- [SimTargets Guide](docs/SimTargets_Guide.md) - Comprehensive guide to simulation targets
+- [SimTargets Quick Reference](docs/SimTargets_Quick_Reference.md) - Quick command reference
 
 ---
 
