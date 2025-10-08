@@ -146,19 +146,49 @@ def help(ctx):
         print("No container configurations found")
     
     print("")
-    print("Examples:")
-    print("  ./fabrinetes build [repo]")
-    print("  ./fabrinetes list")
-    print("  ./fabrinetes run --file <config> --name <repository> [--rm (auto-cleanup)] [--x11 (GUI support)] [--usb (hardware access)] [--ask (confirm)] [--verbose (details)]")
-    print("  ./fabrinetes exec --container-name <name> --command '<cmd>' [--interactive]")
-    print("  ./fabrinetes shell --container-name <name>")
-    print("  ./fabrinetes clean --file <config> [--name <repository>]")
-    print("")
     print("=== Executing 'list' command ===")
     print("")
     
     # Execute the list command
     list(ctx)
+    
+    print("")
+    print("Available Repository Names:")
+    print("+------------------------+------------------------------------------------------------+")
+    print("| Repository Name        | Config File                                                |")
+    print("+========================+============================================================+")
+    for repo_name, config_file, status in table_data:
+        print(f"| {repo_name:<22} | {config_file:<58} |")
+    print("+------------------------+------------------------------------------------------------+")
+    print("")
+    print("Options:")
+    options_data = [
+        ["./fabrinetes build", "[repository-name]", "Build Docker image for repository", "fabrinetes-dev-testing, fabrinetes-dev, fabrinetes-fpga-full"],
+        ["./fabrinetes list", "", "List Docker images and containers", "None"],
+        ["./fabrinetes run", "--file [config-file] --name [repository-name] [--rm] [--x11] [--usb] [--ask] [--verbose]", "Run container with specified config", "config-file: path to .config, repository-name: from table above, flags: optional"],
+        ["./fabrinetes exec", "--container-name [container-name] --command '[command]' [--interactive]", "Execute command in running container", "container-name: from Docker Containers table, command: any shell command"],
+        ["./fabrinetes shell", "--container-name [container-name]", "Open interactive shell in container", "container-name: from Docker Containers table"],
+        ["./fabrinetes clean", "--file [config-file] [--name [repository-name]]", "Clean up containers and images", "config-file: path to .config, repository-name: optional"]
+    ]
+    headers = ["Command", "Arguments", "Description", "Allowed Values"]
+    print(tabulate(options_data, headers=headers, tablefmt="grid"))
+    
+    print("")
+    print("Arguments:")
+    arguments_data = [
+        ["repository-name", "Name of the repository to build/run", "fabrinetes-dev-testing, fabrinetes-dev, fabrinetes-fpga-full"],
+        ["config-file", "Path to the configuration file", "containers/<path>/config/fabrinetes.config"],
+        ["--rm", "Automatically remove container when it exits", "optional flag"],
+        ["--x11", "Enable X11 GUI support", "optional flag"],
+        ["--usb", "Enable USB device access", "optional flag"],
+        ["--ask", "Ask for confirmation before running", "optional flag"],
+        ["--verbose", "Show detailed output", "optional flag"],
+        ["container-name", "Name of the running container", "From Docker Containers table above"],
+        ["command", "Shell command to execute", "Any valid shell command"],
+        ["--interactive", "Run command in interactive mode", "optional flag"]
+    ]
+    headers = ["Argument", "Description", "Allowed Values"]
+    print(tabulate(arguments_data, headers=headers, tablefmt="grid"))
 
 
 @task
@@ -185,9 +215,45 @@ def list(ctx):
     result = ctx.run("docker ps -a --format '{{.ID}}\t{{.Image}}\t{{.Command}}\t{{.CreatedAt}}\t{{.Status}}\t{{.Ports}}\t{{.Names}}'", hide=True, warn=True)
     if result.stdout.strip():
         lines = result.stdout.strip().split('\n')
-        headers = ["Container ID", "Image", "Command", "Created", "Status", "Ports", "Names"]
-        data = [line.split('\t') for line in lines]
-        print(tabulate(data, headers=headers, tablefmt="grid"))
+        
+        # Group containers by image
+        containers_by_image = {}
+        for line in lines:
+            parts = line.split('\t')
+            if len(parts) >= 7:
+                container_id, image, command, created, status, ports, names = parts
+                if image not in containers_by_image:
+                    containers_by_image[image] = []
+                containers_by_image[image].append([container_id, command, created, status, ports, names])
+        
+        # Create table data with merged cells for multiple containers
+        table_data = []
+        for image, containers in containers_by_image.items():
+            if len(containers) == 1:
+                # Single container - normal row
+                container = containers[0]
+                table_data.append([image] + container)
+            else:
+                # Multiple containers - merge names and show combined info
+                container_ids = [c[0] for c in containers]
+                commands = [c[1] for c in containers]
+                created_times = [c[2] for c in containers]
+                statuses = [c[3] for c in containers]
+                ports_list = [c[4] for c in containers]
+                names = [c[5] for c in containers]
+                
+                # Combine multiple values with newlines
+                combined_container_id = "\n".join(container_ids)
+                combined_command = "\n".join(commands)
+                combined_created = "\n".join(created_times)
+                combined_status = "\n".join(statuses)
+                combined_ports = "\n".join(ports_list)
+                combined_names = "\n".join(names)
+                
+                table_data.append([image, combined_container_id, combined_command, combined_created, combined_status, combined_ports, combined_names])
+        
+        headers = ["Image", "Container ID", "Command", "Created", "Status", "Ports", "Names"]
+        print(tabulate(table_data, headers=headers, tablefmt="grid"))
     else:
         print("No containers found")
     
