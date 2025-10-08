@@ -243,10 +243,86 @@ def run(ctx, file,rm=False,verbose=False,ver=None,name=None, x11=True,usb=False,
 
 
     ctx.run(f"docker exec {container_name} sudo git config --global --add safe.directory '*'", pty=True, echo=True, warn=True)
-    
-    
-    
 
 
+@task
+def exec(ctx, container_name, command, interactive=False):
+    """
+    Execute a command in a running container and print the result.
+    
+    Args:
+        container_name: Name of the container to execute command in
+        command: Command to execute (use quotes for complex commands)
+        interactive: Use interactive shell (bash -l) for full environment
+    """
+    if not container_name:
+        print("Error: Container name is required")
+        print("Usage: invoke exec --container-name=<name> --command='<cmd>'")
+        return
+    
+    if not command:
+        print("Error: Command is required")
+        print("Usage: invoke exec --container-name=<name> --command='<cmd>'")
+        return
+    
+    # Check if container exists and is running
+    result = ctx.run(f"docker ps --filter name={container_name} --format '{{{{.Names}}}}'", hide=True, warn=True)
+    if not result.stdout.strip():
+        print(f"Error: Container '{container_name}' is not running")
+        print("Available running containers:")
+        ctx.run("docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'", pty=True)
+        return
+    
+    # Build docker exec command
+    if interactive:
+        # Use login shell for full environment (bashrc, PATH, etc.)
+        exec_cmd = f"docker exec {container_name} bash -l -c '{command}'"
+        print(f"[Interactive] Executing: {command}")
+    else:
+        # Regular execution
+        exec_cmd = f"docker exec {container_name} bash -c '{command}'"
+        print(f"[Non-interactive] Executing: {command}")
+    
+    print("=" * 60)
+    
+    # Execute command and capture output
+    try:
+        result = ctx.run(exec_cmd, pty=True, echo=False)
+        print("=" * 60)
+        print(f"Command completed successfully")
+    except Exception as e:
+        print("=" * 60)
+        print(f"Command failed: {e}")
 
+
+@task
+def shell(ctx, container_name):
+    """
+    Open an interactive shell in a running container.
+    
+    Args:
+        container_name: Name of the container to connect to
+    """
+    if not container_name:
+        print("Error: Container name is required")
+        print("Usage: invoke shell --container-name=<name>")
+        return
+    
+    # Check if container exists and is running
+    result = ctx.run(f"docker ps --filter name={container_name} --format '{{{{.Names}}}}'", hide=True, warn=True)
+    if not result.stdout.strip():
+        print(f"Error: Container '{container_name}' is not running")
+        print("Available running containers:")
+        ctx.run("docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'", pty=True)
+        return
+    
+    print(f"Opening interactive shell in container: {container_name}")
+    print("Use 'exit' to return to host")
+    print("=" * 60)
+    
+    # Open interactive shell
+    ctx.run(f"docker exec -it {container_name} bash -l", pty=True)
+
+
+   
    
