@@ -67,16 +67,19 @@ def printlocals(locals_dict,verbose=False):
 
 @task
 def build(ctx, repo=None):
+    """Build Docker image for the specified repository"""
+    
+    # Check for missing required arguments
+    if not repo:
+        show_command_help('build', COMMAND_HELP['build'])
+        return
+    
     username = os.getenv("USER") or os.getenv("USERNAME")
     uid = os.getuid()
     gid = os.getgid()
     home_dir = os.path.expanduser("~")
 
-    # If no repo specified, build all
-    if not repo:
-        repos = ["fabrinetes-dev", "fabrinetes-dev-testing"]
-    else:
-        repos = [repo]
+    repos = [repo]
     
     for repo_name in repos:
         dockerfile_path = f"containers/{repo_name}/Dockerfile"
@@ -94,6 +97,111 @@ def build(ctx, repo=None):
             f"-t {repo_name}:latest -f {dockerfile_path} containers/{repo_name}/",
         pty=True,
     )
+
+def show_command_help(command_name, command_data):
+    """Show help for a specific command"""
+    from tabulate import tabulate
+    
+    print(f"[!] Missing required arguments for '{command_name}' command!")
+    print("")
+    print(f"=== {command_name.upper()} Command Help ===")
+    print("")
+    
+    # Command syntax
+    print("Syntax:")
+    print(f"  {command_data['syntax']}")
+    print("")
+    
+    # Description
+    print("Description:")
+    print(f"  {command_data['description']}")
+    print("")
+    
+    # Arguments table
+    if 'arguments' in command_data:
+        print("Arguments:")
+        headers = ["Argument", "Description", "Required", "Allowed Values"]
+        print(tabulate(command_data['arguments'], headers=headers, tablefmt="grid"))
+        print("")
+    
+    # Examples
+    if 'examples' in command_data:
+        print("Examples:")
+        for example in command_data['examples']:
+            print(f"  {example}")
+        print("")
+
+
+# Command-specific help data
+COMMAND_HELP = {
+    'run': {
+        'syntax': './fabrinetes run --file <config-file> --name <repository-name> [--rm] [--x11] [--usb] [--ask] [--verbose]',
+        'description': 'Run a Docker container with the specified configuration',
+        'arguments': [
+            ['--file', 'Path to the configuration file', 'Yes', 'containers/<path>/config/fabrinetes.config'],
+            ['--name', 'Repository name from config', 'Yes', 'fabrinetes-dev-testing, fabrinetes-dev, fabrinetes-fpga-full'],
+            ['--rm', 'Automatically remove container when it exits', 'No', 'optional flag'],
+            ['--x11', 'Enable X11 GUI support', 'No', 'optional flag'],
+            ['--usb', 'Enable USB device access', 'No', 'optional flag'],
+            ['--ask', 'Ask for confirmation before running', 'No', 'optional flag'],
+            ['--verbose', 'Show detailed output', 'No', 'optional flag']
+        ],
+        'examples': [
+            './fabrinetes run --file containers/fabrinetes-dev-testing/config/fabrinetes.config --name fabrinetes-dev-testing',
+            './fabrinetes run --file containers/fabrinetes-dev/config/fabrinetes.config --name fabrinetes-dev --rm --x11',
+            './fabrinetes run --file containers/fabrinetes-fpga-full/config/fabrinetes.config --name fabrinetes-fpga-full --no-ask'
+        ]
+    },
+    'shell': {
+        'syntax': './fabrinetes shell --container-name <container-name>',
+        'description': 'Open an interactive shell in a running container',
+        'arguments': [
+            ['--container-name', 'Name of the running container', 'Yes', 'From Docker Containers table above']
+        ],
+        'examples': [
+            './fabrinetes shell --container-name fabrinetes-dev-testing-20251008-141316',
+            './fabrinetes shell --container-name fabrinetes-fpga-dev-1'
+        ]
+    },
+    'exec': {
+        'syntax': './fabrinetes exec --container-name <container-name> --command \'<command>\' [--interactive]',
+        'description': 'Execute a command in a running container',
+        'arguments': [
+            ['--container-name', 'Name of the running container', 'Yes', 'From Docker Containers table above'],
+            ['--command', 'Shell command to execute', 'Yes', 'Any valid shell command'],
+            ['--interactive', 'Run command in interactive mode', 'No', 'optional flag']
+        ],
+        'examples': [
+            './fabrinetes exec --container-name fabrinetes-dev-testing-20251008-141316 --command \'ls -la\'',
+            './fabrinetes exec --container-name fabrinetes-dev-testing-20251008-141316 --command \'python --version\' --interactive'
+        ]
+    },
+    'build': {
+        'syntax': './fabrinetes build <repository-name>',
+        'description': 'Build Docker image for the specified repository',
+        'arguments': [
+            ['repository-name', 'Name of the repository to build', 'Yes', 'fabrinetes-dev-testing, fabrinetes-dev, fabrinetes-fpga-full']
+        ],
+        'examples': [
+            './fabrinetes build fabrinetes-dev-testing',
+            './fabrinetes build fabrinetes-dev',
+            './fabrinetes build fabrinetes-fpga-full'
+        ]
+    },
+    'clean': {
+        'syntax': './fabrinetes clean --file <config-file> [--name <repository-name>]',
+        'description': 'Clean up containers and images for the specified configuration',
+        'arguments': [
+            ['--file', 'Path to the configuration file', 'Yes', 'containers/<path>/config/fabrinetes.config'],
+            ['--name', 'Repository name to clean (optional)', 'No', 'fabrinetes-dev-testing, fabrinetes-dev, fabrinetes-fpga-full']
+        ],
+        'examples': [
+            './fabrinetes clean --file containers/fabrinetes-dev-testing/config/fabrinetes.config',
+            './fabrinetes clean --file containers/fabrinetes-dev-testing/config/fabrinetes.config --name fabrinetes-dev-testing'
+        ]
+    }
+}
+
 
 @task
 def help(ctx):
@@ -261,8 +369,13 @@ def list(ctx):
 
 
 @task
-def run(ctx, file,rm=False,verbose=False,ver=None,name=None, x11=True,usb=False,ask=True):
-   
+def run(ctx, file=None,rm=False,verbose=False,ver=None,name=None, x11=True,usb=False,ask=True):
+    """Run a Docker container with the specified configuration"""
+    
+    # Check for missing required arguments
+    if not file or not name:
+        show_command_help('run', COMMAND_HELP['run'])
+        return
    
     print("===============================")
     ctx.run("docker images", pty=True)
@@ -425,75 +538,15 @@ def run(ctx, file,rm=False,verbose=False,ver=None,name=None, x11=True,usb=False,
 def exec(ctx, container_name=None, command=None, interactive=False):
     """
     Execute a command in a running container and print the result.
-    If no container name provided, shows list of available containers with commands.
+    If required arguments are missing, shows command-specific help.
     
     Args:
-        container_name: Name of the container to execute command in (optional)
-        command: Command to execute (use quotes for complex commands)
+        container_name: Name of the container to execute command in (required)
+        command: Command to execute (required)
         interactive: Use interactive shell (bash -l) for full environment
     """
-    if not container_name:
-        print("Available Running Containers:")
-        print("=" * 80)
-        
-        # Get running containers
-        result = ctx.run("docker ps --format '{{.Names}}\t{{.Image}}\t{{.Status}}'", hide=True, warn=True)
-        if not result.stdout.strip():
-            print("No running containers found.")
-            print("Start a container first with: ./fabrinetes run --file fabrinetes.config --name <repository> --no-ask")
-            return
-        
-        containers = result.stdout.strip().split('\n')
-        print(f"Found {len(containers)} running container(s):")
-        print()
-        
-        # Create table data
-        table_data = []
-        for container_line in containers:
-            parts = container_line.split('\t')
-            if len(parts) >= 3:
-                name, image, status = parts[0], parts[1], parts[2]
-                
-                # Extract repository name from container name (remove timestamp)
-                repo_name = name.split('-')[0] + '-' + name.split('-')[1] if '-' in name else name
-                
-                # Get more container details
-                inspect_result = ctx.run(f"docker inspect {name} --format='{{{{.Config.Image}}}}'", hide=True, warn=True)
-                full_image = inspect_result.stdout.strip() if inspect_result.stdout.strip() else image
-                
-                # Determine config file location
-                config_file = f"containers/{repo_name}/config/fabrinetes.config"
-                
-                table_data.append([
-                    name,
-                    full_image,
-                    repo_name,
-                    config_file,
-                    status
-                ])
-        
-        # Print table using tabulate
-        from tabulate import tabulate
-        headers = ["Container Name", "Image", "Repository", "Config File", "Status"]
-        print(tabulate(table_data, headers=headers, tablefmt="grid"))
-        print()
-        
-        # Print commands
-        print("Exec Commands:")
-        print("-" * 50)
-        for i, container_line in enumerate(containers, 1):
-            parts = container_line.split('\t')
-            if len(parts) >= 3:
-                name = parts[0]
-                print(f"{i}. ./fabrinetes exec --container-name {name} --command '<cmd>'")
-        
-        print("=" * 80)
-        print("Usage: ./fabrinetes exec --container-name <container-name> --command '<cmd>'")
-        return
-    
-    if not command:
-        print("Error: Command is required")
-        print("Usage: invoke exec --container-name=<name> --command='<cmd>'")
+    if not container_name or not command:
+        show_command_help('exec', COMMAND_HELP['exec'])
         return
     
     # Check if container exists and is running
@@ -504,94 +557,34 @@ def exec(ctx, container_name=None, command=None, interactive=False):
         ctx.run("docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'", pty=True)
         return
     
-    # Build docker exec command
-    if interactive:
-        # Use login shell for full environment (bashrc, PATH, etc.)
-        exec_cmd = f"docker exec {container_name} bash -l -c '{command}'"
-        print(f"[Interactive] Executing: {command}")
-    else:
-        # Regular execution
-        exec_cmd = f"docker exec {container_name} bash -c '{command}'"
-        print(f"[Non-interactive] Executing: {command}")
-    
+    print(f"Executing command in container: {container_name}")
+    print(f"Command: {command}")
     print("=" * 60)
     
-    # Execute command and capture output
     try:
-        result = ctx.run(exec_cmd, pty=True, echo=False)
-        print("=" * 60)
-        print(f"Command completed successfully")
+        if interactive:
+            # Use interactive shell
+            ctx.run(f"docker exec -it {container_name} bash -l -c '{command}'", pty=True)
+        else:
+            # Execute command directly
+            result = ctx.run(f"docker exec {container_name} bash -c '{command}'", pty=True, warn=True)
+            if result.exited != 0:
+                print(f"Command failed with exit code: {result.exited}")
     except Exception as e:
         print("=" * 60)
         print(f"Command failed: {e}")
-
 
 @task
 def shell(ctx, container_name=None):
     """
     Open an interactive shell in a running container.
-    If no container name provided, shows list of available containers with commands.
+    If no container name provided, shows command-specific help.
     
     Args:
-        container_name: Name of the container to connect to (optional)
+        container_name: Name of the container to connect to (required)
     """
     if not container_name:
-        print("Available Running Containers:")
-        print("=" * 80)
-        
-        # Get running containers
-        result = ctx.run("docker ps --format '{{.Names}}\t{{.Image}}\t{{.Status}}'", hide=True, warn=True)
-        if not result.stdout.strip():
-            print("No running containers found.")
-            print("Start a container first with: ./fabrinetes run --file fabrinetes.config --name <repository> --no-ask")
-            return
-        
-        containers = result.stdout.strip().split('\n')
-        print(f"Found {len(containers)} running container(s):")
-        print()
-        
-        # Create table data
-        table_data = []
-        for container_line in containers:
-            parts = container_line.split('\t')
-            if len(parts) >= 3:
-                name, image, status = parts[0], parts[1], parts[2]
-                
-                # Extract repository name from container name (remove timestamp)
-                repo_name = name.split('-')[0] + '-' + name.split('-')[1] if '-' in name else name
-                
-                # Get more container details
-                inspect_result = ctx.run(f"docker inspect {name} --format='{{{{.Config.Image}}}}'", hide=True, warn=True)
-                full_image = inspect_result.stdout.strip() if inspect_result.stdout.strip() else image
-                
-                # Determine config file location
-                config_file = f"containers/{repo_name}/config/fabrinetes.config"
-                
-                table_data.append([
-                    name,
-                    full_image,
-                    repo_name,
-                    config_file,
-                    status
-                ])
-        
-        # Print table using tabulate
-        from tabulate import tabulate
-        headers = ["Container Name", "Image", "Repository", "Config File", "Status"]
-        print(tabulate(table_data, headers=headers, tablefmt="grid"))
-        print()
-        
-        # Print commands
-        print("Shell Commands:")
-        print("-" * 50)
-        for i, container_line in enumerate(containers, 1):
-            parts = container_line.split('\t')
-            if len(parts) >= 3:
-                name = parts[0]
-                print(f"{i}. ./fabrinetes shell --container-name {name}")
-        
-        print("=" * 80)
-        print("Usage: ./fabrinetes shell --container-name <container-name>")
+        show_command_help('shell', COMMAND_HELP['shell'])
         return
     
     # Check if container exists and is running
@@ -611,14 +604,18 @@ def shell(ctx, container_name=None):
 
 
 @task
-def clean(ctx, file, name=None):
+def clean(ctx, file=None, name=None):
     """
     Clean up all images and containers for a specific config.
     
     Args:
-        file: Path to the config file
+        file: Path to the config file (required)
         name: Container name to clean (optional, cleans all if not specified)
     """
+    # Check for missing required arguments
+    if not file:
+        show_command_help('clean', COMMAND_HELP['clean'])
+        return
     if not os.path.isabs(file):
         base_path = os.environ.get("HDLFORGE_ORIG_PATH", os.getcwd())
         file = os.path.join(base_path, file)

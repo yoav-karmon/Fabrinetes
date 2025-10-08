@@ -36,21 +36,21 @@ if [[ $# -eq 0 ]]; then
 else
     # Handle build command with repo parameter
     if [[ "$1" == "build" && -n "$2" ]]; then
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] \$ invoke -c tasks build --repo=$2" | tee -a "$LOGFILE"
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] \$ invoke -c tasks build --repo=$2" >> "$LOGFILE"
         invoke -c tasks build --repo="$2" | tee -a "$LOGFILE"
     # Handle exec command
     elif [[ "$1" == "exec" ]]; then
         shift  # Remove 'exec' from arguments
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] \$ invoke -c tasks exec $*" | tee -a "$LOGFILE"
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] \$ invoke -c tasks exec $*" >> "$LOGFILE"
         invoke -c tasks exec "$@" | tee -a "$LOGFILE"
     # Handle shell command
     elif [[ "$1" == "shell" ]]; then
         shift  # Remove 'shell' from arguments
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] \$ invoke -c tasks shell $*" | tee -a "$LOGFILE"
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] \$ invoke -c tasks shell $*" >> "$LOGFILE"
         invoke -c tasks shell "$@" | tee -a "$LOGFILE"
     else
         # Run invoke as if we were in that directory
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] \$ invoke -c tasks $*" | tee -a "$LOGFILE"
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] \$ invoke -c tasks $*" >> "$LOGFILE"
         exec invoke -c tasks "$@" | tee -a "$LOGFILE"
     fi
 fi
