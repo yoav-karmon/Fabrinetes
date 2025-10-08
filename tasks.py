@@ -239,10 +239,15 @@ def run(ctx, file,rm=False,verbose=False,ver=None,name=None, x11=True,usb=False,
 
     MOUNTS_LIST = container_config.get("mounts", [])
     X11_path = container_config.get("X11_path", None)
+    init_env = container_config.get("init_env", None)
     _this_file_path = pathlib.Path(__file__).resolve().parent
 
     MOUNTS_LIST.append(f"{_this_file_path}/source/bashrc-root:{os.getenv('HOME')}/.bashrc")
     MOUNTS_LIST.append(f"{_this_file_path}/source/project_setup/:/opt/project_setup")
+    
+    # Add init_env mount if specified
+    if init_env:
+        MOUNTS_LIST.append(init_env)
 
     RESOLVED_MOUNTS_LIST=resolve_mounts(MOUNTS_LIST, RELATIVE_PATH)
     RESOLVED_MOUNTS_LIST:List[Tuple[str, str]]
