@@ -1,9 +1,13 @@
 #!/bin/bash
-LOGFILE="fabrinetes_$(date +%Y-%m-%d).log"
 SCRIPT_PATH="$(readlink -f "$0")"
 TASKS_DIR="$(dirname "$SCRIPT_PATH")"
+LOG_DIR="$TASKS_DIR/_log"
+LOGFILE="$LOG_DIR/fabrinetes_$(date +%Y-%m-%d).log"
 
 export HDLFORGE_ORIG_PATH="$(pwd)"
+
+# Create log directory if it doesn't exist
+mkdir -p "$LOG_DIR"
 
 # Change to the tasks directory before running invoke
 cd "$TASKS_DIR" || {
