@@ -136,16 +136,14 @@ def run(ctx, file,rm=False,verbose=False,ver=None,name=None, x11=True,usb=False,
     
     # Find container config by name
     container_config = None
-    for key, config in database.items():
-        if key.startswith("container.") and key == f"container.{name}":
-            container_config = config
-            break
+    if "container" in database and name in database["container"]:
+        container_config = database["container"][name]
     
     if not container_config:
         print(f"Available config setups (use with --name):")
-        for key in database.keys():
-            if key.startswith("container."):
-                print(f"  {key.replace('container.', '')}")
+        if "container" in database:
+            for key in database["container"].keys():
+                print(f"  {key}")
         exit()
     
     _image_repository = name
@@ -186,12 +184,17 @@ def run(ctx, file,rm=False,verbose=False,ver=None,name=None, x11=True,usb=False,
     if rm:
         cmd_parts.append("--rm")
     if x11:
-        print(f"X11 support enabled at {X11_path}")
-        X11_path = os.path.expandvars(X11_path)
-        X11_path = pathlib.Path(X11_path)
-        if not X11_path.exists():
-            print(f"Error: X11 socket {X11_path} does not exist")
-            sys.exit(1)
+        if X11_path:
+            print(f"X11 support enabled at {X11_path}")
+            X11_path = os.path.expandvars(X11_path)
+            X11_path = pathlib.Path(X11_path)
+            if not X11_path.exists():
+                print(f"Error: X11 socket {X11_path} does not exist")
+                sys.exit(1)
+        else:
+            # Default X11 socket path
+            X11_path = pathlib.Path("/tmp/.X11-unix")
+            print(f"X11 support enabled at {X11_path}")
         
         
         cmd_parts.append("--net=host")
