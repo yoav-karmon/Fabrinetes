@@ -18,33 +18,8 @@ cd "$TASKS_DIR" || {
 
 # Function to show help and execute list command when no args provided
 show_help_and_list() {
-    echo "=== Fabrinetes Help ==="
-    echo ""
-    echo "Available repositories:"
-    
-    # Parse config file to show available containers
-    if [[ -f "fabrinetes.config" ]]; then
-        grep -E "^\[container\." fabrinetes.config | sed 's/\[container\.//g' | sed 's/\]//g' | while read container; do
-            echo "  $container"
-        done
-    else
-        echo "  No config file found (fabrinetes.config)"
-    fi
-    
-    echo ""
-           echo "Examples:"
-           echo "  ./fabrinetes build [repo]"
-           echo "  ./fabrinetes list"
-           echo "  ./fabrinetes run --file fabrinetes.config --name <repository> [--rm (auto-cleanup)] [--x11 (GUI support)] [--usb (hardware access)] [--ask (confirm)] [--verbose (details)]"
-           echo "  ./fabrinetes exec --container-name <name> --command '<cmd>' [--interactive]"
-           echo "  ./fabrinetes shell --container-name <name>"
-    echo ""
-    echo "=== Executing 'list' command ==="
-    echo ""
-    
-    # Execute the list command
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] \$ invoke -c tasks list" | tee -a "$LOGFILE"
-    invoke -c tasks list | tee -a "$LOGFILE"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] \$ invoke -c tasks help" | tee -a "$LOGFILE"
+    invoke -c tasks help | tee -a "$LOGFILE"
 }
 
        # Check if no arguments provided
