@@ -67,3 +67,9 @@
 - Provide context when asking questions
 - Use examples to illustrate points
 - Be respectful and collaborative
+
+## Session Startup Guidelines
+- On session start, ensure the Cursor_send_box folder exists
+- If Cursor_send_box folder does not exist, create it
+- Verify that .gitignore includes Cursor_send_box/ to ignore the folder
+- Use Cursor_send_box/ for temporary development files and notes
