@@ -5,6 +5,8 @@
 - If cursor_send_box folder does not exist, create it
 - Verify that .gitignore includes cursor_send_box/ to ignore the folder
 - Use cursor_send_box/ for temporary development files and notes
+- Workflow plans should be written as .md files in cursor_send_box/
+- Helper files, scripts, and other temporary files should be located in cursor_send_box/
 
 ## Code Style Guidelines
 - Write clean, readable, and well-documented code
