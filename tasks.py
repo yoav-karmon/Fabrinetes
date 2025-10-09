@@ -19,6 +19,28 @@ from tabulate import tabulate
 import pathlib 
 import logging
 
+def setup_x11_support(x11, X11_path, cmd_parts):
+    """Helper function to set up X11 support for Docker containers"""
+    if x11:
+        if X11_path:
+            print(f"X11 support enabled at {X11_path}")
+            X11_path = os.path.expandvars(X11_path)
+            X11_path = pathlib.Path(X11_path)
+            if not X11_path.exists():
+                print(f"Error: X11 socket {X11_path} does not exist")
+                sys.exit(1)
+        else:
+            # Default X11 socket path
+            X11_path = pathlib.Path("/tmp/.X11-unix")
+            print(f"X11 support enabled at {X11_path}")
+        
+        cmd_parts.append("--net=host")
+        cmd_parts.append(f"-e DISPLAY={os.environ['DISPLAY']}")
+        cmd_parts.append(f"-v {X11_path}:/tmp/.X11-unix")
+        cmd_parts.append(f"-v {os.environ['HOME']}/.Xauthority:/home/{os.getenv('USER', 'user')}/.Xauthority:ro")
+    
+    return cmd_parts
+
 # Check if tasks.py is being called directly (not from fabrinetes script)
 def check_invocation_method():
     """Check if tasks.py is being called directly and exit with error if so"""
@@ -49,7 +71,7 @@ def check_invocation_method():
     sys.exit(1)
 
 # Check invocation method before defining any tasks
-check_invocation_method()
+# check_invocation_method()  # Removed - will check in each task instead
 from typing import List, Tuple
 
 
@@ -141,7 +163,7 @@ def build(ctx, repo=None, dry_run=False, export=False):
             print(f"  HOME_DIR={home_dir}")
             print(f"[DRY RUN] Target image: {repo_name}:latest")
             if export:
-                print(f"[DRY RUN] Would export image to: images/{repo_name}/{repo_name}-latest.tar.gz")
+                print(f"[DRY RUN] Would export image to: containers/{repo_name}/images/{repo_name}-latest.tar.gz")
         else:
             print(f"Building {repo_name}...")
             ctx.run(docker_cmd, pty=True)
@@ -155,7 +177,7 @@ def export_image(ctx, repo_name, tag):
     import subprocess
     
     # Create images directory if it doesn't exist
-    images_dir = f"images/{repo_name}"
+    images_dir = f"containers/{repo_name}/images"
     os.makedirs(images_dir, exist_ok=True)
     
     # Export image
@@ -209,7 +231,7 @@ def restore(ctx, repo=None, tar_file=None):
     
     # If no tar_file specified, look for the latest in images directory
     if not tar_file:
-        images_dir = f"images/{repo}"
+        images_dir = f"containers/{repo}/images"
         if not os.path.exists(images_dir):
             print(f"Error: Images directory {images_dir} does not exist")
             print(f"Available options:")
@@ -237,7 +259,7 @@ def restore(ctx, repo=None, tar_file=None):
             print(f"Error: Specified tar file '{tar_file}' does not exist")
             
             # Show available tar files for this repository
-            images_dir = f"images/{repo}"
+            images_dir = f"containers/{repo}/images"
             if os.path.exists(images_dir):
                 import glob
                 available_files = glob.glob(f"{images_dir}/{repo}-*.tar.gz")
@@ -300,14 +322,14 @@ def commit(ctx, container_name=None, tag=None, message=None):
     if not tag:
         # Extract repository name from container name (remove timestamp)
         import re
-        repo_match = re.match(r'([^-]+(?:-[^-]+)*)-\d{8}-\d{6}', container_name)
+        repo_match = re.match(r'([^-]+(?:-[^-]+)*)-\d{8}_\d{6}', container_name)
         if repo_match:
             repo_name = repo_match.group(1)
         else:
             # Fallback: try to extract from container name
             parts = container_name.split('-')
-            if len(parts) >= 3:  # fabrinetes-dev-testing-20251008-141316
-                repo_name = '-'.join(parts[:-2])  # fabrinetes-dev-testing
+            if len(parts) >= 3:  # fabrinetes-dev-testing-20251008,141316
+                repo_name = '-'.join(parts[:-1])  # fabrinetes-dev-testing
             else:
                 repo_name = container_name
         
@@ -338,14 +360,14 @@ def commit(ctx, container_name=None, tag=None, message=None):
     else:
         # Extract repository name from container name (remove timestamp)
         import re
-        repo_match = re.match(r'([^-]+(?:-[^-]+)*)-\d{8}-\d{6}', container_name)
+        repo_match = re.match(r'([^-]+(?:-[^-]+)*)-\d{8}_\d{6}', container_name)
         if repo_match:
             repo_name = repo_match.group(1)
         else:
             # Fallback: try to extract from container name
             parts = container_name.split('-')
-            if len(parts) >= 3:  # fabrinetes-dev-testing-20251008-141316
-                repo_name = '-'.join(parts[:-2])  # fabrinetes-dev-testing
+            if len(parts) >= 3:  # fabrinetes-dev-testing-20251008,141316
+                repo_name = '-'.join(parts[:-1])  # fabrinetes-dev-testing
             else:
                 repo_name = container_name
     
@@ -369,6 +391,7 @@ def commit(ctx, container_name=None, tag=None, message=None):
 def show_command_help(command_name, command_data):
     """Show help for a specific command"""
     from tabulate import tabulate
+    import subprocess
     
     print(f"[!] Missing required arguments for '{command_name}' command!")
     print("")
@@ -384,6 +407,19 @@ def show_command_help(command_name, command_data):
     print("Description:")
     print(f"  {command_data['description']}")
     print("")
+    
+    # Show running containers for pkg command
+    if command_name == 'pkg':
+        print("Available running containers:")
+        try:
+            result = subprocess.run(
+                "docker ps --format 'table {{.Names}}\\t{{.Image}}\\t{{.Status}}'",
+                shell=True, capture_output=True, text=True, check=True
+            )
+            print(result.stdout)
+        except subprocess.CalledProcessError:
+            print("No running containers found.")
+        print("")
     
     # Arguments table
     if 'arguments' in command_data:
@@ -467,7 +503,7 @@ COMMAND_HELP = {
         ],
         'examples': [
             './fabrinetes restore fabrinetes-dev-testing',
-            './fabrinetes restore fabrinetes-dev --tar-file images/fabrinetes-dev/fabrinetes-dev-latest.tar.gz'
+            './fabrinetes restore fabrinetes-dev --tar-file containers/fabrinetes-dev/images/fabrinetes-dev-latest.tar.gz'
         ]
     },
     'commit': {
@@ -494,6 +530,16 @@ COMMAND_HELP = {
         'examples': [
             './fabrinetes clean --file containers/fabrinetes-dev-testing/config/fabrinetes.config',
             './fabrinetes clean --file containers/fabrinetes-dev-testing/config/fabrinetes.config --name fabrinetes-dev-testing'
+        ]
+    },
+    'pkg': {
+        'syntax': './fabrinetes pkg --container-name <container-name>',
+        'description': 'Package management: generate package file with versions and download .deb files from containers',
+        'arguments': [
+            ['--container-name', 'Name of the running container to manage', 'Yes', 'fabrinetes-dev-testing-20251008-163531\nfabrinetes-dev-testing-20251008-163423\nfabrinetes-dev-testing-20251008-154737\nfabrinetes-dev-testing-20251008-153929\nfabrinetes-fpga-dev-1']
+        ],
+        'examples': [
+            './fabrinetes pkg --container-name fabrinetes-dev-testing-20251008-154737'
         ]
     }
 }
@@ -574,7 +620,8 @@ def help(ctx):
         ["./fabrinetes exec", "--container-name [container-name] --command '[command]' [--interactive]", "Execute command in running container", "container-name: from Docker Containers table, command: any shell command"],
         ["./fabrinetes shell", "--container-name [container-name]", "Open interactive shell in container", "container-name: from Docker Containers table"],
         ["./fabrinetes commit", "--container-name [name] [--tag <tag>] [--message <message>]", "Commit running container to new image", "container-name: from Docker Containers table, tag: optional"],
-        ["./fabrinetes clean", "--file [config-file] [--name [repository-name]]", "Clean up containers and images", "config-file: path to .config, repository-name: optional"]
+        ["./fabrinetes clean", "--file [config-file] [--name [repository-name]]", "Clean up containers and images", "config-file: path to .config, repository-name: optional"],
+        ["./fabrinetes pkg", "[container-name]", "Package management: generate package file with versions and download .deb files", "container-name: from Docker Containers table"]
     ]
     headers = ["Command", "Arguments", "Description", "Allowed Values"]
     print(tabulate(options_data, headers=headers, tablefmt="grid"))
@@ -747,7 +794,7 @@ def run(ctx, file=None,rm=False,verbose=False,ver=None,name=None, x11=True,usb=F
     if name:
         # Generate unique container name with timestamp
         import datetime
-        timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         container_name = f"{name}-{timestamp}"
         cmd_parts.append(f"--name {container_name}")
     else:
@@ -755,27 +802,11 @@ def run(ctx, file=None,rm=False,verbose=False,ver=None,name=None, x11=True,usb=F
         sys.exit(1)
         
    
-    if rm:
+    if (rm):
         cmd_parts.append("--rm")
-    if x11:
-        if X11_path:
-            print(f"X11 support enabled at {X11_path}")
-            X11_path = os.path.expandvars(X11_path)
-            X11_path = pathlib.Path(X11_path)
-        if not X11_path.exists():
-            print(f"Error: X11 socket {X11_path} does not exist")
-            sys.exit(1)
-        else:
-            # Default X11 socket path
-            X11_path = pathlib.Path("/tmp/.X11-unix")
-            print(f"X11 support enabled at {X11_path}")
         
-        
-        cmd_parts.append("--net=host")
-        cmd_parts.append(f"-e DISPLAY={os.environ['DISPLAY']}")
-        cmd_parts.append(f"-v {X11_path}:/tmp/.X11-unix")
-        cmd_parts.append(f"-v {os.environ['HOME']}/.Xauthority:/home/{os.getenv('USER', 'user')}/.Xauthority:ro")
-       
+    # Set up X11 support using helper function
+    cmd_parts = setup_x11_support(x11, X11_path, cmd_parts)
 
     if usb:
         cmd_parts.append("-v /dev/bus/usb:/dev/bus/usb")
@@ -1002,5 +1033,229 @@ def clean(ctx, file=None, name=None):
     
     print("=" * 60)
     print("Cleanup completed!")
+
+@task
+def pkg(ctx, container_name=None):
+    """Package management: generate package file with versions and download .deb files from containers"""
+    
+    # Check for missing required arguments
+    if not container_name:
+        show_command_help('pkg', COMMAND_HELP['pkg'])
+        return
+    
+    # Check if container is running
+    try:
+        result = ctx.run(f"docker ps --filter name={container_name} --format '{{{{.Names}}}}'", hide=True, warn=True)
+        if not result.stdout.strip():
+            print(f"Error: Container '{container_name}' is not running")
+            print("Available running containers:")
+            ctx.run("docker ps --format 'table {{.Names}}\\t{{.Image}}\\t{{.Status}}'", pty=True)
+            return
+    except Exception:
+        print(f"Error: Could not check container status")
+        return
+    
+    print(f"Package management for container: {container_name}")
+    print("=" * 80)
+    
+    # Execute package management (always runs when container_name is provided)
+    print(f"📦 Generate package file with versions and download .deb files with dependencies...")
+    
+    try:
+        # Get manually installed packages
+        result = ctx.run(f"docker exec {container_name} apt-mark showmanual", hide=True, warn=True)
+        
+        if not result.stdout.strip():
+            print("No manually installed packages found")
+        else:
+            manual_packages = result.stdout.strip().split('\n')
+            manual_packages.sort()
+            
+            # Get detailed info for each package
+            packages = []
+            for package_name in manual_packages:
+                if package_name.strip():
+                    # Get package details
+                    detail_result = ctx.run(f"docker exec {container_name} dpkg-query -W -f='${{Version}}\\t${{Description}}' {package_name}", hide=True, warn=True)
+                    
+                    if detail_result.stdout.strip():
+                        parts = detail_result.stdout.strip().split('\t', 1)
+                        version = parts[0] if len(parts) > 0 else "Unknown"
+                        description = parts[1] if len(parts) > 1 else "No description"
+                        
+                        packages.append([package_name, version, description])
+            
+            if packages:
+                # Display in pretty table
+                print(f"Found {len(packages)} manually installed packages:")
+                print()
+                
+                headers = ["Package Name", "Version", "Description"]
+                print(tabulate(packages, headers=headers, tablefmt="grid", maxcolwidths=[25, 15, 100]))
+                
+                # Generate package files
+                # Extract repository name from container name (remove timestamp)
+                import re
+                repo_match = re.match(r'([^-]+(?:-[^-]+)*)-\d{8}_\d{6}', container_name)
+                if repo_match:
+                    repo_name = repo_match.group(1)
+                else:
+                    # Fallback: try to extract from container name
+                    parts = container_name.split('-')
+                    if len(parts) >= 3:  # fabrinetes-dev-testing-20251008_141316
+                        repo_name = '-'.join(parts[:-1])  # fabrinetes-dev-testing
+                    else:
+                        repo_name = container_name
+                
+                container_dir = f"containers/{repo_name}"
+                deb_cache_dir = f"{container_dir}/deb-cache"
+                
+                # Create deb-cache directory if it doesn't exist
+                os.makedirs(deb_cache_dir, exist_ok=True)
+                
+                # Create package data file (names with versions) inside deb-cache
+                pkg_data_file = f"{deb_cache_dir}/package-list"
+                with open(pkg_data_file, 'w') as f:
+                    for pkg in manual_packages:
+                        try:
+                            result = ctx.run(f"docker exec {container_name} dpkg-query -W -f='${{Package}}=${{Version}}' {pkg}", hide=True, warn=True)
+                            if result.stdout.strip():
+                                f.write(f"{result.stdout.strip()}\n")
+                            else:
+                                f.write(f"{pkg}=unknown\n")
+                        except Exception:
+                            f.write(f"{pkg}=unknown\n")
+                
+                print(f"✅ Generated package file:")
+                print(f"  📄 {pkg_data_file}")
+                
+                # Download .deb files with dependencies
+                print(f"📥 Downloading .deb files with dependencies...")
+                
+                # Update package lists once at the beginning
+                print("  Updating package lists...")
+                update_cmd = f"docker exec {container_name} sudo apt-get update"
+                ctx.run(update_cmd, hide=True, warn=True)
+                
+                # Create dedicated directory for .deb files
+                mkdir_cmd = f"docker exec {container_name} sudo mkdir -p /var/cache/fabrinetes-deb-cache"
+                ctx.run(mkdir_cmd, hide=True, warn=True)
+                
+                # Collect all dependencies from all packages
+                all_deps = set()
+                failed_packages = []
+                
+                for pkg in manual_packages:
+                    if pkg.strip():
+                        try:
+                            print(f"  Processing {pkg}...")
+                            
+                            # Get dependencies including the package itself
+                            deps_result = ctx.run(f"docker exec {container_name} apt-rdepends {pkg}", hide=True, warn=True)
+                            
+                            # Parse dependencies (remove indentation, conflicts, and version constraints)
+                            deps = []
+                            dependency_keywords = {'Depends:', 'PreDepends:', 'Conflicts:', 'Recommends:', 'Suggests:', 'Breaks:', 'Replaces:', 'Provides:', 'Enhances:'}
+                            
+                            for line in deps_result.stdout.strip().split('\n'):
+                                line = line.strip()
+                                if line and not line.startswith(' ') and not line.startswith('Conflicts'):
+                                    # Skip dependency keywords and lines that start with them
+                                    if line in dependency_keywords or line.startswith('Depends:') or line.startswith('PreDepends:'):
+                                        continue
+                                    
+                                    # Extract package name only (remove version constraints like ">= 2.39")
+                                    import re
+                                    # Match package name before any version constraint
+                                    match = re.match(r'^([a-zA-Z0-9][a-zA-Z0-9._-]*[a-zA-Z0-9]|[a-zA-Z0-9])', line)
+                                    if match:
+                                        package_name = match.group(1)
+                                        # Skip common non-package words and problematic packages
+                                        skip_packages = {
+                                            'awk', 'perl', 'python', 'python3', 'bash', 'sh', 'csh', 'ksh', 'zsh',
+                                            'debconf-2.0', 'libgnutls30', 'libhogweed6', 'libnettle8', 'libreadline8',
+                                            'libstdc', 'mime-support', 'perlapi-5.38.2', 'media-types', 'netbase',
+                                            'tzdata', 'openssl', 'readline-common', 'Depends', 'PreDepends'
+                                        }
+                                        if package_name not in skip_packages:
+                                            deps.append(package_name)
+                            
+                            if deps:
+                                all_deps.update(deps)
+                                print(f"    ✅ Found {len(deps)} dependencies")
+                            
+                        except Exception as e:
+                            print(f"    ❌ Failed to process {pkg}: {e}")
+                            failed_packages.append(pkg)
+                
+                # Download all packages at once
+                if all_deps:
+                    print(f"📥 Downloading {len(all_deps)} unique packages...")
+                    download_cmd = f"docker exec {container_name} sh -c 'cd /var/cache/fabrinetes-deb-cache && sudo apt-get download --fix-missing --allow-unauthenticated {' '.join(sorted(all_deps))}'"
+                    result = ctx.run(download_cmd, hide=True, warn=True)
+                    if result.exited != 0:
+                        print(f"Warning: apt-get download failed with exit code {result.exited}")
+                        print(f"Command: {download_cmd}")
+                        print(f"Error: {result.stderr}")
+                    
+                    # Create tarball with all .deb files
+                    tar_cmd = f"docker exec {container_name} sh -c 'tar -czf /tmp/deb-files.tar.gz -C /var/cache/fabrinetes-deb-cache .'"
+                    ctx.run(tar_cmd, hide=True, warn=True)
+                    
+                    # Copy tarball to host (keep as tarball, don't extract)
+                    copy_tar_cmd = f"docker cp {container_name}:/tmp/deb-files.tar.gz {deb_cache_dir}/deb-files.tar.gz"
+                    ctx.run(copy_tar_cmd, hide=True, warn=True)
+                    
+                    # Clean up container files
+                    cleanup_cmd = f"docker exec {container_name} sudo rm -rf /var/cache/fabrinetes-deb-cache /tmp/deb-files.tar.gz"
+                    ctx.run(cleanup_cmd, hide=True, warn=True)
+                    
+                    print(f"✅ Downloaded {len(all_deps)} unique packages")
+                
+                # Check if tarball exists in cache
+                tarball_path = f"{deb_cache_dir}/deb-files.tar.gz"
+                tarball_exists = os.path.exists(tarball_path)
+                
+                print(f"✅ Download completed:")
+                if tarball_exists:
+                    # Get tarball size
+                    tarball_size = os.path.getsize(tarball_path)
+                    tarball_size_mb = tarball_size / (1024 * 1024)
+                    print(f"  📦 deb-files.tar.gz ({tarball_size_mb:.1f}MB) in {deb_cache_dir}")
+                else:
+                    print(f"  📦 No tarball found in {deb_cache_dir}")
+                if failed_packages:
+                    print(f"  ⚠️  Failed packages: {', '.join(failed_packages)}")
+                
+                # Show summary
+                print()
+                print("=" * 80)
+                print(f"SUMMARY: {len(packages)} manually installed packages processed")
+                
+                # Count packages by category
+                categories = {}
+                for package in packages:
+                    name = package[0].lower()
+                    if any(keyword in name for keyword in ['python', 'pip', 'py']):
+                        categories['Python'] = categories.get('Python', 0) + 1
+                    elif any(keyword in name for keyword in ['gcc', 'g++', 'clang', 'compiler', 'build']):
+                        categories['Development Tools'] = categories.get('Development Tools', 0) + 1
+                    elif any(keyword in name for keyword in ['lib', 'dev']):
+                        categories['Libraries'] = categories.get('Libraries', 0) + 1
+                    elif any(keyword in name for keyword in ['vim', 'nano', 'emacs', 'editor']):
+                        categories['Editors'] = categories.get('Editors', 0) + 1
+                    elif any(keyword in name for keyword in ['git', 'svn', 'hg']):
+                        categories['Version Control'] = categories.get('Version Control', 0) + 1
+                    else:
+                        categories['Other'] = categories.get('Other', 0) + 1
+                
+                print("Package categories:")
+                for category, count in sorted(categories.items()):
+                    print(f"  {category}: {count}")
+            else:
+                print("No packages found")
+    
+    except Exception as e:
+        print(f"Error processing packages: {e}")
 
    

@@ -71,6 +71,11 @@ else
         shift  # Remove 'shell' from arguments
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] \$ invoke -c tasks shell $*" >> "$LOGFILE"
         invoke -c tasks shell "$@" | tee -a "$LOGFILE"
+    # Handle pkg command
+    elif [[ "$1" == "pkg" ]]; then
+        shift  # Remove 'pkg' from arguments
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] \$ invoke -c tasks pkg $*" >> "$LOGFILE"
+        invoke -c tasks pkg "$@" | tee -a "$LOGFILE"
     else
         # Run invoke as if we were in that directory
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] \$ invoke -c tasks $*" >> "$LOGFILE"
