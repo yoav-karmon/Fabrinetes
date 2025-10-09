@@ -31,10 +31,10 @@ def help(ctx):
     print("=" * 60)
     
     # Find all config files
-    config_files = glob.glob("containers/*/config/*.config")
+    config_files = glob.glob("containers/*/config.toml")
     
     if not config_files:
-        print("No configuration files found in containers/*/config/")
+        print("No configuration files found in containers/*/config.toml")
         return
     
     print("Available Repositories:")
@@ -45,8 +45,8 @@ def help(ctx):
     for config_file in sorted(config_files):
         # Extract repository name from path
         parts = config_file.split('/')
-        if len(parts) >= 3:
-            repo_name = parts[1]  # containers/REPO_NAME/config/file.config
+        if len(parts) >= 2:
+            repo_name = parts[1]  # containers/REPO_NAME/config.toml
         else:
             repo_name = "unknown"
         
@@ -55,27 +55,27 @@ def help(ctx):
     print("")
     print("Options:")
     options_data = [
-        ["./fabrinetes build", "[repository-name] [--dry-run] [--export] [--skeleton]", "Build Docker image from skeleton by default", "fabrinetes-dev-testing, fabrinetes-dev, fabrinetes-fpga-full, skeleton"],
-        ["./fabrinetes restore", "[repository-name] [--tar-file <path>]", "Restore Docker image from tar.gz file", "fabrinetes-dev-testing, fabrinetes-dev, fabrinetes-fpga-full"],
+        ["./fabrinetes gen-image", "[config-file] [--dry-run] [--base-image]", "Generate Docker image from config file", "config-file: containers/<path>/config.toml"],
+        ["./fabrinetes run", "[config-file] [--rm] [--x11] [--usb] [--ask] [--verbose]", "Run container with specified config", "config-file: containers/<path>/config.toml"],
         ["./fabrinetes list", "", "List Docker images and containers", "None"],
-        ["./fabrinetes run", "--file [config-file] --name [repository-name] [--rm] [--x11] [--usb] [--ask] [--verbose]", "Run container with specified config", "config-file: path to .config, repository-name: from table above, flags: optional"],
-        ["./fabrinetes exec", "--container-name [container-name] --command '[command]' [--interactive]", "Execute command in running container", "container-name: from Docker Containers table, command: any shell command"],
+        ["./fabrinetes exec", "--container-name [container-name] --command '[command]' [--interactive]", "Execute command in running container", "container-name: from Docker Containers table"],
         ["./fabrinetes shell", "--container-name [container-name]", "Open interactive shell in container", "container-name: from Docker Containers table"],
-        ["./fabrinetes commit", "--container-name [name] [--tag <tag>] [--message <message>]", "Commit running container to new image", "container-name: from Docker Containers table, tag: optional"],
-        ["./fabrinetes clean", "--file [config-file] [--name [repository-name]]", "Clean up containers and images", "config-file: path to .config, repository-name: optional"],
-        ["./fabrinetes pkg", "[container-name]", "Package management: generate package file with versions and download .deb files", "container-name: from Docker Containers table"]
+        ["./fabrinetes commit", "--container-name [name] [--tag <tag>] [--message <message>]", "Commit running container to new image", "container-name: from Docker Containers table"],
+        ["./fabrinetes clean-image", "[image-name]", "Clean up containers and images", "image-name: from Docker Images table"],
+        ["./fabrinetes kill", "[container-name]", "Stop and remove container", "container-name: from Docker Containers table"],
+        ["./fabrinetes pkg", "--container-name [container-name]", "Package management: generate package file with versions and download .deb files", "container-name: from Docker Containers table"]
     ]
     headers = ["Command", "Arguments", "Description", "Allowed Values"]
     print(tabulate(options_data, headers=headers, tablefmt="grid"))
     
     print("\nExamples:")
     examples_data = [
-        ["./fabrinetes build fabrinetes-dev-testing", "Build container from skeleton"],
-        ["./fabrinetes build skeleton --skeleton", "Rebuild skeleton container"],
-        ["./fabrinetes run --file containers/fabrinetes-dev-testing/config.toml", "Run container with config"],
-        ["./fabrinetes exec --container-name fabrinetes-dev-testing-20251008-141316 --command 'ls -la'", "Execute command in container"],
-        ["./fabrinetes shell --container-name fabrinetes-dev-testing-20251008-141316", "Open shell in container"],
-        ["./fabrinetes pkg --container-name fabrinetes-dev-testing-20251008-141316", "Manage packages in container"]
+        ["./fabrinetes gen-image containers/fabrinetes-dev-testing/config.toml", "Generate container from config"],
+        ["./fabrinetes gen-image containers/fabrinetes-dev-testing/config.toml --base-image", "Generate base image from Dockerfile"],
+        ["./fabrinetes run containers/fabrinetes-dev-testing/config.toml", "Run container with config"],
+        ["./fabrinetes exec --container-name fabrinetes-dev-testing.latest.run --command 'ls -la'", "Execute command in container"],
+        ["./fabrinetes shell --container-name fabrinetes-dev-testing.latest.run", "Open shell in container"],
+        ["./fabrinetes pkg --container-name fabrinetes-dev-testing.latest.run", "Manage packages in container"]
     ]
     headers = ["Command", "Description"]
     print(tabulate(examples_data, headers=headers, tablefmt="grid"))
