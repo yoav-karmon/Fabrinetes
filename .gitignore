@@ -6,3 +6,6 @@ _log/
 *.tar.gz
 containers/*/images/
 containers/*/deb-cache/
+
+# Development files
+dev-plan.md
