@@ -1,0 +1,5 @@
+[config]
+image_name        = "fabrinetes-dev-testing:latest"
+base_image        = "fabrinetes-skeleton:latest"
+mounts           = ["$HOME/repo:/root/repos","/tmp:/tmp"]
+init_env         = "init_env.sh:/etc/profile.d/init_env.sh"

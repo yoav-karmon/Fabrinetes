@@ -1,0 +1,5 @@
+[config]
+image_name        = "fabrinetes-skeleton:latest"
+base_image        = "ubuntu:24.04"
+mounts           = ["$HOME/repo:/root/repos","/tmp:/tmp"]
+init_env         = "init_env.sh:/etc/profile.d/init_env.sh"

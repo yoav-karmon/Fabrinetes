@@ -35,27 +35,21 @@ if [[ $# -eq 0 ]]; then
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] \$ invoke -c tasks help" | tee -a "$LOGFILE"
     invoke -c tasks help | tee -a "$LOGFILE"
 else
-    # Handle build command with repo parameter
-    if [[ "$1" == "build" && -n "$2" ]]; then
-        # Check if --dry-run flag is present
+    # Handle gen-image command with config file parameter
+    if [[ "$1" == "gen-image" && -n "$2" ]]; then
+        # Gen-image command arguments
+        gen_image_args="--config-file=$2"
+        
+        # Add flags if present
         if [[ "$*" == *"--dry-run"* ]]; then
-            echo "[$(date '+%Y-%m-%d %H:%M:%S')] \$ invoke -c tasks build --repo=$2 --dry-run" >> "$LOGFILE"
-            invoke -c tasks build --repo="$2" --dry-run | tee -a "$LOGFILE"
-        # Check if --export flag is present
-        elif [[ "$*" == *"--export"* ]]; then
-            echo "[$(date '+%Y-%m-%d %H:%M:%S')] \$ invoke -c tasks build --repo=$2 --export" >> "$LOGFILE"
-            invoke -c tasks build --repo="$2" --export | tee -a "$LOGFILE"
-        else
-            echo "[$(date '+%Y-%m-%d %H:%M:%S')] \$ invoke -c tasks build --repo=$2" >> "$LOGFILE"
-            invoke -c tasks build --repo="$2" | tee -a "$LOGFILE"
+            gen_image_args="$gen_image_args --dry-run"
         fi
-    # Handle restore command
-    elif [[ "$1" == "restore" && -n "$2" ]]; then
-        repo_name="$2"
-        shift  # Remove 'restore' from arguments
-        shift  # Remove repository name from arguments
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] \$ invoke -c tasks restore --repo=$repo_name $*" >> "$LOGFILE"
-        invoke -c tasks restore --repo="$repo_name" "$@" | tee -a "$LOGFILE"
+        if [[ "$*" == *"--base-image"* ]]; then
+            gen_image_args="$gen_image_args --base-image"
+        fi
+        
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] \$ invoke -c tasks gen-image $gen_image_args" >> "$LOGFILE"
+        invoke -c tasks gen-image $gen_image_args | tee -a "$LOGFILE"
     # Handle commit command
     elif [[ "$1" == "commit" ]]; then
         shift  # Remove 'commit' from arguments
@@ -76,9 +70,20 @@ else
         shift  # Remove 'pkg' from arguments
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] \$ invoke -c tasks pkg $*" >> "$LOGFILE"
         invoke -c tasks pkg "$@" | tee -a "$LOGFILE"
+    # Handle clean-image command
+    elif [[ "$1" == "clean-image" && -n "$2" ]]; then
+        image_name="$2"
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] \$ invoke -c tasks clean-image --image=$image_name" >> "$LOGFILE"
+        invoke -c tasks clean-image --image="$image_name" | tee -a "$LOGFILE"
+    # Handle kill command
+    elif [[ "$1" == "kill" && -n "$2" ]]; then
+        container_name="$2"
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] \$ invoke -c tasks kill --container-name=$container_name" >> "$LOGFILE"
+        invoke -c tasks kill --container-name="$container_name" | tee -a "$LOGFILE"
     else
         # Run invoke as if we were in that directory
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] \$ invoke -c tasks $*" >> "$LOGFILE"
-        exec invoke -c tasks "$@" | tee -a "$LOGFILE"
+        invoke -c tasks "$@" | tee -a "$LOGFILE"
+        exit ${PIPESTATUS[0]}
     fi
 fi

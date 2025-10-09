@@ -21,7 +21,7 @@ import logging
 import datetime
 
 # Import all tasks from modular structure
-from invoke_tasks import gen_image, commit, run, exec, shell, clean_image, kill, pkg, list, help, test
+from invoke_tasks import build, restore, commit, run, exec, shell, clean, pkg, list, help
 
 def export_image(ctx, repo_name, tag):
     """Export Docker image to tar.gz file"""
@@ -94,10 +94,11 @@ def show_command_help(command_name, command_data):
 # Command-specific help data
 COMMAND_HELP = {
     'run': {
-        'syntax': './fabrinetes run --file <config-file> [--rm] [--x11] [--usb] [--ask] [--verbose]',
-        'description': 'Run a Docker container with the specified configuration (container name auto-generated from config path)',
+        'syntax': './fabrinetes run --file <config-file> --name <repository-name> [--rm] [--x11] [--usb] [--ask] [--verbose]',
+        'description': 'Run a Docker container with the specified configuration',
         'arguments': [
-            ['--file', 'Path to the configuration file', 'Yes', 'containers/<path>/config.toml'],
+            ['--file', 'Path to the configuration file', 'Yes', 'containers/<path>/config/fabrinetes.config'],
+            ['--name', 'Repository name from config', 'Yes', 'fabrinetes-dev-testing, fabrinetes-dev, fabrinetes-fpga-full'],
             ['--rm', 'Automatically remove container when it exits', 'No', 'optional flag'],
             ['--x11', 'Enable X11 GUI support', 'No', 'optional flag'],
             ['--usb', 'Enable USB device access', 'No', 'optional flag'],
@@ -105,8 +106,8 @@ COMMAND_HELP = {
             ['--verbose', 'Show detailed output', 'No', 'optional flag']
         ],
         'examples': [
-            './fabrinetes run --file containers/fabrinetes-dev-testing/config.toml',
-            './fabrinetes run --file containers/fabrinetes-dev-testing/config.toml --rm --x11'
+            './fabrinetes run --file containers/fabrinetes-dev-testing/config/fabrinetes.config --name fabrinetes-dev-testing',
+            './fabrinetes run --file containers/fabrinetes-dev-testing/config/fabrinetes.config --name fabrinetes-dev-testing --rm --x11'
         ]
     },
     'exec': {
@@ -132,18 +133,32 @@ COMMAND_HELP = {
             './fabrinetes shell --container-name fabrinetes-dev-testing-20251008-141316'
         ]
     },
-    'gen-image': {
-        'syntax': './fabrinetes gen-image <config-file> [--dry-run] [--base-image]',
-        'description': 'Generate Docker image from config file - restore if tarball exists, otherwise build from base image',
+    'build': {
+        'syntax': './fabrinetes build <repository-name> [--dry-run] [--export] [--skeleton]',
+        'description': 'Build Docker image for the specified repository from skeleton by default',
         'arguments': [
-            ['config-file', 'Path to config.toml file', 'Yes', 'containers/<path>/config.toml'],
-            ['--dry-run', 'Show what would be generated without actually generating', 'No', 'optional flag'],
-            ['--base-image', 'Build base image from Dockerfile instead of creating new image', 'No', 'optional flag'],
+            ['repository-name', 'Name of the repository to build', 'Yes', 'fabrinetes-dev-testing, fabrinetes-dev, fabrinetes-fpga-full, skeleton'],
+            ['--dry-run', 'Show what would be built without actually building', 'No', 'optional flag'],
+            ['--export', 'Export built image to tar.gz file', 'No', 'optional flag'],
+            ['--skeleton', 'Rebuild skeleton container (use with repository-name=skeleton)', 'No', 'optional flag']
         ],
         'examples': [
-            './fabrinetes gen-image containers/fabrinetes-dev-testing/config.toml',
-            './fabrinetes gen-image containers/fabrinetes-dev-testing/config.toml --dry-run',
-            './fabrinetes gen-image containers/fabrinetes-dev-testing/config.toml --base-image'
+            './fabrinetes build fabrinetes-dev-testing',
+            './fabrinetes build skeleton --skeleton',
+            './fabrinetes build fabrinetes-dev --dry-run',
+            './fabrinetes build fabrinetes-dev-testing --export'
+        ]
+    },
+    'restore': {
+        'syntax': './fabrinetes restore <repository-name> [--tar-file <path>]',
+        'description': 'Restore Docker image from tar.gz file instead of building',
+        'arguments': [
+            ['repository-name', 'Name of the repository to restore', 'Yes', 'fabrinetes-dev-testing, fabrinetes-dev, fabrinetes-fpga-full'],
+            ['--tar-file', 'Path to specific tar.gz file (optional)', 'No', 'path to .tar.gz file']
+        ],
+        'examples': [
+            './fabrinetes restore fabrinetes-dev-testing',
+            './fabrinetes restore fabrinetes-dev --tar-file containers/fabrinetes-dev/images/fabrinetes-dev-latest.tar.gz'
         ]
     },
     'commit': {
@@ -159,26 +174,16 @@ COMMAND_HELP = {
             './fabrinetes commit --container-name fabrinetes-dev-testing-20251008-141316 --tag v1.0 --message "Added new features"'
         ]
     },
-    'clean-image': {
-        'syntax': './fabrinetes clean-image <base-image>',
-        'description': 'Clean up all containers and images for a specific base image',
+    'clean': {
+        'syntax': './fabrinetes clean --file <config-file> [--name <repository-name>]',
+        'description': 'Clean up containers and images for a specific configuration',
         'arguments': [
-            ['base-image', 'Base image name to clean (e.g., fabrinetes-skeleton:latest)', 'Yes', 'fabrinetes-skeleton:latest, fabrinetes-dev-testing:latest, etc.']
+            ['--file', 'Path to the configuration file', 'Yes', 'containers/<path>/config/fabrinetes.config'],
+            ['--name', 'Name of repository to clean (optional, cleans all if not specified)', 'No', 'repository name from config']
         ],
         'examples': [
-            './fabrinetes clean-image fabrinetes-skeleton:latest',
-            './fabrinetes clean-image fabrinetes-dev-testing:latest'
-        ]
-    },
-    'kill': {
-        'syntax': './fabrinetes kill <container-name>',
-        'description': 'Stop and remove a specific container (not the image)',
-        'arguments': [
-            ['container-name', 'Name of the container to kill', 'Yes', 'From Docker Containers table above']
-        ],
-        'examples': [
-            './fabrinetes kill fabrinetes-dev-testing.fabrinetes-skeleton.latest.run',
-            './fabrinetes kill fabrinetes-skeleton.latest.run'
+            './fabrinetes clean --file containers/fabrinetes-dev-testing/config/fabrinetes.config',
+            './fabrinetes clean --file containers/fabrinetes-dev-testing/config/fabrinetes.config --name fabrinetes-dev-testing'
         ]
     },
     'pkg': {
@@ -189,26 +194,6 @@ COMMAND_HELP = {
         ],
         'examples': [
             './fabrinetes pkg --container-name fabrinetes-dev-testing-20251008-154737'
-        ]
-    },
-    'test': {
-        'syntax': './fabrinetes test --command <command> [--test-number <number>]',
-        'description': 'Test commands using comprehensive test vectors with fabrinetes-dev-testing container',
-        'arguments': [
-            ['--command', 'Test command to run', 'Yes', 'run, gen-image, clean-image, kill, commit, exec, shell, pkg, all'],
-            ['--test-number', 'Run specific test by number (1-based)', 'No', '1, 2, 3, etc.']
-        ],
-        'examples': [
-            './fabrinetes test --command run',
-            './fabrinetes test --command run --test-number 5',
-            './fabrinetes test --command gen-image', 
-            './fabrinetes test --command clean-image',
-            './fabrinetes test --command kill',
-            './fabrinetes test --command commit',
-            './fabrinetes test --command exec',
-            './fabrinetes test --command shell',
-            './fabrinetes test --command pkg',
-            './fabrinetes test --command all'
         ]
     }
 }
