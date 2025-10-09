@@ -1,10 +1,10 @@
 # Global Cursor Rules - Apply to All Sessions
 
 ## Session Startup Guidelines
-- On session start, ensure the Cursor_send_box folder exists
-- If Cursor_send_box folder does not exist, create it
-- Verify that .gitignore includes Cursor_send_box/ to ignore the folder
-- Use Cursor_send_box/ for temporary development files and notes
+- On session start, ensure the cursor_send_box folder exists
+- If cursor_send_box folder does not exist, create it
+- Verify that .gitignore includes cursor_send_box/ to ignore the folder
+- Use cursor_send_box/ for temporary development files and notes
 
 ## Code Style Guidelines
 - Write clean, readable, and well-documented code
