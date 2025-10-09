@@ -33,26 +33,31 @@ def help(ctx):
     # Find all config files
     config_files = glob.glob("containers/*/config.toml")
     
-    if not config_files:
-        print("No configuration files found in containers/*/config.toml")
-        return
-    
-    print("Available Repositories:")
-    print("+------------------------+------------------------------------------------------------+")
-    print("| Repository Name        | Config File                                                |")
-    print("+------------------------+------------------------------------------------------------+")
-    
-    for config_file in sorted(config_files):
-        # Extract repository name from path
-        parts = config_file.split('/')
-        if len(parts) >= 2:
-            repo_name = parts[1]  # containers/REPO_NAME/config.toml
-        else:
-            repo_name = "unknown"
+    if config_files:
+        print("Available Repositories:")
+        print("+------------------------+------------------------------------------------------------+")
+        print("| Repository Name        | Config File                                                |")
+        print("+------------------------+------------------------------------------------------------+")
         
-        print(f"| {repo_name:<22} | {config_file:<58} |")
-    print("+------------------------+------------------------------------------------------------+")
-    print("")
+        for config_file in sorted(config_files):
+            # Extract repository name from path
+            parts = config_file.split('/')
+            if len(parts) >= 2:
+                repo_name = parts[1]  # containers/REPO_NAME/config.toml
+            else:
+                repo_name = "unknown"
+            
+            print(f"| {repo_name:<22} | {config_file:<58} |")
+        print("+------------------------+------------------------------------------------------------+")
+        print("")
+    else:
+        print("No configuration files found in containers/*/config.toml")
+        print("")
+        print("To get started, create a config file in containers/<name>/config.toml")
+        print("Example structure:")
+        print("  containers/my-container/config.toml")
+        print("")
+    
     print("Options:")
     options_data = [
         ["./fabrinetes gen-image", "[config-file] [--dry-run] [--base-image]", "Generate Docker image from config file", "config-file: containers/<path>/config.toml"],
