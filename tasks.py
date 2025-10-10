@@ -72,6 +72,7 @@ def import_image(ctx, tar_path):
 def show_command_help(command_name, command_data):
     """Show command-specific help with pretty table"""
     from tabulate import tabulate
+    import subprocess
     
     print(f"\n{command_name.upper()} Command Help")
     print("=" * 50)
@@ -82,7 +83,21 @@ def show_command_help(command_name, command_data):
     if 'arguments' in command_data:
         print("Arguments:")
         headers = ["Argument", "Description", "Required", "Allowed Values"]
-        print(tabulate(command_data['arguments'], headers=headers, tablefmt="grid"))
+        
+        # Get running containers for commands that need container names
+        running_containers = get_running_containers()
+        
+        # Modify arguments to show actual running containers
+        modified_arguments = []
+        for arg in command_data['arguments']:
+            if len(arg) >= 4 and 'container-name' in arg[0] and 'From Docker Containers table above' in arg[3]:
+                if running_containers:
+                    arg[3] = ', '.join(running_containers)
+                else:
+                    arg[3] = 'No running containers found'
+            modified_arguments.append(arg)
+        
+        print(tabulate(modified_arguments, headers=headers, tablefmt="grid"))
         print()
     
     if 'examples' in command_data:
@@ -90,6 +105,20 @@ def show_command_help(command_name, command_data):
         for example in command_data['examples']:
             print(f"  {example}")
         print("")
+
+def get_running_containers():
+    """Get list of running container names"""
+    import subprocess
+    try:
+        result = subprocess.run(['docker', 'ps', '--format', '{{.Names}}'], 
+                               capture_output=True, text=True, timeout=10)
+        if result.returncode == 0:
+            containers = [name.strip() for name in result.stdout.strip().split('\n') if name.strip()]
+            return containers
+        else:
+            return []
+    except Exception:
+        return []
 
 # Command-specific help data
 COMMAND_HELP = {

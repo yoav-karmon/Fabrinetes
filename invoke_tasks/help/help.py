@@ -16,13 +16,41 @@ def show_command_help(command_name, command_data):
     if 'arguments' in command_data:
         print("Arguments:")
         headers = ["Argument", "Description", "Required", "Allowed Values"]
-        print(tabulate(command_data['arguments'], headers=headers, tablefmt="grid"))
+        
+        # Get running containers for commands that need container names
+        running_containers = get_running_containers()
+        
+        # Modify arguments to show actual running containers
+        modified_arguments = []
+        for arg in command_data['arguments']:
+            if len(arg) >= 4 and 'container-name' in arg[0] and 'From Docker Containers table above' in arg[3]:
+                if running_containers:
+                    arg[3] = ', '.join(running_containers)
+                else:
+                    arg[3] = 'No running containers found'
+            modified_arguments.append(arg)
+        
+        print(tabulate(modified_arguments, headers=headers, tablefmt="grid"))
         print()
     
     if 'examples' in command_data:
         print("Examples:")
         for example in command_data['examples']:
             print(f"  {example}")
+
+def get_running_containers():
+    """Get list of running container names"""
+    import subprocess
+    try:
+        result = subprocess.run(['docker', 'ps', '--format', '{{.Names}}'], 
+                               capture_output=True, text=True, timeout=10)
+        if result.returncode == 0:
+            containers = [name.strip() for name in result.stdout.strip().split('\n') if name.strip()]
+            return containers
+        else:
+            return []
+    except Exception:
+        return []
 
 @task
 def help(ctx):
@@ -59,16 +87,21 @@ def help(ctx):
         print("")
     
     print("Options:")
+    
+    # Get running containers for dynamic display
+    running_containers = get_running_containers()
+    container_values = ', '.join(running_containers) if running_containers else 'No running containers found'
+    
     options_data = [
         ["./fabrinetes gen-image", "[config-file] [--dry-run] [--base-image]", "Generate Docker image from config file", "config-file: containers/<path>/config.toml"],
         ["./fabrinetes run", "[config-file] [--rm] [--x11] [--usb] [--ask] [--verbose]", "Run container with specified config", "config-file: containers/<path>/config.toml"],
         ["./fabrinetes list", "", "List Docker images and containers", "None"],
-        ["./fabrinetes exec", "--container-name [container-name] --command '[command]' [--interactive]", "Execute command in running container", "container-name: from Docker Containers table"],
-        ["./fabrinetes shell", "--container-name [container-name]", "Open interactive shell in container", "container-name: from Docker Containers table"],
-        ["./fabrinetes commit", "--container-name [name] [--tag <tag>] [--message <message>]", "Commit running container to new image", "container-name: from Docker Containers table"],
+        ["./fabrinetes exec", "--container-name [container-name] --command '[command]' [--interactive]", "Execute command in running container", f"container-name: {container_values}"],
+        ["./fabrinetes shell", "--container-name [container-name]", "Open interactive shell in container", f"container-name: {container_values}"],
+        ["./fabrinetes commit", "--container-name [name] [--tag <tag>] [--message <message>]", "Commit running container to new image", f"container-name: {container_values}"],
         ["./fabrinetes clean-image", "[image-name]", "Clean up containers and images", "image-name: from Docker Images table"],
-        ["./fabrinetes kill", "[container-name]", "Stop and remove container", "container-name: from Docker Containers table"],
-        ["./fabrinetes pkg", "--container-name [container-name]", "Package management: generate package file with versions and download .deb files", "container-name: from Docker Containers table"]
+        ["./fabrinetes kill", "[container-name]", "Stop and remove container", f"container-name: {container_values}"],
+        ["./fabrinetes pkg", "--container-name [container-name]", "Package management: generate package file with versions and download .deb files", f"container-name: {container_values}"]
     ]
     headers = ["Command", "Arguments", "Description", "Allowed Values"]
     print(tabulate(options_data, headers=headers, tablefmt="grid"))
