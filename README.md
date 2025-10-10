@@ -135,6 +135,42 @@ This becomes your **single source of truth**:
 
 ---
 
+## 🏗️ ContainerInfo Dataclass - Centralized Naming System
+
+Fabrinetes uses a **centralized naming system** via the `ContainerInfo` dataclass to ensure consistency across all modules:
+
+### Usage Pattern
+```python
+from helper_functions.name_generator import get_container_info
+
+# Get comprehensive container information
+container_info = get_container_info(config_file)
+
+# Access all naming information
+image_name = container_info.image_docker          # "fabrinetes-dev-testing:latest"
+base_image = container_info.base_image_docker    # "fabrinetes-skeleton:latest"
+container_name = container_info.run_name         # "fabrinetes-dev-testing-latest.run"
+tarball_path = container_info.tarball_path       # "containers/fabrinetes-dev-testing/fabrinetes-dev-testing-latest.tar.gz"
+```
+
+### ContainerInfo Properties
+- **Image**: `image_docker`, `image_full`, `image_tarball`
+- **Base Image**: `base_image_docker`, `base_image_full`, `base_image_tarball`
+- **Container**: `run_name`, `container_name`
+- **Paths**: `tarball_path`, `tarball_directory`
+- **Config**: `mounts`, `x11_path`, `config_file`
+
+### Benefits
+✅ **Single source of truth** for all naming  
+✅ **Type safety** with dataclass structure  
+✅ **Consistent naming** across all modules  
+✅ **Easy maintenance** - change naming logic in one place  
+✅ **Automatic validation** of config file structure  
+
+**Always use `get_container_info(config_file)` instead of manual TOML parsing!**
+
+---
+
 ## 🖼️ X11 GUI Support
 
 Supports running GUI apps like Vivado or GTKWave through:
@@ -188,6 +224,9 @@ This repository contains comprehensive documentation:
 ### Technical Documentation
 - **[Invoke Tasks](./invoke_tasks/README.md)** - Complete documentation of all Fabrinetes tasks, including architecture, usage, and development guidelines
 - **[Test Framework](./invoke_tasks/test/README.md)** - Detailed documentation of the automated testing system, test scenarios, and framework architecture
+
+### Development Guidelines
+- **ContainerInfo Dataclass** - Centralized naming system using `ContainerInfo` dataclass for all container, image, and tarball naming. Always use `get_container_info(config_file)` to get consistent naming across all modules.
 
 ---
 
