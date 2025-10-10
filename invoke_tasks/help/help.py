@@ -403,7 +403,9 @@ def show_global_help():
         "./fabrinetes gen-image <config> [--base-image]",
         "./fabrinetes clean <config> [--all|--base-image|--image|--container|--dangling]",
         "./fabrinetes run <config> [--rm|--x11|--usb|--ask|--verbose]",
-        "./fabrinetes exec|shell|pkg --container-name <name> [options]"
+        "./fabrinetes exec --container-name <name> --command '<cmd>'",
+        "./fabrinetes shell --container-name <name>",
+        "./fabrinetes pkg --container-name <name>"
     ]
     
     for i, template in enumerate(example_templates, 1):
