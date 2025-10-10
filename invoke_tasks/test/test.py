@@ -392,7 +392,7 @@ def get_command_parameters(command):
             # Base image tests only
             {'test_type': 'base_image', 'base_image_in_repo': True, 'base_tarball_exists': True, 'description': 'Base image: Base image in repo, tarball exists - should PASS (use existing)'},
             {'test_type': 'base_image', 'base_image_in_repo': False, 'base_tarball_exists': True, 'description': 'Base image: Base image not in repo, tarball exists - should PASS (restore)'},
-            {'test_type': 'base_image', 'base_image_in_repo': False, 'base_tarball_exists': False, 'description': 'Base image: Base image not in repo, no tarball - should FAIL (no Dockerfile, no restore)'},
+            {'test_type': 'base_image', 'base_image_in_repo': False, 'base_tarball_exists': False, 'description': 'Base image: Base image not in repo, no tarball - should PASS (build from Dockerfile)'},
         ]
 
     elif command == "clean-image":
@@ -541,16 +541,8 @@ def determine_expected_results(command, params):
                 return {}
         
         elif command == "gen-image-base":
-            # Base image tests only
-            base_image_in_repo = params.get('base_image_in_repo', True)
-            base_tarball_exists = params.get('base_tarball_exists', True)
-            
-            # Should FAIL if no base image AND no tarball (no Dockerfile, no restore)
-            if not base_image_in_repo and not base_tarball_exists:
-                return {1: "FAIL"}
-            # Should PASS in all other cases
-            else:
-                return {}
+            # Base image tests only - all should PASS since Dockerfile is available
+            return {}
         
         # For clean-image, all steps should PASS
         return {}
