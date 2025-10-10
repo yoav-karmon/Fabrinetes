@@ -63,129 +63,115 @@ def test(ctx, command=None, test_number=None):
 
     return passed == total
 
-def setup_gen_image_test_state(ctx, config_file, test_params):
-    """Setup test state for gen-image tests"""
-    print(f"      Setting up gen-image test state...", flush=True)
-    
-    test_type = test_params.get('test_type', 'regular_image')
-    
-    if test_type == 'base_image':
-        setup_base_image_test_state(ctx, config_file, test_params)
-    else:
-        setup_regular_image_test_state(ctx, config_file, test_params)
-    
-    print(f"      Gen-image test state setup complete", flush=True)
+def setup_test_state(ctx, config_file, container_name, image_name, command=None, params=None):
+    """Setup test state for all command types"""
+    print(f"      Setting up test state...", flush=True)
 
-def setup_base_image_test_state(ctx, config_file, test_params):
-    """Setup test state for base image tests (without Dockerfile manipulation)"""
+    # Handle different command types
+    if command in ["gen-image", "gen-image-base"]:
+        setup_gen_image_state(ctx, config_file, params)
+    else:
+        # Handle regular commands (run, clean-image, kill, commit, exec, shell, pkg)
+        setup_params = {
+            'image_in_repo': params.get('image_in_repo', True),
+            'tarball_exists': params.get('tarball_exists', True),
+            'container_state': params.get('container_state', 'none')
+        }
+        setup_regular_command_state(ctx, config_file, container_name, image_name, **setup_params)
+
+    print(f"      Test state setup complete", flush=True)
+
+def setup_gen_image_state(ctx, config_file, params):
+    """Setup state for gen-image commands"""
     import toml
     
-    # Load config to get base image name
+    # Load config to get image names
     config = toml.load(config_file)
     base_image_name = config['config']['base_image']
+    target_image_name = config['config']['image_name']
     
-    base_image_in_repo = test_params.get('base_image_in_repo', True)
-    base_tarball_exists = test_params.get('base_tarball_exists', True)
+    test_type = params.get('test_type', 'regular_image')
     
-    config_dir = os.path.dirname(config_file)
-    base_tarball_path = os.path.join(config_dir, "images", f"{base_image_name.replace(':', '.')}.tar.gz")
-    
-    # Setup base image state
-    if base_image_in_repo:
-        if not check_image_exists(ctx, base_image_name):
-            print(f"Building base image {base_image_name}...")
-            # Build the base image (assumes Dockerfile exists)
-            ctx.run(f"./fabrinetes gen-image {config_file} --base-image", hide=True, warn=True)
-    else:
-        ctx.run(f"docker rmi -f {base_image_name}", hide=True, warn=True)
-    
-    # Setup base tarball state
-    if base_tarball_exists:
-        if not os.path.exists(base_tarball_path):
-            # Create tarball from existing image
-            if check_image_exists(ctx, base_image_name):
-                os.makedirs(os.path.dirname(base_tarball_path), exist_ok=True)
-                ctx.run(f"docker save {base_image_name} | gzip > {base_tarball_path}", hide=True)
-    else:
-        if os.path.exists(base_tarball_path):
-            ctx.run(f"mv {base_tarball_path} {base_tarball_path}.backup", hide=True, warn=True)
-
-def setup_regular_image_test_state(ctx, config_file, test_params):
-    """Setup test state for regular image tests"""
-    import toml
-    
-    # Handle case where config file is empty or malformed
-    try:
-        config = toml.load(config_file)
-        target_image_name = config['config']['image_name']
-        base_image_name = config['config']['base_image']
-    except Exception as e:
-        # Use default values for testing when config is empty
-        print(f"Warning: Could not read config file {config_file}: {e}")
-        target_image_name = "fabrinetes-dev-testing:latest"
-        base_image_name = "fabrinetes-skeleton:latest"
-    
-    target_image_in_repo = test_params.get('target_image_in_repo', True)
-    target_tarball_exists = test_params.get('target_tarball_exists', True)
-    base_image_in_repo = test_params.get('base_image_in_repo', True)
-    base_tarball_exists = test_params.get('base_tarball_exists', True)
-    
-    config_dir = os.path.dirname(config_file)
-    target_tarball_path = os.path.join(config_dir, "images", f"{target_image_name.replace(':', '.')}.tar.gz")
-    base_tarball_path = os.path.join(config_dir, "images", f"{base_image_name.replace(':', '.')}.tar.gz")
-    
-    # Setup base image state
-    if base_image_in_repo:
-        if not check_image_exists(ctx, base_image_name):
-            print(f"Building base image {base_image_name}...")
-            ctx.run(f"./fabrinetes gen-image {config_file} --base-image", hide=True, warn=True)
-    else:
-        ctx.run(f"docker rmi -f {base_image_name}", hide=True, warn=True)
-    
-    # Setup base tarball state
-    if base_tarball_exists:
-        if not os.path.exists(base_tarball_path):
-            # Create tarball from existing image
-            if check_image_exists(ctx, base_image_name):
-                os.makedirs(os.path.dirname(base_tarball_path), exist_ok=True)
-                ctx.run(f"docker save {base_image_name} | gzip > {base_tarball_path}", hide=True)
-    else:
-        if os.path.exists(base_tarball_path):
-            ctx.run(f"mv {base_tarball_path} {base_tarball_path}.backup", hide=True, warn=True)
-    
-    # Setup target image state
-    if target_image_in_repo:
-        if not check_image_exists(ctx, target_image_name):
-            print(f"Building target image {target_image_name}...")
-            # Ensure base image exists before building target image
+    if test_type == 'base_image':
+        # Handle base image tests
+        base_image_in_repo = params.get('base_image_in_repo', True)
+        base_tarball_exists = params.get('base_tarball_exists', True)
+        
+        config_dir = os.path.dirname(config_file)
+        base_tarball_path = os.path.join(config_dir, "images", f"{base_image_name.replace(':', '.')}.tar.gz")
+        
+        # Setup base image state
+        if base_image_in_repo:
             if not check_image_exists(ctx, base_image_name):
-                print(f"Building base image {base_image_name} first...")
-                dockerfile_path = os.path.join(config_dir, "Dockerfile")
-                if not os.path.exists(dockerfile_path):
-                    skeleton_dockerfile = "base_images/fabrinetes-skeleton/Dockerfile"
-                    if os.path.exists(skeleton_dockerfile):
-                        ctx.run(f"cp {skeleton_dockerfile} {dockerfile_path}", hide=True)
+                print(f"Building base image {base_image_name}...")
                 ctx.run(f"./fabrinetes gen-image {config_file} --base-image", hide=True, warn=True)
-            ctx.run(f"./fabrinetes gen-image {config_file}", hide=True, warn=True)
-    else:
-        ctx.run(f"docker rmi -f {target_image_name}", hide=True, warn=True)
+        else:
+            ctx.run(f"docker rmi -f {base_image_name}", hide=True, warn=True)
+        
+        # Setup base tarball state
+        if base_tarball_exists:
+            if not os.path.exists(base_tarball_path):
+                if check_image_exists(ctx, base_image_name):
+                    os.makedirs(os.path.dirname(base_tarball_path), exist_ok=True)
+                    ctx.run(f"docker save {base_image_name} | gzip > {base_tarball_path}", hide=True)
+        else:
+            if os.path.exists(base_tarball_path):
+                ctx.run(f"mv {base_tarball_path} {base_tarball_path}.backup", hide=True, warn=True)
     
-    # Setup target tarball state
-    if target_tarball_exists:
-        if not os.path.exists(target_tarball_path):
-            # Create tarball from existing image
-            if check_image_exists(ctx, target_image_name):
-                os.makedirs(os.path.dirname(target_tarball_path), exist_ok=True)
-                ctx.run(f"docker save {target_image_name} | gzip > {target_tarball_path}", hide=True)
     else:
-        if os.path.exists(target_tarball_path):
-            ctx.run(f"mv {target_tarball_path} {target_tarball_path}.backup", hide=True, warn=True)
+        # Handle regular image tests
+        target_image_in_repo = params.get('target_image_in_repo', True)
+        target_tarball_exists = params.get('target_tarball_exists', True)
+        base_image_in_repo = params.get('base_image_in_repo', True)
+        base_tarball_exists = params.get('base_tarball_exists', True)
+        
+        config_dir = os.path.dirname(config_file)
+        target_tarball_path = os.path.join(config_dir, "images", f"{target_image_name.replace(':', '.')}.tar.gz")
+        base_tarball_path = os.path.join(config_dir, "images", f"{base_image_name.replace(':', '.')}.tar.gz")
+        
+        # Setup base image state
+        if base_image_in_repo:
+            if not check_image_exists(ctx, base_image_name):
+                print(f"Building base image {base_image_name}...")
+                ctx.run(f"./fabrinetes gen-image {config_file} --base-image", hide=True, warn=True)
+        else:
+            ctx.run(f"docker rmi -f {base_image_name}", hide=True, warn=True)
+        
+        # Setup base tarball state
+        if base_tarball_exists:
+            if not os.path.exists(base_tarball_path):
+                if check_image_exists(ctx, base_image_name):
+                    os.makedirs(os.path.dirname(base_tarball_path), exist_ok=True)
+                    ctx.run(f"docker save {base_image_name} | gzip > {base_tarball_path}", hide=True)
+        else:
+            if os.path.exists(base_tarball_path):
+                ctx.run(f"mv {base_tarball_path} {base_tarball_path}.backup", hide=True, warn=True)
+        
+        # Setup target image state
+        if target_image_in_repo:
+            if not check_image_exists(ctx, target_image_name):
+                print(f"Building target image {target_image_name}...")
+                if not check_image_exists(ctx, base_image_name):
+                    print(f"Building base image {base_image_name} first...")
+                    ctx.run(f"./fabrinetes gen-image {config_file} --base-image", hide=True, warn=True)
+                ctx.run(f"./fabrinetes gen-image {config_file}", hide=True, warn=True)
+        else:
+            ctx.run(f"docker rmi -f {target_image_name}", hide=True, warn=True)
+        
+        # Setup target tarball state
+        if target_tarball_exists:
+            if not os.path.exists(target_tarball_path):
+                if check_image_exists(ctx, target_image_name):
+                    os.makedirs(os.path.dirname(target_tarball_path), exist_ok=True)
+                    ctx.run(f"docker save {target_image_name} | gzip > {target_tarball_path}", hide=True)
+        else:
+            if os.path.exists(target_tarball_path):
+                ctx.run(f"mv {target_tarball_path} {target_tarball_path}.backup", hide=True, warn=True)
 
-def setup_test_state(ctx, config_file, container_name, image_name,
-                    image_in_repo=True, tarball_exists=True,
-                    container_state="none"):
-
-    print(f"      Setting up test state...", flush=True)
+def setup_regular_command_state(ctx, config_file, container_name, image_name,
+                               image_in_repo=True, tarball_exists=True,
+                               container_state="none"):
+    """Setup state for regular commands (run, clean-image, kill, commit, exec, shell, pkg)"""
 
     def get_current_container_state():
         running_check = ctx.run(f"docker ps --filter name=^{container_name}$ --format '{{{{.Names}}}}'", hide=True, warn=True)
@@ -475,10 +461,7 @@ def run_single_test(ctx, config_file, container_name, image_name, description, c
     }
 
     try:
-        if command == "gen-image":
-            setup_gen_image_test_state(ctx, config_file, params)
-        else:
-            setup_test_state(ctx, config_file, container_name, image_name, **setup_params)
+        setup_test_state(ctx, config_file, container_name, image_name, command, params)
         steps.append(("Prepare test", "PASS"))
         print(f"      Step 0: Environment prepared", flush=True)
     except Exception as e:
