@@ -69,71 +69,10 @@ def setup_gen_image_test_state(ctx, config_file, test_params):
     
     test_type = test_params.get('test_type', 'regular_image')
     
-    if test_type == 'base_image':
-        setup_base_image_test_state(ctx, config_file, test_params)
-    else:
-        setup_regular_image_test_state(ctx, config_file, test_params)
+    # Only handle regular image tests now (no base image tests)
+    setup_regular_image_test_state(ctx, config_file, test_params)
     
     print(f"      Gen-image test state setup complete", flush=True)
-
-def setup_base_image_test_state(ctx, config_file, test_params):
-    """Setup test state for base image tests"""
-    import toml
-    
-    # Load config to get base image name
-    config = toml.load(config_file)
-    base_image_name = config['config']['base_image']
-    
-    dockerfile_exists = test_params.get('dockerfile_exists', True)
-    base_image_in_repo = test_params.get('base_image_in_repo', True)
-    base_tarball_exists = test_params.get('base_tarball_exists', True)
-    
-    config_dir = os.path.dirname(config_file)
-    dockerfile_path = os.path.join(config_dir, "Dockerfile")
-    base_tarball_path = os.path.join(config_dir, "images", f"{base_image_name.replace(':', '.')}.tar.gz")
-    
-    # Setup Dockerfile state
-    if dockerfile_exists:
-        if not os.path.exists(dockerfile_path):
-            # Copy Dockerfile from skeleton
-            skeleton_dockerfile = "base_images/fabrinetes-skeleton/Dockerfile"
-            if os.path.exists(skeleton_dockerfile):
-                ctx.run(f"cp {skeleton_dockerfile} {dockerfile_path}", hide=True)
-    else:
-        # For test scenarios that need no Dockerfile, create an empty one instead of removing it
-        # This ensures the restore function can always find the file
-        if os.path.exists(dockerfile_path):
-            ctx.run(f"mv {dockerfile_path} {dockerfile_path}.backup", hide=True, warn=True)
-        # Create empty Dockerfile
-        ctx.run(f"touch {dockerfile_path}", hide=True)
-    
-    # Setup base image state
-    if base_image_in_repo:
-        if not check_image_exists(ctx, base_image_name):
-            print(f"Building base image {base_image_name}...")
-            # First ensure Dockerfile exists for building
-            if not os.path.exists(dockerfile_path):
-                skeleton_dockerfile = "base_images/fabrinetes-skeleton/Dockerfile"
-                if os.path.exists(skeleton_dockerfile):
-                    ctx.run(f"cp {skeleton_dockerfile} {dockerfile_path}", hide=True)
-            # Build the base image
-            ctx.run(f"./fabrinetes gen-image {config_file} --base-image", hide=True, warn=True)
-            # Remove Dockerfile if test scenario requires no Dockerfile
-            if not dockerfile_exists and os.path.exists(dockerfile_path):
-                ctx.run(f"mv {dockerfile_path} {dockerfile_path}.backup", hide=True, warn=True)
-    else:
-        ctx.run(f"docker rmi -f {base_image_name}", hide=True, warn=True)
-    
-    # Setup base tarball state
-    if base_tarball_exists:
-        if not os.path.exists(base_tarball_path):
-            # Create tarball from existing image
-            if check_image_exists(ctx, base_image_name):
-                os.makedirs(os.path.dirname(base_tarball_path), exist_ok=True)
-                ctx.run(f"docker save {base_image_name} | gzip > {base_tarball_path}", hide=True)
-    else:
-        if os.path.exists(base_tarball_path):
-            ctx.run(f"mv {base_tarball_path} {base_tarball_path}.backup", hide=True, warn=True)
 
 def setup_regular_image_test_state(ctx, config_file, test_params):
     """Setup test state for regular image tests"""
@@ -408,25 +347,17 @@ def get_command_parameters(command):
 
     if command == "run":
         return [
-            {'image_in_repo': True, 'tarball_exists': True, 'config_exists': True, 'container_state': 'none', 'description': 'Fresh run - should PASS'},
-            {'image_in_repo': True, 'tarball_exists': True, 'config_exists': True, 'container_state': 'running', 'description': 'Container already running - should FAIL (duplicate)'},
-            {'image_in_repo': True, 'tarball_exists': True, 'config_exists': True, 'container_state': 'stopped', 'description': 'Container stopped - should restart'},
-            {'image_in_repo': True, 'tarball_exists': False, 'config_exists': True, 'container_state': 'none', 'description': 'No tarball - should PASS'},
-            {'image_in_repo': False, 'tarball_exists': True, 'config_exists': True, 'container_state': 'none', 'description': 'Restore from tarball - should PASS'},
-            {'image_in_repo': False, 'tarball_exists': False, 'config_exists': True, 'container_state': 'none', 'description': 'No image, no restore - should FAIL'},
+            {'image_in_repo': True, 'tarball_exists': True, 'container_state': 'none', 'description': 'Fresh run - should PASS'},
+            {'image_in_repo': True, 'tarball_exists': True, 'container_state': 'running', 'description': 'Container already running - should FAIL (duplicate)'},
+            {'image_in_repo': True, 'tarball_exists': True, 'container_state': 'stopped', 'description': 'Container stopped - should restart'},
+            {'image_in_repo': True, 'tarball_exists': False, 'container_state': 'none', 'description': 'No tarball - should PASS'},
+            {'image_in_repo': False, 'tarball_exists': True, 'container_state': 'none', 'description': 'Restore from tarball - should PASS'},
+            {'image_in_repo': False, 'tarball_exists': False, 'container_state': 'none', 'description': 'No image, no restore - should FAIL'},
         ]
 
     elif command == "gen-image":
         return [
-            # Base image tests
-            {'test_type': 'base_image', 'dockerfile_exists': True, 'base_image_in_repo': True, 'base_tarball_exists': True, 'description': 'Base image: Dockerfile exists, base image in repo, tarball exists - should PASS (use existing)'},
-            {'test_type': 'base_image', 'dockerfile_exists': True, 'base_image_in_repo': False, 'base_tarball_exists': True, 'description': 'Base image: Dockerfile exists, base image not in repo, tarball exists - should PASS (restore)'},
-            {'test_type': 'base_image', 'dockerfile_exists': True, 'base_image_in_repo': False, 'base_tarball_exists': False, 'description': 'Base image: Dockerfile exists, base image not in repo, no tarball - should PASS (build from Dockerfile)'},
-            {'test_type': 'base_image', 'dockerfile_exists': False, 'base_image_in_repo': True, 'base_tarball_exists': True, 'description': 'Base image: No Dockerfile, base image in repo, tarball exists - should PASS (use existing)'},
-            {'test_type': 'base_image', 'dockerfile_exists': False, 'base_image_in_repo': False, 'base_tarball_exists': True, 'description': 'Base image: No Dockerfile, base image not in repo, tarball exists - should PASS (restore)'},
-            {'test_type': 'base_image', 'dockerfile_exists': False, 'base_image_in_repo': False, 'base_tarball_exists': False, 'description': 'Base image: No Dockerfile, base image not in repo, no tarball - should FAIL'},
-            
-            # Regular image tests
+            # Regular image tests only (no Dockerfile existence tests)
             {'test_type': 'regular_image', 'target_image_in_repo': True, 'target_tarball_exists': True, 'base_image_in_repo': True, 'base_tarball_exists': True, 'description': 'Regular: Target image in repo, target tarball exists, base image in repo - should PASS (use existing)'},
             {'test_type': 'regular_image', 'target_image_in_repo': False, 'target_tarball_exists': True, 'base_image_in_repo': True, 'base_tarball_exists': True, 'description': 'Regular: Target image not in repo, target tarball exists, base image in repo - should PASS (restore target)'},
             {'test_type': 'regular_image', 'target_image_in_repo': False, 'target_tarball_exists': False, 'base_image_in_repo': True, 'base_tarball_exists': True, 'description': 'Regular: Target image not in repo, no target tarball, base image in repo - should PASS (build from base)'},
@@ -436,50 +367,50 @@ def get_command_parameters(command):
 
     elif command == "clean-image":
         return [
-            {'image_in_repo': True, 'tarball_exists': True, 'config_exists': True, 'description': 'Image exists - should PASS (clean)'},
-            {'image_in_repo': True, 'tarball_exists': False, 'config_exists': True, 'description': 'Image exists, no tarball - should PASS (clean)'},
-            {'image_in_repo': False, 'tarball_exists': True, 'config_exists': True, 'description': 'No image, tarball exists - should PASS (nothing to clean)'},
-            {'image_in_repo': False, 'tarball_exists': False, 'config_exists': True, 'description': 'No image - should PASS (nothing to clean)'},
+            {'image_in_repo': True, 'tarball_exists': True, 'description': 'Image exists - should PASS (clean)'},
+            {'image_in_repo': True, 'tarball_exists': False, 'description': 'Image exists, no tarball - should PASS (clean)'},
+            {'image_in_repo': False, 'tarball_exists': True, 'description': 'No image, tarball exists - should PASS (nothing to clean)'},
+            {'image_in_repo': False, 'tarball_exists': False, 'description': 'No image - should PASS (nothing to clean)'},
         ]
 
     elif command == "kill":
         return [
-            {'config_exists': True, 'container_state': 'running', 'description': 'Container running - should PASS (kill)'},
-            {'config_exists': True, 'container_state': 'stopped', 'description': 'Container stopped - should PASS (remove)'},
-            {'config_exists': True, 'container_state': 'none', 'description': 'No container - should PASS (nothing to kill)'},
+            {'container_state': 'running', 'description': 'Container running - should PASS (kill)'},
+            {'container_state': 'stopped', 'description': 'Container stopped - should PASS (remove)'},
+            {'container_state': 'none', 'description': 'No container - should PASS (nothing to kill)'},
         ]
 
     elif command == "commit":
         return [
-            {'config_exists': True, 'container_state': 'running', 'description': 'Container running - should PASS (commit)'},
-            {'config_exists': True, 'container_state': 'stopped', 'description': 'Container stopped - should FAIL (not running)'},
-            {'config_exists': True, 'container_state': 'none', 'description': 'No container - should FAIL'},
+            {'container_state': 'running', 'description': 'Container running - should PASS (commit)'},
+            {'container_state': 'stopped', 'description': 'Container stopped - should FAIL (not running)'},
+            {'container_state': 'none', 'description': 'No container - should FAIL'},
         ]
 
     elif command == "exec":
         return [
-            {'config_exists': True, 'container_state': 'running', 'description': 'Container running - should PASS (exec)'},
-            {'config_exists': True, 'container_state': 'stopped', 'description': 'Container stopped - should FAIL (not running)'},
-            {'config_exists': True, 'container_state': 'none', 'description': 'No container - should FAIL'},
+            {'container_state': 'running', 'description': 'Container running - should PASS (exec)'},
+            {'container_state': 'stopped', 'description': 'Container stopped - should FAIL (not running)'},
+            {'container_state': 'none', 'description': 'No container - should FAIL'},
         ]
 
     elif command == "shell":
         return [
-            {'config_exists': True, 'container_state': 'running', 'description': 'Container running - should PASS (shell)'},
-            {'config_exists': True, 'container_state': 'stopped', 'description': 'Container stopped - should FAIL (not running)'},
-            {'config_exists': True, 'container_state': 'none', 'description': 'No container - should FAIL'},
+            {'container_state': 'running', 'description': 'Container running - should PASS (shell)'},
+            {'container_state': 'stopped', 'description': 'Container stopped - should FAIL (not running)'},
+            {'container_state': 'none', 'description': 'No container - should FAIL'},
         ]
 
     elif command == "pkg":
         return [
-            {'config_exists': True, 'container_state': 'running', 'description': 'Container running - should PASS (pkg)'},
-            {'config_exists': True, 'container_state': 'stopped', 'description': 'Container stopped - should FAIL (not running)'},
-            {'config_exists': True, 'container_state': 'none', 'description': 'No container - should FAIL'},
+            {'container_state': 'running', 'description': 'Container running - should PASS (pkg)'},
+            {'container_state': 'stopped', 'description': 'Container stopped - should FAIL (not running)'},
+            {'container_state': 'none', 'description': 'No container - should FAIL'},
         ]
 
     else:
         return [
-            {'config_exists': True, 'description': 'Config exists - should PASS'},
+            {'description': 'Default test - should PASS'},
         ]
 
 
