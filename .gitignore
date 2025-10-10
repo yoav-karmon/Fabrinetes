@@ -2,11 +2,6 @@
 *.jou
 _log/
 
-# Docker images and large binary files
-*.tar.gz
-containers/*/images/
-containers/*/deb-cache/
-
 # Development files
 dev-plan.md
 cursor_send_box/
