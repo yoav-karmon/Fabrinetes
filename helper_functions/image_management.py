@@ -84,7 +84,7 @@ def ensure_image_available(ctx: Context, image_name: str) -> bool:
     print(f"Please rebuild the image: ./fabrinetes gen-image <repository>")
     return False
 
-def save_image_to_tarball(ctx: Context, image_name: str, config_file: str = None, tarball_image_name: str = None) -> bool:
+def save_image_to_tarball(ctx: Context, image_name: str, config_file: str = None, tarball_image_name: str = None, is_base_image: bool = False) -> bool:
     docker_image_name = convert_to_docker_format(image_name)
     
     if config_file:
@@ -99,7 +99,10 @@ def save_image_to_tarball(ctx: Context, image_name: str, config_file: str = None
         else:
             # Get tarball filename from config
             container_info = get_container_info(config_file)
-            tarball_filename = container_info.image_tarball
+            if is_base_image:
+                tarball_filename = container_info.base_image_tarball
+            else:
+                tarball_filename = container_info.image_tarball
         
         tarball_path = os.path.join(tarball_directory, tarball_filename)
     else:

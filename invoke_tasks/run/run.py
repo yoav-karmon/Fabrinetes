@@ -3,7 +3,6 @@
 import os
 import datetime
 import pathlib
-import toml
 from invoke import task
 from .helpers import setup_x11_support, resolve_mounts, printlocals
 from helper_functions.name_generator import get_container_info
@@ -19,24 +18,14 @@ def run(ctx, file=None, rm=False, verbose=False, x11=True, usb=False, ask=True, 
         show_run_help()
         return
     
-    # Load configuration
+    # Get container configuration using the dataclass
     try:
-        config = toml.load(file)
+        container_info = get_container_info(file)
     except Exception as e:
         print(f"Error loading config file {file}: {e}")
         return
     
-    # Find the container configuration
-    container_config = None
-    if 'config' in config:
-        container_config = config['config']
-    
-    if not container_config:
-        print(f"Error: No [config] section found in config file")
-        return
-    
     # Stage 1: Find the image name needed to run
-    container_info = get_container_info(file)
     image_name = container_info.image_docker  # Use Docker format for ensure_image_available
     print(f"Stage 1: Image needed: {container_info.image_full}")
     
@@ -53,10 +42,10 @@ def run(ctx, file=None, rm=False, verbose=False, x11=True, usb=False, ask=True, 
     container_name = container_info.run_name
     if not container_name:
         return
-    command = container_config.get('command', 'bash')
-    mounts = container_config.get('mounts', [])
-    environment = container_config.get('environment', {})
-    X11_path = container_config.get('X11_path', None)
+    command = 'bash'  # Default command
+    mounts = container_info.mounts
+    environment = {}  # Default empty environment
+    X11_path = container_info.x11_path
     
     # Check if container is already running
     existing_container = ctx.run(f"docker ps -q -f name=^{container_name}$", hide=True, warn=True)
@@ -95,20 +84,6 @@ def run(ctx, file=None, rm=False, verbose=False, x11=True, usb=False, ask=True, 
     
     for host_path, container_path in resolved_mounts:
         cmd_parts.append(f"-v {host_path}:{container_path}")
-    
-    # Add init_env mount if specified
-    if 'init_env' in container_config:
-        init_env_mount = container_config['init_env']
-        if ':' in init_env_mount:
-            host_path, container_path = init_env_mount.split(':', 1)
-            # Expand environment variables in host path
-            host_path = os.path.expandvars(host_path)
-            # Convert to absolute path if relative
-            if not os.path.isabs(host_path):
-                host_path = str(relative_path / host_path)
-            # Ensure the path is absolute
-            host_path = os.path.abspath(host_path)
-            cmd_parts.append(f"-v {host_path}:{container_path}")
     
     # Add container name and image
     cmd_parts.extend(["--name", container_name, convert_to_docker_format(image_name)])

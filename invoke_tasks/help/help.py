@@ -184,17 +184,25 @@ def show_shell_help():
 def show_gen_image_help():
     """Show help for gen-image command"""
     command_data = {
-        'syntax': './fabrinetes gen-image <config-file> [--dry-run] [--base-image]',
+        'syntax': './fabrinetes gen-image --file <config-file> [--dry-run] [--base-image] [--tarball] [--docker] [--clean] [--ask]',
         'description': 'Generate Docker image from config file - restore if tarball exists, otherwise create from base image',
         'arguments': [
-            ['config-file', 'Path to config.toml file', 'Yes', 'containers/<path>/config.toml'],
+            ['--file', 'Path to config.toml file', 'Yes', 'containers/<path>/config.toml'],
             ['--dry-run', 'Show what would be generated without actually generating', 'No', 'optional flag'],
             ['--base-image', 'Build base image from Dockerfile instead of creating new image', 'No', 'optional flag'],
+            ['--tarball', 'Produce tarball from Docker image', 'No', 'optional flag'],
+            ['--docker', 'Produce Docker image (build/restore)', 'No', 'optional flag'],
+            ['--clean', 'Remove existing files before reproducing', 'No', 'optional flag'],
+            ['--ask', 'Ask for confirmation before removing files (default: true)', 'No', 'optional flag'],
+            ['--no-ask', 'Skip confirmation prompts (overrides --ask)', 'No', 'optional flag'],
         ],
         'examples': [
-            './fabrinetes gen-image containers/fabrinetes-dev-testing/config.toml',
-            './fabrinetes gen-image containers/fabrinetes-dev-testing/config.toml --dry-run',
-            './fabrinetes gen-image containers/fabrinetes-dev-testing/config.toml --base-image'
+            './fabrinetes gen-image --file containers/fabrinetes-dev-testing/config.toml',
+            './fabrinetes gen-image --file containers/fabrinetes-dev-testing/config.toml --dry-run',
+            './fabrinetes gen-image --file containers/fabrinetes-dev-testing/config.toml --base-image',
+            './fabrinetes gen-image --file containers/fabrinetes-dev-testing/config.toml --tarball',
+            './fabrinetes gen-image --file containers/fabrinetes-dev-testing/config.toml --docker --clean',
+            './fabrinetes gen-image --file containers/fabrinetes-dev-testing/config.toml --base-image --tarball --docker --clean'
         ]
     }
     show_command_help('gen-image', command_data)

@@ -52,14 +52,14 @@ def get_container_info(config_file: str) -> ContainerInfo:
     image_name = container_config['image']['name']
     image_tag = container_config['image']['tag']
     image_full = f"{image_name}-{image_tag}"
-    image_docker = f"{image_name}:{image_tag}"
+    image_docker = f"{image_full}:{image_tag}"
     image_tarball = container_config['image']['tarball_name']
     
     # Base image information
     base_image_name = container_config['base_image']['name']
     base_image_tag = container_config['base_image']['tag']
     base_image_full = f"{base_image_name}-{base_image_tag}"
-    base_image_docker = f"{base_image_name}:{base_image_tag}"
+    base_image_docker = f"{base_image_full}:{base_image_tag}"
     base_image_tarball = container_config['base_image']['tarball_name']
     
     # Container information
