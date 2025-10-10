@@ -4,7 +4,7 @@ import time
 import glob
 from invoke import task
 from helper_functions.config.name_generator import get_image_name, get_run_name, get_tarball_path, get_tarball_directory
-from helper_functions.image_management import check_image_exists, save_image_to_tarball
+from helper_functions.image_management import check_image_exists, save_image_to_tarball, convert_to_docker_format
 from tabulate import tabulate
 
 
@@ -192,9 +192,10 @@ def setup_regular_command_state(ctx, config_file, container_name, image_name,
 
             if image_name != "fabrinetes-skeleton:latest":
                 print(f"Building {image_name} image...")
-                ctx.run(f"./fabrinetes gen-image {image_name}", hide=True, warn=True)
+                ctx.run(f"./fabrinetes gen-image {config_file}", hide=True, warn=True)
         else:
-            ctx.run(f"docker rmi -f {image_name}", hide=True, warn=True)
+            docker_image_name = convert_to_docker_format(image_name)
+            ctx.run(f"docker rmi -f {docker_image_name}", hide=True, warn=True)
 
     def ensure_tarball_state():
         tarball_path = get_tarball_path(config_file)

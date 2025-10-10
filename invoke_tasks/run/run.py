@@ -37,8 +37,8 @@ def run(ctx, file=None, rm=False, verbose=False, x11=True, usb=False, ask=True):
     
     # Stage 1: Find the image name needed to run
     image_info = get_image_name(file)
-    image_name = image_info['full']
-    print(f"Stage 1: Image needed: {image_name}")
+    image_name = image_info['docker']  # Use Docker format for ensure_image_available
+    print(f"Stage 1: Image needed: {image_info['full']}")
     
     # Stage 2: Check if image exists, try to restore if not
     print(f"Stage 2: Checking image availability...")
