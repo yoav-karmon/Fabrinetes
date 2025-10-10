@@ -39,3 +39,4 @@ def shell(ctx, container_name=None):
     # Open interactive shell
     print(f"Opening shell in container '{container_name}'...")
     ctx.run(f"docker exec -it {container_name} bash", pty=True)
+

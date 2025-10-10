@@ -49,3 +49,4 @@ def exec(ctx, container_name=None, command=None, interactive=False):
     # Execute the command
     print(f"Executing command in container '{container_name}': {command}")
     ctx.run(" ".join(cmd_parts), pty=True)
+

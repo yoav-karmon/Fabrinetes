@@ -63,3 +63,4 @@ def printlocals(locals_dict, verbose=False):
                 print(f"{key:10} = <{type(value).__name__}>")
     
     print("===============================")
+

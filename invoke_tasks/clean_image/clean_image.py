@@ -72,3 +72,4 @@ def clean_image(ctx, image=None):
     ctx.run("docker image prune -f", hide=True, warn=True)
     
     print(f"\n✅ Cleanup completed for base image: {image}")
+

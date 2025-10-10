@@ -25,3 +25,4 @@ def list(ctx):
         print(containers_result.stdout)
     else:
         print("No containers found")
+
