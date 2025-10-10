@@ -179,10 +179,15 @@ Fabrinetes is licensed under the [MIT License](./LICENSE)
 
 ## 📚 Documentation
 
-This repository contains additional documentation files:
+This repository contains comprehensive documentation:
 
+### Core Documentation
 - **[Testing Guide](./testing_guide.md)** - Comprehensive guide for testing Fabrinetes functionality, including cleanup, build, run, exec, shell, and automated testing procedures
 - **[Repository Explanation](./repository_explanation.md)** - Detailed explanation of the repository structure, container organization, and configuration management
+
+### Technical Documentation
+- **[Invoke Tasks](./invoke_tasks/README.md)** - Complete documentation of all Fabrinetes tasks, including architecture, usage, and development guidelines
+- **[Test Framework](./invoke_tasks/test/README.md)** - Detailed documentation of the automated testing system, test scenarios, and framework architecture
 
 ---
 
