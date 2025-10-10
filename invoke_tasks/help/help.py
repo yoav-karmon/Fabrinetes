@@ -325,59 +325,6 @@ def show_global_help():
     print("Fabrinetes - Docker Container Management Tool")
     print("=" * 60)
     
-    # Find all config files
-    config_files = glob.glob("containers/*/config.toml")
-    
-    if config_files:
-        print("\nAvailable Repositories:")
-        print("-" * 40)
-        
-        for i, config_file in enumerate(sorted(config_files), 1):
-            # Extract repository name from path
-            parts = config_file.split('/')
-            if len(parts) >= 2:
-                repo_name = parts[1]  # containers/REPO_NAME/config.toml
-            else:
-                repo_name = "unknown"
-            
-            print(f"\n{i}. Repository: {repo_name}")
-            print(f"   Config File: {config_file}")
-            
-            # Get status information
-            status = get_config_status(config_file)
-            
-            if 'error' in status:
-                print(f"   Status: ❌ Error - {status['error']}")
-            else:
-                # Base image status
-                base_img_status = "✅" if status['base_image']['exists'] else "❌"
-                base_tar_status = "✅" if status['base_image']['tarball_exists'] else "❌"
-                
-                # Main image status
-                main_img_status = "✅" if status['main_image']['exists'] else "❌"
-                main_tar_status = "✅" if status['main_image']['tarball_exists'] else "❌"
-                
-                # Container status
-                container_status = status['container']['status']
-                if container_status == "running":
-                    container_icon = "🟢"
-                elif container_status == "stopped":
-                    container_icon = "🟡"
-                else:
-                    container_icon = "🔴"
-                
-                print(f"   Status:")
-                print(f"     Base Image:    {base_img_status} Docker  {base_tar_status} Tarball")
-                print(f"     Main Image:    {main_img_status} Docker  {main_tar_status} Tarball")
-                print(f"     Container:     {container_icon} {container_status.title()}")
-        print()
-    else:
-        print("\nNo configuration files found in containers/*/config.toml")
-        print("\nTo get started, create a config file in containers/<name>/config.toml")
-        print("Example structure:")
-        print("  containers/my-container/config.toml")
-        print("")
-    
     print("\nAvailable Commands:")
     print("-" * 30)
     
@@ -451,19 +398,69 @@ def show_global_help():
     print("\n\nExamples:")
     print("-" * 20)
     
-    examples = [
-        './fabrinetes gen-image containers/fabrinetes-dev-testing/config.toml',
-        './fabrinetes gen-image containers/fabrinetes-dev-testing/config.toml --base-image',
-        './fabrinetes clean containers/fabrinetes-dev-testing/config.toml --all',
-        './fabrinetes clean containers/fabrinetes-dev-testing/config.toml --base-image --image',
-        './fabrinetes run containers/fabrinetes-dev-testing/config.toml',
-        './fabrinetes exec --container-name fabrinetes-dev-testing.latest.run --command \'ls -la\'',
-        './fabrinetes shell --container-name fabrinetes-dev-testing.latest.run',
-        './fabrinetes pkg --container-name fabrinetes-dev-testing.latest.run'
+    # Compressed examples using templates
+    example_templates = [
+        "./fabrinetes gen-image <config> [--base-image]",
+        "./fabrinetes clean <config> [--all|--base-image|--image|--container|--dangling]",
+        "./fabrinetes run <config> [--rm|--x11|--usb|--ask|--verbose]",
+        "./fabrinetes exec|shell|pkg --container-name <name> [options]"
     ]
     
-    for i, example in enumerate(examples, 1):
-        print(f"\n{i}. {example}")
+    for i, template in enumerate(example_templates, 1):
+        print(f"{i}. {template}")
+    
+    # Find all config files for repository status
+    config_files = glob.glob("containers/*/config.toml")
+    
+    if config_files:
+        print("\n\nAvailable Repositories:")
+        print("-" * 40)
+        
+        for i, config_file in enumerate(sorted(config_files), 1):
+            # Extract repository name from path
+            parts = config_file.split('/')
+            if len(parts) >= 2:
+                repo_name = parts[1]  # containers/REPO_NAME/config.toml
+            else:
+                repo_name = "unknown"
+            
+            print(f"\n{i}. Repository: {repo_name}")
+            print(f"   Config File: {config_file}")
+            
+            # Get status information
+            status = get_config_status(config_file)
+            
+            if 'error' in status:
+                print(f"   Status: ❌ Error - {status['error']}")
+            else:
+                # Base image status
+                base_img_status = "✅" if status['base_image']['exists'] else "❌"
+                base_tar_status = "✅" if status['base_image']['tarball_exists'] else "❌"
+                
+                # Main image status
+                main_img_status = "✅" if status['main_image']['exists'] else "❌"
+                main_tar_status = "✅" if status['main_image']['tarball_exists'] else "❌"
+                
+                # Container status
+                container_status = status['container']['status']
+                if container_status == "running":
+                    container_icon = "🟢"
+                elif container_status == "stopped":
+                    container_icon = "🟡"
+                else:
+                    container_icon = "🔴"
+                
+                print(f"   Status:")
+                print(f"     Base Image:    {base_img_status} Docker  {base_tar_status} Tarball")
+                print(f"     Main Image:    {main_img_status} Docker  {main_tar_status} Tarball")
+                print(f"     Container:     {container_icon} {container_status.title()}")
+        print()
+    else:
+        print("\n\nNo configuration files found in containers/*/config.toml")
+        print("\nTo get started, create a config file in containers/<name>/config.toml")
+        print("Example structure:")
+        print("  containers/my-container/config.toml")
+        print("")
 
 @task
 def help(ctx):
