@@ -4,6 +4,7 @@ import os
 import glob
 import subprocess
 from invoke import task
+from helper_functions.name_generator import get_container_info
 
 def get_running_containers():
     """Get list of running container names"""
@@ -17,6 +18,78 @@ def get_running_containers():
             return []
     except Exception:
         return []
+
+def check_image_exists(image_name):
+    """Check if Docker image exists"""
+    try:
+        result = subprocess.run(['docker', 'images', '--format', '{{.Repository}}:{{.Tag}}'], 
+                               capture_output=True, text=True, timeout=10)
+        if result.returncode == 0:
+            images = [img.strip() for img in result.stdout.strip().split('\n') if img.strip()]
+            return image_name in images
+        return False
+    except Exception:
+        return False
+
+def check_tarball_exists(tarball_path):
+    """Check if tarball file exists"""
+    return os.path.exists(tarball_path)
+
+def check_container_status(container_name):
+    """Check container status: running, stopped, or none"""
+    try:
+        # Check if container is running
+        result = subprocess.run(['docker', 'ps', '--filter', f'name={container_name}', '--format', '{{.Names}}'], 
+                               capture_output=True, text=True, timeout=10)
+        if result.returncode == 0 and result.stdout.strip():
+            return "running"
+        
+        # Check if container exists but is stopped
+        result = subprocess.run(['docker', 'ps', '-a', '--filter', f'name={container_name}', '--format', '{{.Names}}'], 
+                               capture_output=True, text=True, timeout=10)
+        if result.returncode == 0 and result.stdout.strip():
+            return "stopped"
+        
+        return "none"
+    except Exception:
+        return "none"
+
+def get_config_status(config_file):
+    """Get comprehensive status for a config file"""
+    try:
+        container_info = get_container_info(config_file)
+        
+        # Check base image status
+        base_image_exists = check_image_exists(container_info.base_image_docker)
+        base_tarball_exists = check_tarball_exists(container_info.tarball_directory + "/" + container_info.base_image_tarball)
+        
+        # Check main image status
+        main_image_exists = check_image_exists(container_info.image_docker)
+        main_tarball_exists = check_tarball_exists(container_info.tarball_path)
+        
+        # Check container status
+        container_status = check_container_status(container_info.run_name)
+        
+        return {
+            'base_image': {
+                'exists': base_image_exists,
+                'tarball_exists': base_tarball_exists
+            },
+            'main_image': {
+                'exists': main_image_exists,
+                'tarball_exists': main_tarball_exists
+            },
+            'container': {
+                'status': container_status
+            }
+        }
+    except Exception as e:
+        return {
+            'error': str(e),
+            'base_image': {'exists': False, 'tarball_exists': False},
+            'main_image': {'exists': False, 'tarball_exists': False},
+            'container': {'status': 'none'}
+        }
 
 def show_command_help(command_name, command_data):
     """Show command-specific help with clean line-by-line format"""
@@ -269,6 +342,34 @@ def show_global_help():
             
             print(f"\n{i}. Repository: {repo_name}")
             print(f"   Config File: {config_file}")
+            
+            # Get status information
+            status = get_config_status(config_file)
+            
+            if 'error' in status:
+                print(f"   Status: ❌ Error - {status['error']}")
+            else:
+                # Base image status
+                base_img_status = "✅" if status['base_image']['exists'] else "❌"
+                base_tar_status = "✅" if status['base_image']['tarball_exists'] else "❌"
+                
+                # Main image status
+                main_img_status = "✅" if status['main_image']['exists'] else "❌"
+                main_tar_status = "✅" if status['main_image']['tarball_exists'] else "❌"
+                
+                # Container status
+                container_status = status['container']['status']
+                if container_status == "running":
+                    container_icon = "🟢"
+                elif container_status == "stopped":
+                    container_icon = "🟡"
+                else:
+                    container_icon = "🔴"
+                
+                print(f"   Status:")
+                print(f"     Base Image:    {base_img_status} Docker  {base_tar_status} Tarball")
+                print(f"     Main Image:    {main_img_status} Docker  {main_tar_status} Tarball")
+                print(f"     Container:     {container_icon} {container_status.title()}")
         print()
     else:
         print("\nNo configuration files found in containers/*/config.toml")

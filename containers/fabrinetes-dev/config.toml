@@ -1,11 +1,9 @@
 [config]
-name            = "fabrinetes-fpga-full"
-base_image      = "fabrinetes-skeleton:latest"
-X11_path             = "/mnt/wslg/.X11-unix"
-mounts              = [
-    "vscode/.vscode-server/:$HOME/.vscode-server",      #<======critical mount!
-    "init_env.sh:/etc/profile.d/init_env.sh",#<======critical mount!
-    "$HOME/.ssh:$HOME/.ssh",                            #<======critical mount!
+X11_path = "/mnt/wslg/.X11-unix"
+mounts = [
+    "vscode/.vscode-server/:$HOME/.vscode-server",
+    "init_env.sh:/etc/profile.d/init_env.sh",
+    "$HOME/.ssh:$HOME/.ssh",
     "cursor/.local:$HOME/.local",
     "cursor/.cursor:$HOME/.cursor",
     "cursor/.gnupg:$HOME/.gnupg",
@@ -14,3 +12,16 @@ mounts              = [
     "verilator/share/verilator:/usr/share/verilator",
     "$HOME/repo:$HOME/repo",
 ]
+
+[config.image]
+name = "fabrinetes-fpga-full"
+tag = "latest"
+tarball_name = "fabrinetes-fpga-full-latest.tar.gz"
+
+[config.base_image]
+name = "fabrinetes-skeleton"
+tag = "latest"
+tarball_name = "fabrinetes-skeleton-latest.tar.gz"
+
+[config.container]
+name = "fpga-dev"

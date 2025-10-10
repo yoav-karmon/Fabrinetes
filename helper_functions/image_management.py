@@ -6,11 +6,23 @@ from invoke import Context
 from helper_functions.name_generator import get_container_info
 
 def convert_to_docker_format(image_name: str) -> str:
+    """Convert image name to Docker format (name:tag)"""
+    # If it already has a colon, it's already in Docker format
+    if ':' in image_name:
+        return image_name
+    
+    # If it ends with '-latest', convert to ':latest'
+    if image_name.endswith('-latest'):
+        return f"{image_name}:latest"
+    
+    # If it has a dot and doesn't end with .tar.gz, convert dot to colon
     if '.' in image_name and not image_name.endswith('.tar.gz'):
         parts = image_name.rsplit('.', 1)
         if len(parts) == 2:
             return f"{parts[0]}:{parts[1]}"
-    return image_name
+    
+    # Default: add :latest tag
+    return f"{image_name}:latest"
 
 def convert_from_docker_format(image_name: str) -> str:
     if ':' in image_name:
