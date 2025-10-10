@@ -69,10 +69,46 @@ def setup_gen_image_test_state(ctx, config_file, test_params):
     
     test_type = test_params.get('test_type', 'regular_image')
     
-    # Only handle regular image tests now (no base image tests)
-    setup_regular_image_test_state(ctx, config_file, test_params)
+    if test_type == 'base_image':
+        setup_base_image_test_state(ctx, config_file, test_params)
+    else:
+        setup_regular_image_test_state(ctx, config_file, test_params)
     
     print(f"      Gen-image test state setup complete", flush=True)
+
+def setup_base_image_test_state(ctx, config_file, test_params):
+    """Setup test state for base image tests (without Dockerfile manipulation)"""
+    import toml
+    
+    # Load config to get base image name
+    config = toml.load(config_file)
+    base_image_name = config['config']['base_image']
+    
+    base_image_in_repo = test_params.get('base_image_in_repo', True)
+    base_tarball_exists = test_params.get('base_tarball_exists', True)
+    
+    config_dir = os.path.dirname(config_file)
+    base_tarball_path = os.path.join(config_dir, "images", f"{base_image_name.replace(':', '.')}.tar.gz")
+    
+    # Setup base image state
+    if base_image_in_repo:
+        if not check_image_exists(ctx, base_image_name):
+            print(f"Building base image {base_image_name}...")
+            # Build the base image (assumes Dockerfile exists)
+            ctx.run(f"./fabrinetes gen-image {config_file} --base-image", hide=True, warn=True)
+    else:
+        ctx.run(f"docker rmi -f {base_image_name}", hide=True, warn=True)
+    
+    # Setup base tarball state
+    if base_tarball_exists:
+        if not os.path.exists(base_tarball_path):
+            # Create tarball from existing image
+            if check_image_exists(ctx, base_image_name):
+                os.makedirs(os.path.dirname(base_tarball_path), exist_ok=True)
+                ctx.run(f"docker save {base_image_name} | gzip > {base_tarball_path}", hide=True)
+    else:
+        if os.path.exists(base_tarball_path):
+            ctx.run(f"mv {base_tarball_path} {base_tarball_path}.backup", hide=True, warn=True)
 
 def setup_regular_image_test_state(ctx, config_file, test_params):
     """Setup test state for regular image tests"""
@@ -357,12 +393,20 @@ def get_command_parameters(command):
 
     elif command == "gen-image":
         return [
-            # Regular image tests only (no Dockerfile existence tests)
+            # Regular image tests only
             {'test_type': 'regular_image', 'target_image_in_repo': True, 'target_tarball_exists': True, 'base_image_in_repo': True, 'base_tarball_exists': True, 'description': 'Regular: Target image in repo, target tarball exists, base image in repo - should PASS (use existing)'},
             {'test_type': 'regular_image', 'target_image_in_repo': False, 'target_tarball_exists': True, 'base_image_in_repo': True, 'base_tarball_exists': True, 'description': 'Regular: Target image not in repo, target tarball exists, base image in repo - should PASS (restore target)'},
             {'test_type': 'regular_image', 'target_image_in_repo': False, 'target_tarball_exists': False, 'base_image_in_repo': True, 'base_tarball_exists': True, 'description': 'Regular: Target image not in repo, no target tarball, base image in repo - should PASS (build from base)'},
             {'test_type': 'regular_image', 'target_image_in_repo': False, 'target_tarball_exists': False, 'base_image_in_repo': False, 'base_tarball_exists': True, 'description': 'Regular: Target image not in repo, no target tarball, base image not in repo, base tarball exists - should PASS (restore base, then build)'},
             {'test_type': 'regular_image', 'target_image_in_repo': False, 'target_tarball_exists': False, 'base_image_in_repo': False, 'base_tarball_exists': False, 'description': 'Regular: Target image not in repo, no target tarball, base image not in repo, no base tarball - should FAIL (no base image source)'},
+        ]
+
+    elif command == "gen-image-base":
+        return [
+            # Base image tests only
+            {'test_type': 'base_image', 'base_image_in_repo': True, 'base_tarball_exists': True, 'description': 'Base image: Base image in repo, tarball exists - should PASS (use existing)'},
+            {'test_type': 'base_image', 'base_image_in_repo': False, 'base_tarball_exists': True, 'description': 'Base image: Base image not in repo, tarball exists - should PASS (restore)'},
+            {'test_type': 'base_image', 'base_image_in_repo': False, 'base_tarball_exists': False, 'description': 'Base image: Base image not in repo, no tarball - should FAIL (no Dockerfile, no restore)'},
         ]
 
     elif command == "clean-image":
@@ -497,37 +541,33 @@ def determine_expected_results(command, params):
         else:
             return {}
 
-    elif command in ["gen-image", "clean-image"]:
+    elif command in ["gen-image", "gen-image-base", "clean-image"]:
         # Handle gen-image specific test cases
         if command == "gen-image":
-            test_type = params.get('test_type', 'regular_image')
+            # Regular image tests only
+            target_image_in_repo = params.get('target_image_in_repo', True)
+            target_tarball_exists = params.get('target_tarball_exists', True)
+            base_image_in_repo = params.get('base_image_in_repo', True)
+            base_tarball_exists = params.get('base_tarball_exists', True)
             
-            # Base image tests
-            if test_type == 'base_image':
-                dockerfile_exists = params.get('dockerfile_exists', True)
-                base_image_in_repo = params.get('base_image_in_repo', True)
-                base_tarball_exists = params.get('base_tarball_exists', True)
-                
-                # Should FAIL if no Dockerfile AND no base image AND no tarball
-                if not dockerfile_exists and not base_image_in_repo and not base_tarball_exists:
-                    return {1: "FAIL"}
-                # Should PASS in all other cases
-                else:
-                    return {}
-            
-            # Regular image tests
+            # Should FAIL if no target image AND no target tarball AND no base image AND no base tarball
+            if not target_image_in_repo and not target_tarball_exists and not base_image_in_repo and not base_tarball_exists:
+                return {1: "FAIL"}
+            # Should PASS in all other cases
             else:
-                target_image_in_repo = params.get('target_image_in_repo', True)
-                target_tarball_exists = params.get('target_tarball_exists', True)
-                base_image_in_repo = params.get('base_image_in_repo', True)
-                base_tarball_exists = params.get('base_tarball_exists', True)
-                
-                # Should FAIL if no target image AND no target tarball AND no base image AND no base tarball
-                if not target_image_in_repo and not target_tarball_exists and not base_image_in_repo and not base_tarball_exists:
-                    return {1: "FAIL"}
-                # Should PASS in all other cases
-                else:
-                    return {}
+                return {}
+        
+        elif command == "gen-image-base":
+            # Base image tests only
+            base_image_in_repo = params.get('base_image_in_repo', True)
+            base_tarball_exists = params.get('base_tarball_exists', True)
+            
+            # Should FAIL if no base image AND no tarball (no Dockerfile, no restore)
+            if not base_image_in_repo and not base_tarball_exists:
+                return {1: "FAIL"}
+            # Should PASS in all other cases
+            else:
+                return {}
         
         # For clean-image, all steps should PASS
         return {}
@@ -548,10 +588,9 @@ def generate_command(command, config_file, test_params=None):
     if command == "run":
         return f"./fabrinetes run --file {config_file} --no-ask"
     elif command == "gen-image":
-        if test_params and test_params.get('test_type') == 'base_image':
-            return f"./fabrinetes gen-image {config_file} --base-image"
-        else:
-            return f"./fabrinetes gen-image {config_file}"
+        return f"./fabrinetes gen-image {config_file}"
+    elif command == "gen-image-base":
+        return f"./fabrinetes gen-image {config_file} --base-image"
     elif command == "clean-image":
         image_info = get_image_name(config_file)
         image_name = image_info['full']
