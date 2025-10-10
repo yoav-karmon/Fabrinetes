@@ -204,15 +204,13 @@ def setup_regular_command_state(ctx, config_file, container_name, image_name,
         if tarball_exists:
             ctx.run(f"mkdir -p {tarball_directory}", hide=True, warn=True)
             if not os.path.exists(tarball_path):
-                if image_in_repo:
-                    ctx.run(f"./fabrinetes gen-image {image_name}", hide=True, warn=True)
-                else:
-                    backup_tarball = f"base_images/fabrinetes-skeleton/images/fabrinetes-skeleton-test-commit.tar.gz"
-                    if os.path.exists(backup_tarball):
-                        ctx.run(f"docker load -i {backup_tarball}", hide=True, warn=True)
-                        ctx.run(f"docker tag fabrinetes-skeleton:test-commit fabrinetes-skeleton:latest", hide=True, warn=True)
-                        ctx.run(f"docker save fabrinetes-skeleton:latest | gzip > {tarball_path}", hide=True, warn=True)
-                        ctx.run(f"docker rmi -f fabrinetes-skeleton:test-commit fabrinetes-skeleton:latest", hide=True, warn=True)
+                # Ensure image exists first, then create tarball
+                docker_image_name = convert_to_docker_format(image_name)
+                if not check_image_exists(ctx, docker_image_name):
+                    # Build the image if it doesn't exist
+                    ctx.run(f"./fabrinetes gen-image {config_file}", hide=True, warn=True)
+                # Create tarball with correct image name
+                ctx.run(f"docker save {docker_image_name} | gzip > {tarball_path}", hide=True, warn=True)
         else:
             ctx.run(f"rm -f {tarball_path}", hide=True, warn=True)
 
