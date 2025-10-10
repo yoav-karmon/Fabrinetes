@@ -3,7 +3,7 @@
 import os
 import time
 from invoke import task
-from helper_functions.config.name_generator import get_image_name, get_tarball_path, get_tarball_directory
+from helper_functions.name_generator import get_container_info
 from helper_functions.package_management import install_apt_packages, install_python_packages
 from helper_functions.image_management import save_image_to_tarball, restore_image_from_tarball, check_image_exists, convert_to_docker_format
 
@@ -12,24 +12,32 @@ def build_base_image_from_dockerfile(ctx, config_file, dry_run):
     config_dir = os.path.dirname(config_file)
     dockerfile_path = os.path.join(config_dir, "Dockerfile")
     
-    # Get base image name from config, not the target image name
-    import toml
-    config = toml.load(config_file)
-    base_image_name = config['config']['base_image']
+    # Get base image name using the dataclass
+    container_info = get_container_info(config_file)
+    base_image_name = container_info.base_image_docker
     
-    # Check if base image already exists
+    # Step 1: Check if base image already exists in repo
     if check_image_exists(ctx, base_image_name):
-        print(f"Base image '{base_image_name}' already exists locally")
+        print(f"✅ Base image '{base_image_name}' already exists locally - doing nothing")
         return True
     
-    # Try to restore base image from tarball
-    print(f"Base image '{base_image_name}' not found locally, attempting to restore...")
+    # Step 2: Try to restore base image from tarball
+    print(f"Base image '{base_image_name}' not found in repo, attempting to restore from tarball...")
     if restore_image_from_tarball(ctx, base_image_name):
-        return True
+        # Verify image is now in repo after restore
+        if check_image_exists(ctx, base_image_name):
+            print(f"✅ Base image '{base_image_name}' successfully restored and verified in repo")
+            return True
+        else:
+            print(f"❌ Base image '{base_image_name}' restore failed - image not found in repo")
+            return False
+    
+    # Step 3: Build from Dockerfile if no tarball available
+    print(f"Base image '{base_image_name}' not available from tarball, building from Dockerfile...")
     
     # Check if Dockerfile exists
     if not os.path.exists(dockerfile_path):
-        print(f"Error: Dockerfile not found at {dockerfile_path}")
+        print(f"❌ Error: Dockerfile not found at {dockerfile_path}")
         return False
     
     if dry_run:
@@ -56,44 +64,56 @@ def build_base_image_from_dockerfile(ctx, config_file, dry_run):
     
     result = ctx.run(docker_cmd, hide=True)
     if result.ok:
-        print(f"Successfully built base image: {base_image_name}")
-        
-        # Save base image tarball using the standard function
-        if save_image_to_tarball(ctx, base_image_name, config_file, base_image_name):
-            print(f"Base image saved successfully")
+        # Verify image is in repo after build
+        if check_image_exists(ctx, base_image_name):
+            print(f"✅ Successfully built base image: {base_image_name} and verified in repo")
+            
+            # Export to tarball
+            print(f"Exporting base image to tarball...")
+            if save_image_to_tarball(ctx, base_image_name, config_file, base_image_name):
+                print(f"✅ Base image exported to tarball successfully")
+            else:
+                print(f"❌ Failed to export base image to tarball")
+                return False
+            return True
         else:
-            print(f"Failed to save base image tarball")
+            print(f"❌ Failed to build base image: {base_image_name} not found in repo after build")
             return False
-        return True
     else:
-        print(f"Failed to build base image: {result.stderr}")
+        print(f"❌ Failed to build base image: {result.stderr}")
         return False
 
 def ensure_base_image_available(ctx, config_file, dry_run):
     """Ensure base image is available - restore or build if needed"""
-    import toml
-    config = toml.load(config_file)
-    base_image_name = config['config']['base_image']
+    # Get base image name using the dataclass
+    container_info = get_container_info(config_file)
+    base_image_name = container_info.base_image_docker
     
-    # Check if base image exists
+    # Step 1: Check if base image exists in repo
     if check_image_exists(ctx, base_image_name):
-        print(f"Base image '{base_image_name}' found locally")
+        print(f"✅ Base image '{base_image_name}' found locally")
         return True
     
-    # Try to restore base image from tarball
-    print(f"Base image '{base_image_name}' not found locally, attempting to restore...")
+    # Step 2: Try to restore base image from tarball
+    print(f"Base image '{base_image_name}' not found in repo, attempting to restore from tarball...")
     if restore_image_from_tarball(ctx, base_image_name):
-        return True
+        # Verify image is now in repo after restore
+        if check_image_exists(ctx, base_image_name):
+            print(f"✅ Base image '{base_image_name}' successfully restored and verified in repo")
+            return True
+        else:
+            print(f"❌ Base image '{base_image_name}' restore failed - image not found in repo")
+            return False
     
-    # Try to build base image from Dockerfile in the same directory
-    print(f"Base image '{base_image_name}' not available, attempting to build...")
+    # Step 3: Try to build base image from Dockerfile in the same directory
+    print(f"Base image '{base_image_name}' not available from tarball, attempting to build from Dockerfile...")
     config_dir = os.path.dirname(config_file)
     base_dockerfile = os.path.join(config_dir, "Dockerfile")
     
     if os.path.exists(base_dockerfile):
         return build_base_image_from_dockerfile(ctx, config_file, dry_run)
     else:
-        print(f"Error: Base image '{base_image_name}' not available and no Dockerfile found at {base_dockerfile}")
+        print(f"❌ Error: Base image '{base_image_name}' not available and no Dockerfile found at {base_dockerfile}")
         return False
 
 @task(help={
@@ -117,8 +137,8 @@ def gen_image(ctx, config_file=None, dry_run=False, base_image=False, help=False
         return
     
     # Get image info from config
-    image_info = get_image_name(config_file)
-    target_image_name = image_info['full']
+    container_info = get_container_info(config_file)
+    target_image_name = container_info.image_full
     
     if base_image:
         # Build base image from Dockerfile
@@ -131,7 +151,7 @@ def gen_image(ctx, config_file=None, dry_run=False, base_image=False, help=False
     
     # Try to restore target image from tarball
     print(f"Image '{target_image_name}' not found locally, attempting to restore...")
-    if restore_image_from_tarball(ctx, image_info['docker']):
+    if restore_image_from_tarball(ctx, container_info.image_docker):
         return True
     
     # Create new image from base image
@@ -141,10 +161,8 @@ def gen_image(ctx, config_file=None, dry_run=False, base_image=False, help=False
     if not ensure_base_image_available(ctx, config_file, dry_run):
         return False
     
-    # Get base image from config
-    import toml
-    config = toml.load(config_file)
-    base_image_name = config['config']['base_image']
+    # Get base image using the dataclass
+    base_image_name = container_info.base_image_docker
     
     # Check for package list
     config_dir = os.path.dirname(config_file)
@@ -159,8 +177,7 @@ def gen_image(ctx, config_file=None, dry_run=False, base_image=False, help=False
         print(f"[DRY RUN] Would build {target_image_name} from base image...")
         print(f"[DRY RUN] Base image: {base_image_name}")
         print(f"[DRY RUN] Package source: {package_list_path}")
-        tarball_path = get_tarball_path(config_file)
-        print(f"[DRY RUN] Would export image to: {tarball_path}")
+        print(f"[DRY RUN] Would export image to: {container_info.tarball_path}")
         return True
     
     print(f"Building {target_image_name} from base image...")
@@ -186,7 +203,7 @@ def gen_image(ctx, config_file=None, dry_run=False, base_image=False, help=False
         return False
     
     # Create temporary container
-    container_name = f"{image_info['name']}-build-{int(time.time())}"
+    container_name = f"{container_info.image_name}-build-{int(time.time())}"
     print(f"Starting container from base image: {container_name}")
     
     start_cmd = f"docker run -dit --name {container_name} {base_image_name} bash"

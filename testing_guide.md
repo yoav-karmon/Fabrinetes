@@ -25,7 +25,7 @@ docker rm $(docker ps -aq --filter ancestor=fabrinetes-dev-testing:latest) 2>/de
 ### 1. Build Test Container (Only if Dockerfile Changed)
 ```bash
 # Build the primary testing container (only needed when Dockerfile is modified)
-./fabrinetes build fabrinetes-dev-testing
+./fabrinetes gen-image containers/fabrinetes-dev-testing/config.toml
 
 # Verify build success
 docker images | grep fabrinetes-dev-testing
@@ -210,11 +210,11 @@ echo "Current repo: $REPO_TOP"
 ### Build Time Testing (When Dockerfile Changes)
 ```bash
 # Time the build process for test container (only when Dockerfile is modified)
-time ./fabrinetes build fabrinetes-dev-testing
+time ./fabrinetes gen-image containers/fabrinetes-dev-testing/config.toml
 
 # Compare build times (test vs production containers)
-time ./fabrinetes build fabrinetes-dev-testing
-time ./fabrinetes build fabrinetes-dev
+time ./fabrinetes gen-image containers/fabrinetes-dev-testing/config.toml
+time ./fabrinetes gen-image containers/fabrinetes-dev/config.toml
 ```
 
 ### Container Startup Testing
@@ -251,7 +251,7 @@ echo "=== Fabrinetes Testing Script (fabrinetes-dev-testing) ==="
 
 # Build test container (only if Dockerfile changed)
 echo "Building test container (only if Dockerfile was modified)..."
-./fabrinetes build fabrinetes-dev-testing
+./fabrinetes gen-image containers/fabrinetes-dev-testing/config.toml
 
 # Run test container
 echo "Running test container..."

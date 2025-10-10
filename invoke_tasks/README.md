@@ -9,7 +9,6 @@ The `invoke_tasks` directory contains all the core functionality of Fabrinetes, 
 ```
 invoke_tasks/
 ├── __init__.py          # Package initialization
-├── build/               # Image building functionality
 ├── clean_image/         # Image cleanup operations
 ├── commit/              # Container commit operations
 ├── exec/                # Container execution commands
@@ -26,11 +25,6 @@ invoke_tasks/
 ## Core Tasks
 
 ### Build Tasks
-
-#### `build/`
-- **Purpose**: Legacy build functionality
-- **Status**: Deprecated in favor of `gen_image/`
-- **Files**: `build.py`
 
 #### `gen_image/`
 - **Purpose**: Modern image generation from TOML configs
@@ -116,7 +110,7 @@ invoke_tasks/
 - **Features**:
   - Package listing from containers
   - Package download with dependencies
-  - Offline build support
+  - Offline image creation support
 - **Files**: `pkg.py`
 
 ### Testing
@@ -187,7 +181,7 @@ init_env = "path/to/init_env.sh"
 ### File System Integration
 - TOML config files define container behavior
 - Tarball management for image persistence
-- Package lists for reproducible builds
+- Package lists for reproducible image creation
 
 ### User Interface Integration
 - Pretty table formatting for lists and help

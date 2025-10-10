@@ -6,7 +6,7 @@ import pathlib
 import toml
 from invoke import task
 from .helpers import setup_x11_support, resolve_mounts, printlocals
-from helper_functions.config.name_generator import get_image_name, get_run_name
+from helper_functions.name_generator import get_container_info
 from helper_functions.image_management import ensure_image_available, convert_to_docker_format
 
 @task
@@ -36,9 +36,9 @@ def run(ctx, file=None, rm=False, verbose=False, x11=True, usb=False, ask=True, 
         return
     
     # Stage 1: Find the image name needed to run
-    image_info = get_image_name(file)
-    image_name = image_info['docker']  # Use Docker format for ensure_image_available
-    print(f"Stage 1: Image needed: {image_info['full']}")
+    container_info = get_container_info(file)
+    image_name = container_info.image_docker  # Use Docker format for ensure_image_available
+    print(f"Stage 1: Image needed: {container_info.image_full}")
     
     # Stage 2: Check if image exists, try to restore if not
     print(f"Stage 2: Checking image availability...")
@@ -50,7 +50,7 @@ def run(ctx, file=None, rm=False, verbose=False, x11=True, usb=False, ask=True, 
     print(f"Stage 3: Checking container status...")
     
     # Generate container name
-    container_name = get_run_name(file)
+    container_name = container_info.run_name
     if not container_name:
         return
     command = container_config.get('command', 'bash')

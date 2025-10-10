@@ -10,24 +10,9 @@ All functions take a config_file path as input and return the relevant configura
 This ensures consistency across the entire codebase.
 """
 
-from .name_generator import (
-    get_image_name,
-    get_container_name,
-    get_run_name,
-    get_tarball_path,
-    get_tarball_directory,
-    get_tarball_filename,
-    get_tarball_name_from_image_name,
-    get_config_info
-)
+from .name_generator import get_container_info, ContainerInfo
 
 __all__ = [
-    'get_image_name',
-    'get_container_name',
-    'get_run_name',
-    'get_tarball_path',
-    'get_tarball_directory',
-    'get_tarball_filename',
-    'get_tarball_name_from_image_name',
-    'get_config_info'
+    'get_container_info',
+    'ContainerInfo'
 ]

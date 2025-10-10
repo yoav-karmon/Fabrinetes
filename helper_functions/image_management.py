@@ -3,7 +3,7 @@
 import os
 import glob
 from invoke import Context
-from helper_functions.config.name_generator import get_tarball_path, get_tarball_directory, get_tarball_name_from_image_name, get_tarball_filename
+from helper_functions.name_generator import get_container_info
 
 def convert_to_docker_format(image_name: str) -> str:
     if '.' in image_name and not image_name.endswith('.tar.gz'):
@@ -23,12 +23,17 @@ def check_image_exists(ctx: Context, image_name: str) -> bool:
     return bool(result.stdout.strip())
 
 def find_image_tarball(image_name: str) -> str:
-    tarball_filename = get_tarball_name_from_image_name(image_name)
+    # Convert image name to tarball format
+    if ':' in image_name:
+        name, tag = image_name.split(':', 1)
+        tarball_filename = f"{name}-{tag}.tar.gz"
+    else:
+        tarball_filename = f"{image_name}-latest.tar.gz"
     
-    # Look in containers/*/images/ directories
+    # Look in containers/*/ directories
     containers_dir = "containers"
     if os.path.exists(containers_dir):
-        pattern = f"{containers_dir}/**/images/{tarball_filename}"
+        pattern = f"{containers_dir}/**/{tarball_filename}"
         tarballs = glob.glob(pattern, recursive=True)
         if tarballs:
             return tarballs[0]
@@ -72,15 +77,17 @@ def save_image_to_tarball(ctx: Context, image_name: str, config_file: str = None
     
     if config_file:
         config_dir = os.path.dirname(config_file)
-        tarball_directory = os.path.join(config_dir, "images")
+        tarball_directory = config_dir
         os.makedirs(tarball_directory, exist_ok=True)
         
         # Use custom tarball image name if provided, otherwise use the image name from config
         if tarball_image_name:
             tarball_name, tarball_tag = tarball_image_name.split(':', 1)
-            tarball_filename = f"{tarball_name}.{tarball_tag}.tar.gz"
+            tarball_filename = f"{tarball_name}-{tarball_tag}.tar.gz"
         else:
-            tarball_filename = get_tarball_filename(config_file)
+            # Get tarball filename from config
+            container_info = get_container_info(config_file)
+            tarball_filename = container_info.image_tarball
         
         tarball_path = os.path.join(tarball_directory, tarball_filename)
     else:

@@ -2,7 +2,7 @@
 
 ## Overview
 
-The `gen_image` task is the modern image generation system that builds Docker images from TOML configuration files. It supports both base image building and regular image creation with package installation via `docker exec`.
+The `gen_image` task is the modern image generation system that creates Docker images from TOML configuration files. It supports both base image creation and regular image generation with package installation via `docker exec`.
 
 ## Usage
 
@@ -66,7 +66,7 @@ base_image = "base-image:tag"
 ### Required Files
 - `config.toml`: Container configuration
 - `Dockerfile`: Base image definition (for base image building)
-- `packages.txt`: Package list (for regular image building)
+- `packages.txt`: Package list (for regular image generation)
 
 ## Process Flow
 
@@ -146,7 +146,7 @@ curl
 ### Common Issues
 
 1. **Config file not found**: Verify config file path
-2. **Dockerfile missing**: Ensure Dockerfile exists for base image building
+2. **Dockerfile missing**: Ensure Dockerfile exists for base image creation
 3. **Package installation fails**: Check package names and availability
 4. **Build fails**: Check Docker resources and permissions
 
@@ -160,8 +160,8 @@ curl
 ## Best Practices
 
 1. **Use descriptive image names** in config files
-2. **Keep package lists minimal** for faster builds
-3. **Test base images** before building regular images
+2. **Keep package lists minimal** for faster image creation
+3. **Test base images** before creating regular images
 4. **Use dry-run** to verify configuration
 5. **Regular cleanup** of unused images
 
@@ -182,7 +182,7 @@ The base image building supports custom build arguments:
 ### Tarball Management
 - **Automatic export**: Images are automatically saved as tarballs
 - **Restoration support**: Tarballs can be restored later
-- **Storage location**: Tarballs stored in `containers/<name>/images/`
+- **Storage location**: Tarballs stored in `containers/<name>/`
 
 ## Safety Features
 

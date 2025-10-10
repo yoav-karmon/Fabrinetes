@@ -80,6 +80,40 @@ else
         container_name="$2"
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] \$ invoke -c tasks kill --container-name=$container_name" >> "$LOGFILE"
         invoke -c tasks kill --container-name="$container_name" | tee -a "$LOGFILE"
+    # Handle clean command
+    elif [[ "$1" == "clean" ]]; then
+        # Check for help flag first
+        if [[ "$*" == *"--help"* ]]; then
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] \$ invoke -c tasks clean --help" >> "$LOGFILE"
+            invoke -c tasks clean --help | tee -a "$LOGFILE"
+        elif [[ -n "$2" ]]; then
+            # Clean command arguments
+            clean_args="--config-file=$2"
+            
+            # Add flags if present
+            if [[ "$*" == *"--base-image"* ]]; then
+                clean_args="$clean_args --base-image"
+            fi
+            if [[ "$*" == *"--image"* ]]; then
+                clean_args="$clean_args --image"
+            fi
+            if [[ "$*" == *"--container"* ]]; then
+                clean_args="$clean_args --container"
+            fi
+            if [[ "$*" == *"--all"* ]]; then
+                clean_args="$clean_args --all"
+            fi
+            if [[ "$*" == *"--dangling"* ]]; then
+                clean_args="$clean_args --dangling"
+            fi
+            
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] \$ invoke -c tasks clean $clean_args" >> "$LOGFILE"
+            invoke -c tasks clean $clean_args | tee -a "$LOGFILE"
+        else
+            echo "❌ Error: Config file is required for clean command"
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] \$ invoke -c tasks clean --help" >> "$LOGFILE"
+            invoke -c tasks clean --help | tee -a "$LOGFILE"
+        fi
     else
         # Run invoke as if we were in that directory
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] \$ invoke -c tasks $*" >> "$LOGFILE"

@@ -1,8 +1,20 @@
 [config]
-image_name       = "fabrinetes-dev-testing:latest"
-base_image      = "fabrinetes-skeleton:latest"
-X11_path             = "/mnt/wslg/.X11-unix"
-mounts              = [
+# X11 and mount configuration
+X11_path = "/mnt/wslg/.X11-unix"
+mounts = [
     "$HOME/.ssh:$HOME/.ssh",
     "$HOME/repo:$HOME/repo",
 ]
+
+[config.image]
+name = "fabrinetes-dev-testing"
+tag = "latest"
+tarball_name = "fabrinetes-dev-testing-latest.tar.gz"
+
+[config.base_image]
+name = "fabrinetes-skeleton"
+tag = "latest"
+tarball_name = "fabrinetes-skeleton-latest.tar.gz"
+
+[config.container]
+name = "testing"

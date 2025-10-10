@@ -114,7 +114,7 @@ Each container has its own configuration file in `containers/*/config/fabrinetes
 ./fabrinetes
 
 # Build specific container
-./fabrinetes build fabrinetes-dev-testing
+./fabrinetes gen-image containers/fabrinetes-dev-testing/config.toml
 
 # Run container with options
 ./fabrinetes run --file fabrinetes.config --name fabrinetes-dev-testing --no-ask
@@ -148,7 +148,7 @@ The repository includes a sophisticated PATH management system:
 ## Development Workflow
 
 1. **Configure**: Edit `fabrinetes.config` for your setup
-2. **Build**: Create container images with `./fabrinetes build`
+2. **Generate**: Create container images with `./fabrinetes gen-image`
 3. **Run**: Start containers with `./fabrinetes run`
 4. **Develop**: Work in isolated, configured environments
 5. **Switch**: Change repositories for different PATH configurations

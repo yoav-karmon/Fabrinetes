@@ -67,7 +67,7 @@ The `commit` task commits a running Docker container to a new image. It captures
 - Integrates with tarball management
 
 ### Tarball Management
-- Saves tarballs in `containers/<name>/images/` directory
+- Saves tarballs in `containers/<name>/` directory
 - Uses standardized tarball naming
 - Enables image restoration
 
@@ -146,7 +146,7 @@ The `commit` task commits a running Docker container to a new image. It captures
 1. Check container status: `docker ps`
 2. Verify container exists: `docker ps -a`
 3. Check Docker resources: `docker system df`
-4. Verify tarball location: `ls containers/*/images/`
+4. Verify tarball location: `ls containers/*/`
 
 ## Safety Features
 

@@ -112,7 +112,7 @@ def show_gen_image_help():
     """Show help for gen-image command"""
     command_data = {
         'syntax': './fabrinetes gen-image <config-file> [--dry-run] [--base-image]',
-        'description': 'Generate Docker image from config file - restore if tarball exists, otherwise build from base image',
+        'description': 'Generate Docker image from config file - restore if tarball exists, otherwise create from base image',
         'arguments': [
             ['config-file', 'Path to config.toml file', 'Yes', 'containers/<path>/config.toml'],
             ['--dry-run', 'Show what would be generated without actually generating', 'No', 'optional flag'],
@@ -158,6 +158,29 @@ def show_clean_image_help():
     }
     show_command_help('clean-image', command_data)
 
+def show_clean_help():
+    """Show help for clean command"""
+    command_data = {
+        'syntax': './fabrinetes clean <config-file> [options]',
+        'description': 'Comprehensive clean command for base images, containers, and images',
+        'arguments': [
+            ['config-file', 'Path to config.toml file', 'Yes', 'containers/<path>/config.toml'],
+            ['--base-image', 'Clean base image (remove from Docker and tarball)', 'No', 'optional flag'],
+            ['--image', 'Clean main image (remove from Docker and tarball)', 'No', 'optional flag'],
+            ['--container', 'Clean container (kill and remove)', 'No', 'optional flag'],
+            ['--all', 'Clean everything (base image, image, container)', 'No', 'optional flag'],
+            ['--dangling', 'Remove dangling images', 'No', 'optional flag'],
+        ],
+        'examples': [
+            './fabrinetes clean containers/fabrinetes-dev-testing/config.toml --all',
+            './fabrinetes clean containers/fabrinetes-dev-testing/config.toml --base-image --image',
+            './fabrinetes clean containers/fabrinetes-dev-testing/config.toml --container --dangling',
+            './fabrinetes clean containers/fabrinetes-dev-testing/config.toml --base-image',
+            './fabrinetes clean containers/fabrinetes-dev-testing/config.toml --image --container'
+        ]
+    }
+    show_command_help('clean', command_data)
+
 def show_kill_help():
     """Show help for kill command"""
     command_data = {
@@ -193,7 +216,7 @@ def show_test_help():
         'syntax': './fabrinetes test --command <command> [--test-number <number>]',
         'description': 'Test commands using comprehensive test vectors with fabrinetes-dev-testing container',
         'arguments': [
-            ['--command', 'Test command to run', 'Yes', 'run, gen-image, clean-image, kill, commit, exec, shell, pkg, all'],
+            ['--command', 'Test command to run', 'Yes', 'run, gen-image, clean-image, clean, kill, commit, exec, shell, pkg, all'],
             ['--test-number', 'Run specific test by number (1-based)', 'No', '1, 2, 3, etc.']
         ],
         'examples': [
@@ -222,23 +245,6 @@ def show_list_help():
         ]
     }
     show_command_help('list', command_data)
-
-def show_build_help():
-    """Show help for build command (deprecated)"""
-    command_data = {
-        'syntax': './fabrinetes build <repository-name> [--skeleton] [--restore-only]',
-        'description': 'Legacy build command - DEPRECATED, use gen-image instead',
-        'arguments': [
-            ['repository-name', 'Name of the repository/container to build', 'Yes', 'fabrinetes-dev-testing, fabrinetes-dev, etc.'],
-            ['--skeleton', 'Build skeleton base image', 'No', 'optional flag'],
-            ['--restore-only', 'Only restore from tarball, don\'t build', 'No', 'optional flag']
-        ],
-        'examples': [
-            './fabrinetes build fabrinetes-dev-testing --skeleton',
-            './fabrinetes build fabrinetes-dev-testing --restore-only'
-        ]
-    }
-    show_command_help('build', command_data)
 
 # Global help function for no arguments
 def show_global_help():
@@ -316,10 +322,10 @@ def show_global_help():
             'allowed_values': f'container-name: {container_values}'
         },
         {
-            'command': './fabrinetes clean-image',
-            'args': '[image-name]',
-            'description': 'Clean up containers and images',
-            'allowed_values': 'image-name: from Docker Images table'
+            'command': './fabrinetes clean',
+            'args': '[config-file] [options]',
+            'description': 'Comprehensive clean command for base images, containers, and images',
+            'allowed_values': 'config-file: containers/<path>/config.toml'
         },
         {
             'command': './fabrinetes kill',
@@ -347,6 +353,8 @@ def show_global_help():
     examples = [
         './fabrinetes gen-image containers/fabrinetes-dev-testing/config.toml',
         './fabrinetes gen-image containers/fabrinetes-dev-testing/config.toml --base-image',
+        './fabrinetes clean containers/fabrinetes-dev-testing/config.toml --all',
+        './fabrinetes clean containers/fabrinetes-dev-testing/config.toml --base-image --image',
         './fabrinetes run containers/fabrinetes-dev-testing/config.toml',
         './fabrinetes exec --container-name fabrinetes-dev-testing.latest.run --command \'ls -la\'',
         './fabrinetes shell --container-name fabrinetes-dev-testing.latest.run',

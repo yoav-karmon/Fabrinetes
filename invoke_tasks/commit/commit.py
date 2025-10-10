@@ -4,8 +4,7 @@ import os
 import re
 import time
 from invoke import task
-from helper_functions.config.name_generator import get_image_name, get_run_name, get_tarball_path, get_tarball_directory
-from helper_functions.name_generator import extract_image_info_from_base_image
+from helper_functions.name_generator import get_container_info
 from helper_functions.image_management import save_image_to_tarball
 
 @task
@@ -52,7 +51,8 @@ def commit(ctx, container_name=None, tag=None, message=None, help=False):
     config_files = glob.glob("containers/*/config.toml")
     for config_path in config_files:
         try:
-            if get_run_name(config_path) == container_name:
+            container_info = get_container_info(config_path)
+            if container_info.run_name == container_name:
                 config_file = config_path
                 break
         except Exception:
@@ -63,8 +63,8 @@ def commit(ctx, container_name=None, tag=None, message=None, help=False):
         return
     
     # Get image name from config
-    image_info = get_image_name(config_file)
-    commit_image_name = image_info['full']
+    container_info = get_container_info(config_file)
+    commit_image_name = container_info.image_full
     
     print(f"Committing container '{container_name}' to base image '{commit_image_name}'...")
     
@@ -78,9 +78,8 @@ def commit(ctx, container_name=None, tag=None, message=None, help=False):
             print(f"✅ Image saved for future restoration")
         
         # Export the image to base_images folder
-        base_image_name, base_tag = extract_image_info_from_base_image(commit_image_name)
-        tarball_path = get_tarball_path(config_file)
-        tarball_directory = get_tarball_directory(config_file)
+        tarball_path = container_info.tarball_path
+        tarball_directory = container_info.tarball_directory
         
         # Create directory if it doesn't exist
         os.makedirs(tarball_directory, exist_ok=True)

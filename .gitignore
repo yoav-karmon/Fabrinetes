@@ -10,3 +10,5 @@ containers/*/deb-cache/
 # Development files
 dev-plan.md
 cursor_send_box/
+__pycache__/
+*.backup

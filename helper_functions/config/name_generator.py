@@ -2,69 +2,99 @@
 
 import os
 import toml
+from dataclasses import dataclass
+from typing import List, Dict, Any
 
-def _get_image_name_from_config(config_file: str) -> str:
+@dataclass
+class ContainerInfo:
+    """Dataclass containing all container naming and configuration information"""
+    # Image information
+    image_name: str
+    image_tag: str
+    image_full: str
+    image_docker: str
+    image_tarball: str
+    
+    # Base image information
+    base_image_name: str
+    base_image_tag: str
+    base_image_full: str
+    base_image_docker: str
+    base_image_tarball: str
+    
+    # Container information
+    container_name: str
+    run_name: str
+    
+    # Paths
+    tarball_path: str
+    tarball_directory: str
+    
+    # Configuration
+    config_file: str
+    mounts: List[str]
+    x11_path: str
+
+def get_container_info(config_file: str) -> ContainerInfo:
+    """
+    Single function that returns all container naming and configuration information.
+    
+    Args:
+        config_file: Path to the TOML configuration file
+        
+    Returns:
+        ContainerInfo dataclass with all naming and configuration data
+    """
     config = toml.load(config_file)
     container_config = config['config']
-    image_name = container_config['image_name']
     
-    if ':' not in image_name:
-        raise ValueError(f"Image name must contain ':' separator: {image_name}")
+    # Image information
+    image_name = container_config['image']['name']
+    image_tag = container_config['image']['tag']
+    image_full = f"{image_name}-{image_tag}"
+    image_docker = f"{image_name}:{image_tag}"
+    image_tarball = container_config['image']['tarball_name']
     
-    return image_name
-
-def get_image_name(config_file: str) -> dict:
-    image_name = _get_image_name_from_config(config_file)
-    name, tag = image_name.split(':', 1)
-    return {
-        'name': name,
-        'tag': tag,
-        'full': f"{name}.{tag}",
-        'docker': f"{name}:{tag}"
-    }
-
-def get_container_name(config_file: str) -> str:
-    return get_image_name(config_file)['name']
-
-def get_run_name(config_file: str) -> str:
-    return f"{get_image_name(config_file)['full']}.run"
-
-def get_tarball_path(config_file: str) -> str:
-    image_info = get_image_name(config_file)
-    return f"containers/{image_info['name']}/images/{image_info['full']}.tar.gz"
-
-def get_tarball_directory(config_file: str) -> str:
-    return f"containers/{get_container_name(config_file)}/images"
-
-def get_tarball_filename(config_file: str) -> str:
-    return f"{get_image_name(config_file)['full']}.tar.gz"
-
-def get_tarball_name_from_image_name(image_name: str) -> str:
-    if ':' not in image_name:
-        raise ValueError(f"Image name must contain ':' separator: {image_name}")
+    # Base image information
+    base_image_name = container_config['base_image']['name']
+    base_image_tag = container_config['base_image']['tag']
+    base_image_full = f"{base_image_name}-{base_image_tag}"
+    base_image_docker = f"{base_image_name}:{base_image_tag}"
+    base_image_tarball = container_config['base_image']['tarball_name']
     
-    name, tag = image_name.split(':', 1)
-    return f"{name}.{tag}.tar.gz"
-
-def get_config_info(config_file: str) -> dict:
-    config = toml.load(config_file)
-    container_config = config['config']
-    image_info = get_image_name(config_file)
+    # Container information
+    container_name = container_config['container']['name']
+    run_name = f"{image_full}.run"
     
-    return {
-        'config_file': config_file,
-        'image_name': image_info['full'],
-        'image_name_without_tag': image_info['name'],
-        'image_tag': image_info['tag'],
-        'container_name': get_container_name(config_file),
-        'run_name': get_run_name(config_file),
-        'tarball_path': get_tarball_path(config_file),
-        'tarball_directory': get_tarball_directory(config_file),
-        'base_image': container_config['base_image'],
-        'image_name_config': container_config['image_name'],
-        'mounts': container_config['mounts'],
-        'environment': container_config.get('environment', {}),
-        'network': container_config.get('network', 'host'),
-        'command': container_config.get('command', 'bash'),
-        'init_env': container_config['init_env']
-    }
+    # Paths
+    tarball_directory = f"containers/{image_name}"
+    tarball_path = f"{tarball_directory}/{image_tarball}"
+    
+    return ContainerInfo(
+        # Image
+        image_name=image_name,
+        image_tag=image_tag,
+        image_full=image_full,
+        image_docker=image_docker,
+        image_tarball=image_tarball,
+        
+        # Base image
+        base_image_name=base_image_name,
+        base_image_tag=base_image_tag,
+        base_image_full=base_image_full,
+        base_image_docker=base_image_docker,
+        base_image_tarball=base_image_tarball,
+        
+        # Container
+        container_name=container_name,
+        run_name=run_name,
+        
+        # Paths
+        tarball_path=tarball_path,
+        tarball_directory=tarball_directory,
+        
+        # Configuration
+        config_file=config_file,
+        mounts=container_config['mounts'],
+        x11_path=container_config['X11_path']
+    )

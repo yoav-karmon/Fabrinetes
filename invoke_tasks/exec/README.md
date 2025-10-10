@@ -91,7 +91,7 @@ The `exec` task executes commands inside running Docker containers. It provides 
 
 ### Development Workflow
 1. Start development container with `run`
-2. Execute build commands with `exec`
+2. Execute image generation commands with `exec`
 3. Run tests with `exec`
 4. Debug issues with `exec`
 
