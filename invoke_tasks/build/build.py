@@ -29,13 +29,13 @@ def handle_restore_only(ctx, repo):
         return False
 
 @task
-def build(ctx, repo=None, dry_run=False, export=False, skeleton=False, restore_only=False):
+def build(ctx, repo=None, dry_run=False, export=False, skeleton=False, restore_only=False, help=False):
     """Build Docker image for the specified repository from skeleton by default"""
     
-    # Check for missing required arguments
-    if not repo:
-        from tasks import show_command_help, COMMAND_HELP
-        show_command_help('build', COMMAND_HELP['build'])
+    # Check for help flag or missing required arguments
+    if help or not repo:
+        from invoke_tasks.help.help import show_build_help
+        show_build_help()
         return
     
     # Handle restore-only mode

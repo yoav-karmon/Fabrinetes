@@ -4,7 +4,7 @@ from invoke import task
 from tabulate import tabulate
 
 @task
-def exec(ctx, container_name=None, command=None, interactive=False):
+def exec(ctx, container_name=None, command=None, interactive=False, help=False):
     """
     Execute a command in a running container
     
@@ -12,12 +12,13 @@ def exec(ctx, container_name=None, command=None, interactive=False):
         container_name: Name of the running container
         command: Command to execute (must be quoted if contains spaces)
         interactive: Whether to run in interactive mode
+        help: Show help information
     """
-    from tasks import show_command_help, COMMAND_HELP
+    from invoke_tasks.help.help import show_exec_help
     
-    # Check for missing required arguments
-    if not container_name or not command:
-        show_command_help('exec', COMMAND_HELP['exec'])
+    # Check for help flag or missing required arguments
+    if help or not container_name or not command:
+        show_exec_help()
         return
     
     # Check if container is running

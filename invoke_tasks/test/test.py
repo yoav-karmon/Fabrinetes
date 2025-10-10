@@ -9,12 +9,13 @@ from tabulate import tabulate
 
 
 @task
-def test(ctx, command=None, test_number=None):
+def test(ctx, command=None, test_number=None, help=False):
 
-    from tasks import show_command_help, COMMAND_HELP
+    from invoke_tasks.help.help import show_test_help
 
-    if not command:
-        show_command_help('test', COMMAND_HELP['test'])
+    # Check for help flag or missing required arguments
+    if help or not command:
+        show_test_help()
         return
 
     test_container = "fabrinetes-dev-testing"

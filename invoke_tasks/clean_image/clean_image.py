@@ -5,18 +5,19 @@ import glob
 from invoke import task
 
 @task
-def clean_image(ctx, image=None):
+def clean_image(ctx, image=None, help=False):
     """
     Clean up all containers and images for a specific base image
     
     Args:
         image: Base image name (e.g., "fabrinetes-skeleton:latest")
+        help: Show help information
     """
-    from tasks import show_command_help, COMMAND_HELP
+    from invoke_tasks.help.help import show_clean_image_help
     
-    # Check for missing required arguments
-    if not image:
-        show_command_help('clean-image', COMMAND_HELP['clean-image'])
+    # Check for help flag or missing required arguments
+    if help or not image:
+        show_clean_image_help()
         return
     
     print(f"🧹 Cleaning all containers and images for base image: {image}")

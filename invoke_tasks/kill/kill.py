@@ -3,18 +3,19 @@
 from invoke import task
 
 @task
-def kill(ctx, container_name=None):
+def kill(ctx, container_name=None, help=False):
     """
     Stop and remove a specific container (not the image)
     
     Args:
         container_name: Name of the container to kill
+        help: Show help information
     """
-    from tasks import show_command_help, COMMAND_HELP
+    from invoke_tasks.help.help import show_kill_help
     
-    # Check for missing required arguments
-    if not container_name:
-        show_command_help('kill', COMMAND_HELP['kill'])
+    # Check for help flag or missing required arguments
+    if help or not container_name:
+        show_kill_help()
         return
     
     print(f"🛑 Killing container: {container_name}")

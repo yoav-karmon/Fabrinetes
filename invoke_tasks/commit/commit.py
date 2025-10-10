@@ -9,13 +9,13 @@ from helper_functions.name_generator import extract_image_info_from_base_image
 from helper_functions.image_management import save_image_to_tarball
 
 @task
-def commit(ctx, container_name=None, tag=None, message=None):
+def commit(ctx, container_name=None, tag=None, message=None, help=False):
     """Commit running container to new image"""
-    from tasks import show_command_help, COMMAND_HELP
+    from invoke_tasks.help.help import show_commit_help
     
-    # Check for missing required arguments
-    if not container_name:
-        show_command_help('commit', COMMAND_HELP['commit'])
+    # Check for help flag or missing required arguments
+    if help or not container_name:
+        show_commit_help()
         return
     
     # Check if container is running

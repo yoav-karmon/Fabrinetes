@@ -10,13 +10,13 @@ from helper_functions.config.name_generator import get_image_name, get_run_name
 from helper_functions.image_management import ensure_image_available, convert_to_docker_format
 
 @task
-def run(ctx, file=None, rm=False, verbose=False, x11=True, usb=False, ask=True):
+def run(ctx, file=None, rm=False, verbose=False, x11=True, usb=False, ask=True, help=False):
     """Run a Docker container with the specified configuration"""
-    from tasks import show_command_help, COMMAND_HELP
+    from invoke_tasks.help.help import show_run_help
     
-    # Check for missing required arguments
-    if not file:
-        show_command_help('run', COMMAND_HELP['run'])
+    # Check for help flag or missing required arguments
+    if help or not file:
+        show_run_help()
         return
     
     # Load configuration

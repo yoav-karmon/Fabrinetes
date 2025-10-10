@@ -6,13 +6,13 @@ from invoke import task
 from tabulate import tabulate
 
 @task
-def pkg(ctx, container_name=None):
+def pkg(ctx, container_name=None, help=False):
     """Package management: generate package file with versions and download .deb files from containers"""
-    from tasks import show_command_help, COMMAND_HELP
+    from invoke_tasks.help.help import show_pkg_help
     
-    # Check for missing required arguments
-    if not container_name:
-        show_command_help('pkg', COMMAND_HELP['pkg'])
+    # Check for help flag or missing required arguments
+    if help or not container_name:
+        show_pkg_help()
         return
     
     # Check if container is running

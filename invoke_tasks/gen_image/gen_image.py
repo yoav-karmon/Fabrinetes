@@ -99,15 +99,16 @@ def ensure_base_image_available(ctx, config_file, dry_run):
 @task(help={
     'config_file': 'Path to config.toml file',
     'dry_run': 'Show what would be generated without actually generating',
-    'base_image': 'Build base image from Dockerfile instead of creating new image'
+    'base_image': 'Build base image from Dockerfile instead of creating new image',
+    'help': 'Show help information'
 })
-def gen_image(ctx, config_file=None, dry_run=False, base_image=False):
+def gen_image(ctx, config_file=None, dry_run=False, base_image=False, help=False):
     """Generate Docker image from config file"""
     
-    # Check for missing required arguments
-    if not config_file:
-        from tasks import show_command_help, COMMAND_HELP
-        show_command_help('gen-image', COMMAND_HELP['gen-image'])
+    # Check for help flag or missing required arguments
+    if help or not config_file:
+        from invoke_tasks.help.help import show_gen_image_help
+        show_gen_image_help()
         return
     
     # Check if config file exists
