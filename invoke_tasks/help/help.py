@@ -280,13 +280,34 @@ def show_kill_help():
 def show_pkg_help():
     """Show help for pkg command"""
     command_data = {
-        'syntax': './fabrinetes pkg --container-name <container-name>',
-        'description': 'Package management: generate package file with versions and download .deb files from containers',
+        'syntax': './fabrinetes pkg --container-name <container-name> [--recover|--install]',
+        'description': 'Package recovery and installation: extract packages from containers or install from pkg-cache',
         'arguments': [
-            ['--container-name', 'Name of the running container to manage', 'Yes', 'From Docker Containers table above']
+            ['--container-name', 'Name of the running container to manage', 'Yes', 'From Docker Containers table above'],
+            ['--container-id', 'Alternative: Container ID for targeting', 'No', 'Container ID like ffb2b6947fb9'],
+            ['--recover', 'Extract packages from container and create pkg-cache', 'No', 'Recovery mode'],
+            ['--install', 'Install packages from pkg-cache to container', 'No', 'Installation mode'],
+            ['--pkg-cache', 'Path to pkg-cache directory for installation', 'No', 'e.g., containers/ffb2b6947fb9/pkg-cache'],
+            ['--offline', 'Use offline mode (install from local .deb files)', 'No', 'Requires --install'],
+            ['--online', 'Use online mode (use apt-get install)', 'No', 'Requires --install'],
+            ['--package', 'Specific package to install (optional)', 'No', 'If not provided, install all packages']
         ],
         'examples': [
-            './fabrinetes pkg --container-name fabrinetes-dev-testing-20251008-154737'
+            '# Recovery mode',
+            './fabrinetes pkg --container-name fabrinetes-fpga-dev-1 --recover',
+            './fabrinetes pkg --container-id ffb2b6947fb9 --recover',
+            '',
+            '# Offline installation (all packages)',
+            './fabrinetes pkg --container-name fabrinetes-dev-testing-latest.run --install --pkg-cache containers/ffb2b6947fb9/pkg-cache --offline',
+            '',
+            '# Online installation (all packages)',
+            './fabrinetes pkg --container-name fabrinetes-dev-testing-latest.run --install --pkg-cache containers/ffb2b6947fb9/pkg-cache --online',
+            '',
+            '# Install specific package offline',
+            './fabrinetes pkg --container-name fabrinetes-dev-testing-latest.run --install --pkg-cache containers/ffb2b6947fb9/pkg-cache --offline --package git',
+            '',
+            '# Install specific package online',
+            './fabrinetes pkg --container-name fabrinetes-dev-testing-latest.run --install --pkg-cache containers/ffb2b6947fb9/pkg-cache --online --package python3-pip'
         ]
     }
     show_command_help('pkg', command_data)

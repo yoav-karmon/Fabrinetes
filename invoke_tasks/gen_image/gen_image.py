@@ -13,14 +13,9 @@ def handle_base_image_generation(ctx, dry_run, tarball, docker, clean, ask, cont
     base_image_name = container_info.base_image_docker
     base_tarball_path = f"{container_info.tarball_directory}/{container_info.base_image_tarball}"
     
-    # If no specific flags provided, default to both docker and tarball
-    if not tarball and not docker and not clean:
-        tarball = True
-        docker = True
-    
     # Handle clean flag
     if clean:
-        if not handle_cleanup(ctx, base_image_name, base_tarball_path, docker, tarball, ask, dry_run):
+        if not handle_cleanup(ctx, docker, tarball, ask, dry_run, container_info):
             return False
     
     success = True
@@ -37,15 +32,21 @@ def handle_base_image_generation(ctx, dry_run, tarball, docker, clean, ask, cont
     
     return success
 
-def handle_cleanup(ctx, base_image_name, base_tarball_path, docker, tarball, ask, dry_run):
+def handle_cleanup(ctx, docker, tarball, ask, dry_run, container_info):
     """Handle cleanup of existing files"""
+    # Cache expensive operations at the top
+    base_image_name = container_info.base_image_docker
+    base_tarball_path = f"{container_info.tarball_directory}/{container_info.base_image_tarball}"
+    image_exists = check_image_exists(ctx, base_image_name)
+    tarball_exists = os.path.exists(base_tarball_path)
+    
     removed_items = []
     
     # Check what needs to be removed
-    if docker and check_image_exists(ctx, base_image_name):
+    if docker and image_exists:
         removed_items.append(f"Docker image: {base_image_name}")
     
-    if tarball and os.path.exists(base_tarball_path):
+    if tarball and tarball_exists:
         removed_items.append(f"Tarball: {base_tarball_path}")
     
     if not removed_items:
@@ -67,11 +68,11 @@ def handle_cleanup(ctx, base_image_name, base_tarball_path, docker, tarball, ask
         return True
     
     # Remove files
-    if docker and check_image_exists(ctx, base_image_name):
+    if docker and image_exists:
         print(f"Removing Docker image: {base_image_name}")
         ctx.run(f"docker rmi -f {base_image_name}", hide=True, warn=True)
     
-    if tarball and os.path.exists(base_tarball_path):
+    if tarball and tarball_exists:
         print(f"Removing tarball: {base_tarball_path}")
         os.remove(base_tarball_path)
     
@@ -82,13 +83,16 @@ def handle_docker_generation(ctx, dry_run, clean, container_info):
     """Handle Docker image generation"""
     base_image_name = container_info.base_image_docker
     
+    # Cache expensive operation at the top
+    initial_image_exists = check_image_exists(ctx, base_image_name)
+    
     # If no clean flag and image exists, skip reproduction
-    if not clean and check_image_exists(ctx, base_image_name):
+    if not clean and initial_image_exists:
         print(f"✅ Docker image '{base_image_name}' already exists - skipping reproduction")
         return True
     
     # If both tarball and docker flags are set, remove existing image and rebuild
-    if clean and check_image_exists(ctx, base_image_name):
+    if clean and initial_image_exists:
         print(f"Removing existing Docker image '{base_image_name}' for rebuild...")
         if not dry_run:
             ctx.run(f"docker rmi -f {base_image_name}", hide=True, warn=True)
@@ -98,6 +102,7 @@ def handle_docker_generation(ctx, dry_run, clean, container_info):
     # Try to restore from tarball first
     print(f"Docker image '{base_image_name}' not found, attempting to restore from tarball...")
     if restore_image_from_tarball(ctx, base_image_name):
+        # Keep this check as verification after restore operation
         if check_image_exists(ctx, base_image_name):
             print(f"✅ Docker image '{base_image_name}' successfully restored")
             return True
@@ -139,14 +144,14 @@ def handle_tarball_generation(ctx, dry_run, clean, container_info):
 
 def build_base_image_from_dockerfile(ctx, dry_run, container_info):
     """Build base image from Dockerfile in the same directory as config file"""
+    # Cache expensive operations and common values at the top
     config_dir = os.path.dirname(container_info.config_file)
     dockerfile_path = os.path.join(config_dir, "Dockerfile")
-    
-    # Get base image name using the passed container_info
     base_image_name = container_info.base_image_docker
+    initial_image_exists = check_image_exists(ctx, base_image_name)
     
     # Step 1: Check if base image already exists in repo
-    if check_image_exists(ctx, base_image_name):
+    if initial_image_exists:
         print(f"✅ Base image '{base_image_name}' already exists locally")
         
         # Always export to tarball, even if image exists
@@ -165,7 +170,7 @@ def build_base_image_from_dockerfile(ctx, dry_run, container_info):
     # Step 2: Try to restore base image from tarball
     print(f"Base image '{base_image_name}' not found in repo, attempting to restore from tarball...")
     if restore_image_from_tarball(ctx, base_image_name):
-        # Verify image is now in repo after restore
+        # Keep this check as verification after restore operation
         if check_image_exists(ctx, base_image_name):
             print(f"✅ Base image '{base_image_name}' successfully restored and verified in repo")
             return True
@@ -205,7 +210,7 @@ def build_base_image_from_dockerfile(ctx, dry_run, container_info):
     
     result = ctx.run(docker_cmd, hide=True)
     if result.ok:
-        # Verify image is in repo after build
+        # Keep this check as verification after build operation
         if check_image_exists(ctx, base_image_name):
             print(f"✅ Successfully built base image: {base_image_name} and verified in repo")
             
@@ -226,18 +231,21 @@ def build_base_image_from_dockerfile(ctx, dry_run, container_info):
 
 def ensure_base_image_available(ctx, dry_run, container_info):
     """Ensure base image is available - restore or build if needed"""
-    # Use the passed container_info
+    # Cache expensive operations and common values at the top
     base_image_name = container_info.base_image_docker
+    config_dir = os.path.dirname(container_info.config_file)
+    base_dockerfile = os.path.join(config_dir, "Dockerfile")
+    initial_image_exists = check_image_exists(ctx, base_image_name)
     
     # Step 1: Check if base image exists in repo
-    if check_image_exists(ctx, base_image_name):
+    if initial_image_exists:
         print(f"✅ Base image '{base_image_name}' found locally")
         return True
     
     # Step 2: Try to restore base image from tarball
     print(f"Base image '{base_image_name}' not found in repo, attempting to restore from tarball...")
     if restore_image_from_tarball(ctx, base_image_name):
-        # Verify image is now in repo after restore
+        # Keep this check as verification after restore operation
         if check_image_exists(ctx, base_image_name):
             print(f"✅ Base image '{base_image_name}' successfully restored and verified in repo")
             return True
@@ -247,8 +255,6 @@ def ensure_base_image_available(ctx, dry_run, container_info):
     
     # Step 3: Try to build base image from Dockerfile in the same directory
     print(f"Base image '{base_image_name}' not available from tarball, attempting to build from Dockerfile...")
-    config_dir = os.path.dirname(container_info.config_file)
-    base_dockerfile = os.path.join(config_dir, "Dockerfile")
     
     if os.path.exists(base_dockerfile):
         return build_base_image_from_dockerfile(ctx, dry_run, container_info)
@@ -256,27 +262,22 @@ def ensure_base_image_available(ctx, dry_run, container_info):
         print(f"❌ Error: Base image '{base_image_name}' not available and no Dockerfile found at {base_dockerfile}")
         return False
 
-def handle_main_image_generation(ctx, file, dry_run, tarball, docker, clean, ask, container_info):
+def handle_main_image_generation(ctx, dry_run, tarball, docker, clean, ask, container_info):
     """Handle main image generation with new flags"""
     target_image_name = container_info.image_full
     target_image_docker = container_info.image_docker
     target_tarball_path = container_info.tarball_path
     
-    # If no specific flags provided, default behavior (restore/build/save)
-    if not tarball and not docker and not clean:
-        # Default behavior: try to restore, then build if needed, always save tarball
-        return handle_default_main_image_generation(ctx, file, dry_run, container_info)
-    
     # Handle clean flag
     if clean:
-        if not handle_main_image_cleanup(ctx, target_image_docker, target_tarball_path, docker, tarball, ask, dry_run):
+        if not handle_main_image_cleanup(ctx, docker, tarball, ask, dry_run, container_info):
             return False
     
     success = True
     
     # Handle docker flag
     if docker:
-        if not handle_main_image_docker_generation(ctx, file, dry_run, clean, container_info):
+        if not handle_main_image_docker_generation(ctx, dry_run, clean, container_info):
             success = False
     
     # Handle tarball flag - always after docker generation
@@ -286,9 +287,13 @@ def handle_main_image_generation(ctx, file, dry_run, tarball, docker, clean, ask
     
     return success
 
-def handle_default_main_image_generation(ctx, file, dry_run, container_info):
+def handle_default_main_image_generation(ctx, dry_run, container_info):
     """Handle default main image generation (restore/build/save)"""
+    # Cache expensive operations and common values at the top
     target_image_name = container_info.image_full
+    base_image_name = container_info.base_image_docker
+    config_dir = os.path.dirname(container_info.config_file)
+    package_list_path = os.path.join(config_dir, "packages.txt")
     
     # Check if target image already exists
     if check_image_exists(ctx, target_image_name):
@@ -306,13 +311,6 @@ def handle_default_main_image_generation(ctx, file, dry_run, container_info):
     # Ensure base image is available
     if not ensure_base_image_available(ctx, dry_run, container_info):
         return False
-    
-    # Get base image using the dataclass
-    base_image_name = container_info.base_image_docker
-    
-    # Check for package list
-    config_dir = os.path.dirname(file)
-    package_list_path = os.path.join(config_dir, "packages.txt")
     
     if not os.path.exists(package_list_path):
         print(f"Warning: Package list not found at {package_list_path}")
@@ -374,7 +372,7 @@ def handle_default_main_image_generation(ctx, file, dry_run, container_info):
         print(f"Successfully built {docker_image_name} from base image")
         
         # Save image tarball
-        if save_image_to_tarball(ctx, target_image_name, file):
+        if save_image_to_tarball(ctx, target_image_name, container_info.config_file):
             print(f"Image saved for future restoration")
         
     finally:
@@ -384,15 +382,21 @@ def handle_default_main_image_generation(ctx, file, dry_run, container_info):
     
     return True
 
-def handle_main_image_cleanup(ctx, target_image_docker, target_tarball_path, docker, tarball, ask, dry_run):
+def handle_main_image_cleanup(ctx, docker, tarball, ask, dry_run, container_info):
     """Handle cleanup of main image files"""
+    # Cache expensive operations at the top
+    target_image_docker = container_info.image_docker
+    target_tarball_path = container_info.tarball_path
+    image_exists = check_image_exists(ctx, target_image_docker)
+    tarball_exists = os.path.exists(target_tarball_path)
+    
     removed_items = []
     
     # Check what needs to be removed
-    if docker and check_image_exists(ctx, target_image_docker):
+    if docker and image_exists:
         removed_items.append(f"Docker image: {target_image_docker}")
     
-    if tarball and os.path.exists(target_tarball_path):
+    if tarball and tarball_exists:
         removed_items.append(f"Tarball: {target_tarball_path}")
     
     if not removed_items:
@@ -414,29 +418,31 @@ def handle_main_image_cleanup(ctx, target_image_docker, target_tarball_path, doc
         return True
     
     # Remove files
-    if docker and check_image_exists(ctx, target_image_docker):
+    if docker and image_exists:
         print(f"Removing Docker image: {target_image_docker}")
         ctx.run(f"docker rmi -f {target_image_docker}", hide=True, warn=True)
     
-    if tarball and os.path.exists(target_tarball_path):
+    if tarball and tarball_exists:
         print(f"Removing tarball: {target_tarball_path}")
         os.remove(target_tarball_path)
     
     print("✅ Main image cleanup completed")
     return True
 
-def handle_main_image_docker_generation(ctx, file, dry_run, clean, container_info):
+def handle_main_image_docker_generation(ctx, dry_run, clean, container_info):
     """Handle main image Docker generation"""
+    # Cache expensive operations and common values at the top
     target_image_name = container_info.image_full
     target_image_docker = container_info.image_docker
+    initial_image_exists = check_image_exists(ctx, target_image_name)
     
     # If no clean flag and image exists, skip reproduction
-    if not clean and check_image_exists(ctx, target_image_name):
+    if not clean and initial_image_exists:
         print(f"✅ Main image '{target_image_name}' already exists - skipping reproduction")
         return True
     
     # If clean flag and image exists, remove it
-    if clean and check_image_exists(ctx, target_image_name):
+    if clean and initial_image_exists:
         print(f"Removing existing main image '{target_image_name}' for rebuild...")
         if not dry_run:
             ctx.run(f"docker rmi -f {target_image_name}", hide=True, warn=True)
@@ -446,6 +452,7 @@ def handle_main_image_docker_generation(ctx, file, dry_run, clean, container_inf
     # Try to restore from tarball first
     print(f"Main image '{target_image_name}' not found, attempting to restore from tarball...")
     if restore_image_from_tarball(ctx, target_image_docker):
+        # Keep this check as verification after restore operation
         if check_image_exists(ctx, target_image_name):
             print(f"✅ Main image '{target_image_name}' successfully restored")
             return True
@@ -455,21 +462,24 @@ def handle_main_image_docker_generation(ctx, file, dry_run, clean, container_inf
     
     # Build from base image
     print(f"Main image '{target_image_name}' not available from tarball, building from base image...")
-    return handle_default_main_image_generation(ctx, file, dry_run, container_info)
+    return handle_default_main_image_generation(ctx, dry_run, container_info)
 
 def handle_main_image_tarball_generation(ctx, dry_run, clean, container_info):
     """Handle main image tarball generation"""
+    # Cache expensive operations and common values at the top
     target_image_name = container_info.image_full
     target_image_docker = container_info.image_docker
     target_tarball_path = container_info.tarball_path
+    tarball_exists = os.path.exists(target_tarball_path)
+    image_exists = check_image_exists(ctx, target_image_name)
     
     # Check if tarball already exists and no clean flag - skip reproduction
-    if not clean and os.path.exists(target_tarball_path):
+    if not clean and tarball_exists:
         print(f"✅ Main image tarball '{target_tarball_path}' already exists - skipping reproduction")
         return True
     
     # Check if Docker image exists
-    if not check_image_exists(ctx, target_image_name):
+    if not image_exists:
         print(f"❌ Cannot create main image tarball: Docker image '{target_image_name}' not found")
         return False
     
@@ -515,13 +525,18 @@ def gen_image(ctx, file=None, dry_run=False, base_image=False, tarball=False, do
         print(f"Error: Config file not found at {file}")
         return
     
+    # Check if at least one flag is provided (both base and main image require flags)
+    if not tarball and not docker and not clean:
+        from invoke_tasks.help.help import show_gen_image_help
+        show_gen_image_help()
+        return
+    
     # Get image info from config - single call for entire function
     container_info = get_container_info(file)
-    target_image_name = container_info.image_full
     
     if base_image:
         # Handle base image generation with new flags
         return handle_base_image_generation(ctx, dry_run, tarball, docker, clean, ask, container_info)
-    
-    # Handle main image generation with flags
-    return handle_main_image_generation(ctx, file, dry_run, tarball, docker, clean, ask, container_info)
+    else:   
+        # Handle main image generation with flags
+        return handle_main_image_generation(ctx, dry_run, tarball, docker, clean, ask, container_info)

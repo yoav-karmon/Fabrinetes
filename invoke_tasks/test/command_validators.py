@@ -140,7 +140,11 @@ def validate_gen_image_result(ctx: Context, result, container_name: str, expecte
             "not found",
             "Cannot install packages",
             "No packages found",
-            "❌"
+            "❌",
+            "gen-image",  # Help text contains command name
+            "Generate Docker image",  # Help text contains description
+            "Arguments:",  # Help text contains arguments section
+            "Examples:"  # Help text contains examples section
         ]
         
         for indicator in failure_indicators:

@@ -38,7 +38,7 @@ def test(ctx, command=None, test_number=None, help=False):
             print(f"Invalid test number: {test_number}. Must be a number.")
             return False
     else:
-        results = run_generic_test(ctx, config_file, command=command)
+        success, results = run_generic_test(ctx, config_file, command=command)
         display_test_results(results, command)
 
     print(f"\n{'='*80}")
@@ -68,21 +68,30 @@ def setup_test_state(ctx, config_file, container_name, image_name, command=None,
     """Setup test state for all command types - OPTIMIZED VERSION"""
     print(f"      Setting up test state...", flush=True)
 
-    # Handle different command types
-    if command in ["gen-image", "gen-image-base"]:
-        setup_gen_image_state_optimized(ctx, config_file, params)
-    elif command == "clean":
-        setup_clean_state_optimized(ctx, config_file, params)
-    else:
-        # Handle regular commands (run, clean-image, kill, commit, exec, shell, pkg)
-        setup_params = {
-            'image_in_repo': params.get('image_in_repo', True),
-            'tarball_exists': params.get('tarball_exists', True),
-            'container_state': params.get('container_state', 'none')
-        }
-        setup_regular_command_state_optimized(ctx, config_file, container_name, image_name, **setup_params)
+    try:
+        # Handle different command types
+        if command in ["gen-image", "gen-image-base"]:
+            success = setup_gen_image_state_optimized(ctx, config_file, params)
+        elif command == "clean":
+            success = setup_clean_state_optimized(ctx, config_file, params)
+        else:
+            # Handle regular commands (run, clean-image, kill, commit, exec, shell, pkg)
+            setup_params = {
+                'image_in_repo': params.get('image_in_repo', True),
+                'tarball_exists': params.get('tarball_exists', True),
+                'container_state': params.get('container_state', 'none')
+            }
+            success = setup_regular_command_state_optimized(ctx, config_file, container_name, image_name, **setup_params)
 
-    print(f"      Test state setup complete", flush=True)
+        if success:
+            print(f"      Test state setup complete", flush=True)
+            return True
+        else:
+            print(f"      Test state setup failed", flush=True)
+            return False
+    except Exception as e:
+        print(f"      Test state setup failed with exception: {e}", flush=True)
+        return False
 
 # OPTIMIZED SETUP FUNCTIONS - Much faster by avoiding unnecessary Docker operations
 
@@ -183,7 +192,7 @@ def setup_gen_image_state_optimized(ctx, config_file, params):
         if target_image_in_repo:
             if not check_image_exists(ctx, target_image_name):
                 print(f"Building target image {target_image_name}...")
-                ctx.run(f"./fabrinetes gen-image --file {config_file}", hide=True, warn=True)
+                ctx.run(f"./fabrinetes gen-image --file {config_file} --docker --tarball", hide=True, warn=True)
         else:
             if check_image_exists(ctx, target_image_name):
                 ctx.run(f"docker rmi -f {target_image_name}", hide=True, warn=True)
@@ -199,7 +208,7 @@ def setup_gen_image_state_optimized(ctx, config_file, params):
                 ctx.run(f"mv {target_tarball_path} {target_tarball_path}.backup", hide=True, warn=True)
     
     else:
-        # Handle regular image tests - OPTIMIZED
+        # Handle main image tests - OPTIMIZED
         target_image_in_repo = params.get('target_image_in_repo', True)
         target_tarball_exists = params.get('target_tarball_exists', True)
         base_image_in_repo = params.get('base_image_in_repo', True)
@@ -209,46 +218,78 @@ def setup_gen_image_state_optimized(ctx, config_file, params):
         target_tarball_path = os.path.join(config_dir, f"{target_image_name.replace(':', '-')}.tar.gz")
         base_tarball_path = os.path.join(config_dir, f"{base_image_name.replace(':', '-')}.tar.gz")
         
+        print(f"        [OPTIMIZED] Setting up main_image test...")
+        
         # Setup base image state - SKIP if already exists
         if base_image_in_repo:
-            if not check_image_exists(ctx, base_image_name):
-                print(f"Building base image {base_image_name}...")
+            # Check both formats: fabrinetes-skeleton:latest and fabrinetes-skeleton-latest:latest
+            skeleton_exists = check_image_exists(ctx, "fabrinetes-skeleton:latest") or check_image_exists(ctx, base_image_name)
+            if not skeleton_exists:
+                print(f"        [OPTIMIZED] Building base image {base_image_name}...")
                 ctx.run(f"./fabrinetes gen-image --file {config_file} --base-image", hide=True, warn=True)
+            else:
+                print(f"        [OPTIMIZED] ✅ Base image already exists - SKIPPING build")
         else:
             if check_image_exists(ctx, base_image_name):
+                print(f"        [OPTIMIZED] Removing base image {base_image_name}...")
                 ctx.run(f"docker rmi -f {base_image_name}", hide=True, warn=True)
+            else:
+                print(f"        [OPTIMIZED] ✅ Base image {base_image_name} already removed - SKIPPING")
         
         # Setup base tarball state - SKIP if already exists
         if base_tarball_exists:
             if not os.path.exists(base_tarball_path):
                 if check_image_exists(ctx, base_image_name):
+                    print(f"        [OPTIMIZED] Creating base tarball {base_tarball_path}...")
                     os.makedirs(config_dir, exist_ok=True)
                     ctx.run(f"docker save {base_image_name} | gzip > {base_tarball_path}", hide=True)
+                else:
+                    print(f"        [OPTIMIZED] ⚠️ Cannot create tarball - base image {base_image_name} not found")
+            else:
+                print(f"        [OPTIMIZED] ✅ Base tarball {base_tarball_path} already exists - SKIPPING")
         else:
             if os.path.exists(base_tarball_path):
+                print(f"        [OPTIMIZED] Moving base tarball to backup...")
                 ctx.run(f"mv {base_tarball_path} {base_tarball_path}.backup", hide=True, warn=True)
+            else:
+                print(f"        [OPTIMIZED] ✅ Base tarball already removed - SKIPPING")
         
         # Setup target image state - SKIP if already exists
         if target_image_in_repo:
             if not check_image_exists(ctx, target_image_name):
-                print(f"Building target image {target_image_name}...")
+                print(f"        [OPTIMIZED] Building target image {target_image_name}...")
                 if not check_image_exists(ctx, base_image_name):
-                    print(f"Building base image {base_image_name} first...")
+                    print(f"        [OPTIMIZED] Building base image {base_image_name} first...")
                     ctx.run(f"./fabrinetes gen-image --file {config_file} --base-image", hide=True, warn=True)
-                ctx.run(f"./fabrinetes gen-image --file {config_file}", hide=True, warn=True)
+                ctx.run(f"./fabrinetes gen-image --file {config_file} --docker --tarball", hide=True, warn=True)
+            else:
+                print(f"        [OPTIMIZED] ✅ Target image {target_image_name} already exists - SKIPPING build")
         else:
             if check_image_exists(ctx, target_image_name):
+                print(f"        [OPTIMIZED] Removing target image {target_image_name}...")
                 ctx.run(f"docker rmi -f {target_image_name}", hide=True, warn=True)
+            else:
+                print(f"        [OPTIMIZED] ✅ Target image {target_image_name} already removed - SKIPPING")
         
         # Setup target tarball state - SKIP if already exists
         if target_tarball_exists:
             if not os.path.exists(target_tarball_path):
                 if check_image_exists(ctx, target_image_name):
+                    print(f"        [OPTIMIZED] Creating target tarball {target_tarball_path}...")
                     os.makedirs(config_dir, exist_ok=True)
                     ctx.run(f"docker save {target_image_name} | gzip > {target_tarball_path}", hide=True)
+                else:
+                    print(f"        [OPTIMIZED] ⚠️ Cannot create tarball - target image {target_image_name} not found")
+            else:
+                print(f"        [OPTIMIZED] ✅ Target tarball {target_tarball_path} already exists - SKIPPING")
         else:
             if os.path.exists(target_tarball_path):
+                print(f"        [OPTIMIZED] Moving target tarball to backup...")
                 ctx.run(f"mv {target_tarball_path} {target_tarball_path}.backup", hide=True, warn=True)
+            else:
+                print(f"        [OPTIMIZED] ✅ Target tarball already removed - SKIPPING")
+    
+    return True
 
 def setup_clean_state_optimized(ctx, config_file, params):
     """OPTIMIZED: Setup state for clean command tests - avoids rebuilding existing images"""
@@ -273,7 +314,10 @@ def setup_clean_state_optimized(ctx, config_file, params):
         skeleton_exists = check_image_exists(ctx, "fabrinetes-skeleton:latest") or check_image_exists(ctx, base_image_name)
         if not skeleton_exists:
             print(f"        [OPTIMIZED] Building base image {base_image_name}...")
-            ctx.run(f"./fabrinetes gen-image --file {config_file} --base-image", hide=True, warn=True)
+            result = ctx.run(f"./fabrinetes gen-image --file {config_file} --base-image", hide=True, warn=True)
+            if not result.ok:
+                print(f"        [OPTIMIZED] ❌ Failed to build base image: {result.stderr}")
+                return False
         else:
             print(f"        [OPTIMIZED] ✅ Base image already exists - SKIPPING build")
     else:
@@ -289,7 +333,10 @@ def setup_clean_state_optimized(ctx, config_file, params):
         if not os.path.exists(base_tarball_path):
             if check_image_exists(ctx, base_image_name):
                 os.makedirs(config_dir, exist_ok=True)
-                ctx.run(f"docker save {base_image_name} | gzip > {base_tarball_path}", hide=True)
+                result = ctx.run(f"docker save {base_image_name} | gzip > {base_tarball_path}", hide=True)
+                if not result.ok:
+                    print(f"        [OPTIMIZED] ❌ Failed to create base tarball: {result.stderr}")
+                    return False
     else:
         if os.path.exists(base_tarball_path):
             ctx.run(f"mv {base_tarball_path} {base_tarball_path}.backup", hide=True, warn=True)
@@ -299,7 +346,10 @@ def setup_clean_state_optimized(ctx, config_file, params):
     if target_image_in_repo:
         if not check_image_exists(ctx, target_image_name):
             print(f"Building target image {target_image_name}...")
-            ctx.run(f"./fabrinetes gen-image --file {config_file}", hide=True, warn=True)
+            result = ctx.run(f"./fabrinetes gen-image --file {config_file} --docker --tarball", hide=True, warn=True)
+            if not result.ok:
+                print(f"        [OPTIMIZED] ❌ Failed to build target image: {result.stderr}")
+                return False
     else:
         if check_image_exists(ctx, target_image_name):
             ctx.run(f"docker rmi -f {target_image_name}", hide=True, warn=True)
@@ -310,7 +360,12 @@ def setup_clean_state_optimized(ctx, config_file, params):
         if not os.path.exists(target_tarball_path):
             if check_image_exists(ctx, target_image_name):
                 os.makedirs(config_dir, exist_ok=True)
-                ctx.run(f"docker save {target_image_name} | gzip > {target_tarball_path}", hide=True)
+                result = ctx.run(f"docker save {target_image_name} | gzip > {target_tarball_path}", hide=True)
+                if not result.ok:
+                    print(f"        [OPTIMIZED] ❌ Failed to create target tarball: {result.stderr}")
+                    return False
+        else:
+            print(f"        [OPTIMIZED] ✅ Target tarball {target_tarball_path} already exists - SKIPPING")
     else:
         if os.path.exists(target_tarball_path):
             ctx.run(f"mv {target_tarball_path} {target_tarball_path}.backup", hide=True, warn=True)
@@ -320,113 +375,137 @@ def setup_clean_state_optimized(ctx, config_file, params):
     if container_state == 'running':
         if not check_container_running(ctx, container_name):
             print(f"Starting container {container_name}...")
-            ctx.run(f"./fabrinetes run --file {config_file} --no-ask", hide=True, warn=True)
+            result = ctx.run(f"./fabrinetes run --file {config_file} --no-ask", hide=True, warn=True)
+            if not result.ok:
+                print(f"        [OPTIMIZED] ❌ Failed to start container: {result.stderr}")
+                return False
     elif container_state == 'stopped':
         # Kill if running, then create stopped container
         if check_container_running(ctx, container_name):
             ctx.run(f"docker kill {container_name}", hide=True, warn=True)
         ctx.run(f"docker rm -f {container_name}", hide=True, warn=True)
         # Create stopped container
-        ctx.run(f"docker create --name {container_name} {target_image_name}", hide=True, warn=True)
+        result = ctx.run(f"docker create --name {container_name} {target_image_name}", hide=True, warn=True)
+        if not result.ok:
+            print(f"        [OPTIMIZED] ❌ Failed to create stopped container: {result.stderr}")
+            return False
     else:  # none
         if check_container_running(ctx, container_name):
             ctx.run(f"docker kill {container_name}", hide=True, warn=True)
         ctx.run(f"docker rm -f {container_name}", hide=True, warn=True)
+    
+    return True
 
 def setup_regular_command_state_optimized(ctx, config_file, container_name, image_name,
                                image_in_repo=True, tarball_exists=True,
-                               container_state="none"):
+                               container_state="none", params=None):
     """OPTIMIZED: Setup state for regular commands - avoids rebuilding existing images"""
     
-    print(f"        [OPTIMIZED] Setting up regular command state...")
-    
-    # Get container info for tarball paths
-    container_info = get_container_info(config_file)
-
-    def get_current_container_state():
-        running_check = ctx.run(f"docker ps --filter name=^{container_name}$ --format '{{{{.Names}}}}'", hide=True, warn=True)
-        stopped_check = ctx.run(f"docker ps -a --filter name=^{container_name}$ --format '{{{{.Names}}}}'", hide=True, warn=True)
+    try:
+        print(f"        [OPTIMIZED] Setting up regular command state...")
         
-        if running_check.stdout.strip():
-            return "running"
-        elif stopped_check.stdout.strip():
-            return "stopped"
-        else:
-            return "none"
-
-    def ensure_image_state():
-        if image_in_repo:
-            # SKIP if skeleton already exists
-            if not check_image_exists(ctx, "fabrinetes-skeleton:latest"):
-                print(f"        [OPTIMIZED] Building skeleton image first...")
-                ctx.run(f"./fabrinetes gen-image --file skeleton --skeleton", hide=True, warn=True)
+        # Get container info for tarball paths
+        container_info = get_container_info(config_file)
+        base_image_name = container_info.base_image_docker
+        target_image_name = container_info.image_docker
+        
+        config_dir = os.path.dirname(config_file)
+        base_tarball_path = os.path.join(config_dir, f"{base_image_name.replace(':', '-')}.tar.gz")
+        target_tarball_path = os.path.join(config_dir, f"{target_image_name.replace(':', '-')}.tar.gz")
+        
+        # Setup base image state - SKIP if already exists
+        if params is None:
+            params = {}
+        base_image_in_repo = params.get('base_image_in_repo', True)
+        if base_image_in_repo:
+            # Check both formats: fabrinetes-skeleton:latest and fabrinetes-skeleton-latest:latest
+            skeleton_exists = check_image_exists(ctx, "fabrinetes-skeleton:latest") or check_image_exists(ctx, base_image_name)
+            if not skeleton_exists:
+                print(f"        [OPTIMIZED] Building base image {base_image_name}...")
+                result = ctx.run(f"./fabrinetes gen-image --file {config_file} --base-image", hide=True, warn=True)
+                if not result.ok:
+                    print(f"        [OPTIMIZED] ❌ Failed to build base image: {result.stderr}")
+                    return False
             else:
-                print(f"        [OPTIMIZED] ✅ Skeleton image already exists - SKIPPING build")
-
-            # SKIP if target image already exists
-            if image_name != "fabrinetes-skeleton:latest":
-                if not check_image_exists(ctx, image_name):
-                    print(f"        [OPTIMIZED] Building {image_name} image...")
-                    ctx.run(f"./fabrinetes gen-image --file {config_file}", hide=True, warn=True)
-                else:
-                    print(f"        [OPTIMIZED] ✅ Target image {image_name} already exists - SKIPPING build")
+                print(f"        [OPTIMIZED] ✅ Base image already exists - SKIPPING build")
         else:
-            # Only remove if it exists
-            docker_image_name = convert_to_docker_format(image_name)
-            if check_image_exists(ctx, docker_image_name):
-                print(f"        [OPTIMIZED] Removing target image {docker_image_name}...")
-                ctx.run(f"docker rmi -f {docker_image_name}", hide=True, warn=True)
+            if check_image_exists(ctx, base_image_name):
+                print(f"        [OPTIMIZED] Removing base image {base_image_name}...")
+                ctx.run(f"docker rmi -f {base_image_name}", hide=True, warn=True)
             else:
-                print(f"        [OPTIMIZED] ✅ Target image {docker_image_name} already removed - SKIPPING")
-
-    def ensure_tarball_state():
-        tarball_path = container_info.tarball_path
-        tarball_directory = container_info.tarball_directory
+                print(f"        [OPTIMIZED] ✅ Base image {base_image_name} already removed - SKIPPING")
         
-        if tarball_exists:
-            ctx.run(f"mkdir -p {tarball_directory}", hide=True, warn=True)
-            # SKIP if tarball already exists
-            if not os.path.exists(tarball_path):
-                # Ensure image exists first, then create tarball
-                docker_image_name = convert_to_docker_format(image_name)
-                if not check_image_exists(ctx, docker_image_name):
-                    # Build the image if it doesn't exist
-                    ctx.run(f"./fabrinetes gen-image --file {config_file}", hide=True, warn=True)
-                # Create tarball
-                ctx.run(f"docker save {docker_image_name} | gzip > {tarball_path}", hide=True)
+        # Setup base tarball state - SKIP if already exists
+        base_tarball_exists = params.get('base_tarball_exists', True)
+        if base_tarball_exists:
+            if not os.path.exists(base_tarball_path):
+                if check_image_exists(ctx, base_image_name):
+                    os.makedirs(config_dir, exist_ok=True)
+                    result = ctx.run(f"docker save {base_image_name} | gzip > {base_tarball_path}", hide=True)
+                    if not result.ok:
+                        print(f"        [OPTIMIZED] ❌ Failed to create base tarball: {result.stderr}")
+                        return False
         else:
-            # Only remove if it exists
-            if os.path.exists(tarball_path):
-                ctx.run(f"mv {tarball_path} {tarball_path}.backup", hide=True, warn=True)
-
-    def ensure_container_state():
-        current_state = get_current_container_state()
+            if os.path.exists(base_tarball_path):
+                ctx.run(f"mv {base_tarball_path} {base_tarball_path}.backup", hide=True, warn=True)
         
-        if container_state == "running":
-            if current_state != "running":
-                # Clean up existing container first
-                if current_state != "none":
-                    ctx.run(f"docker kill {container_name}", hide=True, warn=True)
-                    ctx.run(f"docker rm -f {container_name}", hide=True, warn=True)
-                # Start new container
-                ctx.run(f"./fabrinetes run --file {config_file} --no-ask", hide=True, warn=True)
-        elif container_state == "stopped":
-            if current_state == "running":
+        # Setup target image state - SKIP if already exists
+        target_image_in_repo = params.get('target_image_in_repo', True)
+        if target_image_in_repo:
+            if not check_image_exists(ctx, target_image_name):
+                print(f"Building target image {target_image_name}...")
+                result = ctx.run(f"./fabrinetes gen-image --file {config_file} --docker --tarball", hide=True, warn=True)
+                if not result.ok:
+                    print(f"        [OPTIMIZED] ❌ Failed to build target image: {result.stderr}")
+                    return False
+        else:
+            if check_image_exists(ctx, target_image_name):
+                ctx.run(f"docker rmi -f {target_image_name}", hide=True, warn=True)
+        
+        # Setup target tarball state - SKIP if already exists
+        target_tarball_exists = params.get('target_tarball_exists', True)
+        if target_tarball_exists:
+            if not os.path.exists(target_tarball_path):
+                if check_image_exists(ctx, target_image_name):
+                    os.makedirs(config_dir, exist_ok=True)
+                    result = ctx.run(f"docker save {target_image_name} | gzip > {target_tarball_path}", hide=True)
+                    if not result.ok:
+                        print(f"        [OPTIMIZED] ❌ Failed to create target tarball: {result.stderr}")
+                        return False
+            else:
+                print(f"        [OPTIMIZED] ✅ Target tarball {target_tarball_path} already exists - SKIPPING")
+        else:
+            if os.path.exists(target_tarball_path):
+                ctx.run(f"mv {target_tarball_path} {target_tarball_path}.backup", hide=True, warn=True)
+        
+        # Setup container state - OPTIMIZED
+        container_state = params.get('container_state', 'none')
+        if container_state == 'running':
+            if not check_container_running(ctx, container_name):
+                print(f"Starting container {container_name}...")
+                result = ctx.run(f"./fabrinetes run --file {config_file} --no-ask", hide=True, warn=True)
+                if not result.ok:
+                    print(f"        [OPTIMIZED] ❌ Failed to start container: {result.stderr}")
+                    return False
+        elif container_state == 'stopped':
+            # Kill if running, then create stopped container
+            if check_container_running(ctx, container_name):
                 ctx.run(f"docker kill {container_name}", hide=True, warn=True)
-            elif current_state == "none":
-                # Create stopped container
-                docker_image_name = convert_to_docker_format(image_name)
-                ctx.run(f"docker create --name {container_name} {docker_image_name}", hide=True, warn=True)
+            ctx.run(f"docker rm -f {container_name}", hide=True, warn=True)
+            # Create stopped container
+            result = ctx.run(f"docker create --name {container_name} {target_image_name}", hide=True, warn=True)
+            if not result.ok:
+                print(f"        [OPTIMIZED] ❌ Failed to create stopped container: {result.stderr}")
+                return False
         else:  # none
-            if current_state != "none":
-                if current_state == "running":
-                    ctx.run(f"docker kill {container_name}", hide=True, warn=True)
-                ctx.run(f"docker rm -f {container_name}", hide=True, warn=True)
-
-    # Execute setup functions
-    ensure_image_state()
-    ensure_tarball_state()
-    ensure_container_state()
+            if check_container_running(ctx, container_name):
+                ctx.run(f"docker kill {container_name}", hide=True, warn=True)
+            ctx.run(f"docker rm -f {container_name}", hide=True, warn=True)
+        
+        return True
+    except Exception as e:
+        print(f"        [OPTIMIZED] ❌ Setup failed with exception: {e}", flush=True)
+        return False
 
 def setup_gen_image_state(ctx, config_file, params):
     """Setup state for gen-image commands"""
@@ -508,7 +587,7 @@ def setup_gen_image_state(ctx, config_file, params):
         if target_image_in_repo:
             if not check_image_exists(ctx, target_image_name):
                 print(f"Building target image {target_image_name}...")
-                ctx.run(f"./fabrinetes gen-image --file {config_file}", hide=True, warn=True)
+                ctx.run(f"./fabrinetes gen-image --file {config_file} --docker --tarball", hide=True, warn=True)
         else:
             ctx.run(f"docker rmi -f {target_image_name}", hide=True, warn=True)
         
@@ -558,7 +637,7 @@ def setup_gen_image_state(ctx, config_file, params):
                 if not check_image_exists(ctx, base_image_name):
                     print(f"Building base image {base_image_name} first...")
                     ctx.run(f"./fabrinetes gen-image --file {config_file} --base-image", hide=True, warn=True)
-                ctx.run(f"./fabrinetes gen-image --file {config_file}", hide=True, warn=True)
+                ctx.run(f"./fabrinetes gen-image --file {config_file} --docker --tarball", hide=True, warn=True)
         else:
             ctx.run(f"docker rmi -f {target_image_name}", hide=True, warn=True)
         
@@ -655,16 +734,6 @@ def setup_regular_command_state(ctx, config_file, container_name, image_name,
     # Get container info for tarball paths
     container_info = get_container_info(config_file)
 
-    def get_current_container_state():
-        running_check = ctx.run(f"docker ps --filter name=^{container_name}$ --format '{{{{.Names}}}}'", hide=True, warn=True)
-        stopped_check = ctx.run(f"docker ps -a --filter name=^{container_name}$ --format '{{{{.Names}}}}'", hide=True, warn=True)
-        
-        if running_check.stdout.strip():
-            return "running"
-        elif stopped_check.stdout.strip():
-            return "stopped"
-        else:
-            return "none"
 
     def ensure_image_state():
         if image_in_repo:
@@ -674,7 +743,7 @@ def setup_regular_command_state(ctx, config_file, container_name, image_name,
 
             if image_name != "fabrinetes-skeleton:latest":
                 print(f"Building {image_name} image...")
-                ctx.run(f"./fabrinetes gen-image --file {config_file}", hide=True, warn=True)
+                ctx.run(f"./fabrinetes gen-image --file {config_file} --docker --tarball", hide=True, warn=True)
         else:
             docker_image_name = convert_to_docker_format(image_name)
             ctx.run(f"docker rmi -f {docker_image_name}", hide=True, warn=True)
@@ -690,7 +759,7 @@ def setup_regular_command_state(ctx, config_file, container_name, image_name,
                 docker_image_name = convert_to_docker_format(image_name)
                 if not check_image_exists(ctx, docker_image_name):
                     # Build the image if it doesn't exist
-                    ctx.run(f"./fabrinetes gen-image --file {config_file}", hide=True, warn=True)
+                    ctx.run(f"./fabrinetes gen-image --file {config_file} --docker --tarball", hide=True, warn=True)
                 # Create tarball with correct image name
                 ctx.run(f"docker save {docker_image_name} | gzip > {tarball_path}", hide=True, warn=True)
         else:
@@ -744,7 +813,14 @@ def setup_regular_command_state(ctx, config_file, container_name, image_name,
 
 
 def restore_test_state(ctx, config_file):
-    """Restore all backup files created during test setup"""
+    """Restore all backup files created during test setup
+    
+    NOTE: This function is currently NOT called after tests to enable resource reuse.
+    Tests are ordered optimally so that resources created by early tests can be
+    reused by later tests, significantly improving performance.
+    
+    If you need to clean up after tests, call this function manually.
+    """
     
     # Restore Dockerfile
     config_dir = os.path.dirname(config_file)
@@ -868,52 +944,46 @@ def get_command_parameters(command):
 
     elif command == "gen-image":
         return [
-            # Regular image tests (default behavior)
-            {'test_type': 'regular_image', 'target_image_in_repo': True, 'target_tarball_exists': True, 'base_image_in_repo': True, 'base_tarball_exists': True, 'description': 'Regular: Target image in repo, target tarball exists, base image in repo - should PASS (use existing)'},
-            {'test_type': 'regular_image', 'target_image_in_repo': False, 'target_tarball_exists': True, 'base_image_in_repo': True, 'base_tarball_exists': True, 'description': 'Regular: Target image not in repo, target tarball exists, base image in repo - should PASS (restore target)'},
-            {'test_type': 'regular_image', 'target_image_in_repo': False, 'target_tarball_exists': False, 'base_image_in_repo': True, 'base_tarball_exists': True, 'description': 'Regular: Target image not in repo, no target tarball, base image in repo - should PASS (create from base)'},
-            {'test_type': 'regular_image', 'target_image_in_repo': False, 'target_tarball_exists': False, 'base_image_in_repo': False, 'base_tarball_exists': True, 'description': 'Regular: Target image not in repo, no target tarball, base image not in repo, base tarball exists - should PASS (restore base, then create)'},
-            {'test_type': 'regular_image', 'target_image_in_repo': False, 'target_tarball_exists': False, 'base_image_in_repo': False, 'base_tarball_exists': False, 'description': 'Regular: Target image not in repo, no target tarball, base image not in repo, no base tarball - should FAIL (no base image source)'},
+            # NO FLAGS TEST - Both base and main image require at least one flag
+            {'test_type': 'no_flags', 'description': 'No flags provided - should FAIL (shows help)'},
             
-            # Base image tests
-            {'test_type': 'base_image', 'base_image_in_repo': True, 'base_tarball_exists': True, 'description': 'Base image: Base image in repo, tarball exists - should PASS (use existing)'},
-            {'test_type': 'base_image', 'base_image_in_repo': False, 'base_tarball_exists': True, 'description': 'Base image: Base image not in repo, tarball exists - should PASS (restore)'},
-            {'test_type': 'base_image', 'base_image_in_repo': False, 'base_tarball_exists': False, 'description': 'Base image: Base image not in repo, no tarball - should PASS (create from Dockerfile)'},
+            # BASE IMAGE TESTS - Individual flag testing (ordered for optimal performance)
             
-            # Main image with --tarball flag
-            {'test_type': 'main_image_tarball', 'target_image_in_repo': True, 'target_tarball_exists': True, 'description': 'Main --tarball: Image in repo, tarball exists - should PASS (skip reproduction)'},
+            # Base image with --tarball flag only (create tarball first, then skip)
+            {'test_type': 'base_image_tarball', 'base_image_in_repo': True, 'base_tarball_exists': False, 'description': 'Base --tarball: Image in repo, no tarball - should PASS (create tarball)'},
+            {'test_type': 'base_image_tarball', 'base_image_in_repo': True, 'base_tarball_exists': True, 'description': 'Base --tarball: Image in repo, tarball exists - should PASS (skip reproduction)'},
+            {'test_type': 'base_image_tarball', 'base_image_in_repo': False, 'base_tarball_exists': True, 'description': 'Base --tarball: Image not in repo, tarball exists - should PASS (restore then create tarball)'},
+            
+            # Base image with --docker flag only (build first, then skip)
+            {'test_type': 'base_image_docker', 'base_image_in_repo': False, 'base_tarball_exists': False, 'description': 'Base --docker: Image not in repo, no tarball - should PASS (build from Dockerfile)'},
+            {'test_type': 'base_image_docker', 'base_image_in_repo': False, 'base_tarball_exists': True, 'description': 'Base --docker: Image not in repo, tarball exists - should PASS (restore from tarball)'},
+            {'test_type': 'base_image_docker', 'base_image_in_repo': True, 'base_tarball_exists': True, 'description': 'Base --docker: Image in repo, tarball exists - should PASS (skip reproduction)'},
+            
+            # Base image with --clean flag only (clean operations last)
+            {'test_type': 'base_image_clean_docker', 'base_image_in_repo': False, 'base_tarball_exists': False, 'description': 'Base --clean --docker: Image not in repo, no tarball - should PASS (build from Dockerfile)'},
+            {'test_type': 'base_image_clean_docker', 'base_image_in_repo': True, 'base_tarball_exists': True, 'description': 'Base --clean --docker: Image in repo, tarball exists - should PASS (remove docker and rebuild)'},
+            
+            {'test_type': 'base_image_clean_tarball', 'base_image_in_repo': True, 'base_tarball_exists': False, 'description': 'Base --clean --tarball: Image in repo, no tarball - should PASS (create tarball)'},
+            {'test_type': 'base_image_clean_tarball', 'base_image_in_repo': True, 'base_tarball_exists': True, 'description': 'Base --clean --tarball: Image in repo, tarball exists - should PASS (remove tarball and recreate)'},
+            
+            # MAIN IMAGE TESTS - Individual flag testing (ordered for optimal performance)
+            
+            # Main image with --tarball flag only (create tarball first, then skip)
             {'test_type': 'main_image_tarball', 'target_image_in_repo': True, 'target_tarball_exists': False, 'description': 'Main --tarball: Image in repo, no tarball - should PASS (create tarball)'},
+            {'test_type': 'main_image_tarball', 'target_image_in_repo': True, 'target_tarball_exists': True, 'description': 'Main --tarball: Image in repo, tarball exists - should PASS (skip reproduction)'},
             {'test_type': 'main_image_tarball', 'target_image_in_repo': False, 'target_tarball_exists': True, 'description': 'Main --tarball: Image not in repo, tarball exists - should FAIL (no image to create tarball from)'},
             
-            # Main image with --docker flag
-            {'test_type': 'main_image_docker', 'target_image_in_repo': True, 'target_tarball_exists': True, 'description': 'Main --docker: Image in repo, tarball exists - should PASS (skip reproduction)'},
-            {'test_type': 'main_image_docker', 'target_image_in_repo': False, 'target_tarball_exists': True, 'description': 'Main --docker: Image not in repo, tarball exists - should PASS (restore from tarball)'},
+            # Main image with --docker flag only (build first, then skip)
             {'test_type': 'main_image_docker', 'target_image_in_repo': False, 'target_tarball_exists': False, 'description': 'Main --docker: Image not in repo, no tarball - should PASS (build from base)'},
+            {'test_type': 'main_image_docker', 'target_image_in_repo': False, 'target_tarball_exists': True, 'description': 'Main --docker: Image not in repo, tarball exists - should PASS (restore from tarball)'},
+            {'test_type': 'main_image_docker', 'target_image_in_repo': True, 'target_tarball_exists': True, 'description': 'Main --docker: Image in repo, tarball exists - should PASS (skip reproduction)'},
             
-            # Main image with --clean flag
-            {'test_type': 'main_image_clean', 'target_image_in_repo': True, 'target_tarball_exists': True, 'description': 'Main --clean: Image in repo, tarball exists - should PASS (remove and rebuild)'},
-            {'test_type': 'main_image_clean', 'target_image_in_repo': False, 'target_tarball_exists': False, 'description': 'Main --clean: Image not in repo, no tarball - should PASS (build from base)'},
+            # Main image with --clean flag only (clean operations last)
+            {'test_type': 'main_image_clean_docker', 'target_image_in_repo': False, 'target_tarball_exists': False, 'description': 'Main --clean --docker: Image not in repo, no tarball - should PASS (build from base)'},
+            {'test_type': 'main_image_clean_docker', 'target_image_in_repo': True, 'target_tarball_exists': True, 'description': 'Main --clean --docker: Image in repo, tarball exists - should PASS (remove docker and rebuild)'},
             
-            # Main image with combined flags
-            {'test_type': 'main_image_docker_tarball', 'target_image_in_repo': True, 'target_tarball_exists': True, 'description': 'Main --docker --tarball: Image in repo, tarball exists - should PASS (skip docker, create tarball)'},
-            {'test_type': 'main_image_docker_tarball', 'target_image_in_repo': False, 'target_tarball_exists': True, 'description': 'Main --docker --tarball: Image not in repo, tarball exists - should PASS (restore docker, create tarball)'},
-            
-            # Base image with --tarball flag
-            {'test_type': 'base_image_tarball', 'base_image_in_repo': True, 'base_tarball_exists': True, 'description': 'Base --tarball: Image in repo, tarball exists - should PASS (skip reproduction)'},
-            {'test_type': 'base_image_tarball', 'base_image_in_repo': True, 'base_tarball_exists': False, 'description': 'Base --tarball: Image in repo, no tarball - should PASS (create tarball)'},
-            
-            # Base image with --docker flag
-            {'test_type': 'base_image_docker', 'base_image_in_repo': True, 'base_tarball_exists': True, 'description': 'Base --docker: Image in repo, tarball exists - should PASS (skip reproduction)'},
-            {'test_type': 'base_image_docker', 'base_image_in_repo': False, 'base_tarball_exists': True, 'description': 'Base --docker: Image not in repo, tarball exists - should PASS (restore from tarball)'},
-            {'test_type': 'base_image_docker', 'base_image_in_repo': False, 'base_tarball_exists': False, 'description': 'Base --docker: Image not in repo, no tarball - should PASS (build from Dockerfile)'},
-            
-            # Base image with --clean flag
-            {'test_type': 'base_image_clean', 'base_image_in_repo': True, 'base_tarball_exists': True, 'description': 'Base --clean: Image in repo, tarball exists - should PASS (remove and rebuild)'},
-            {'test_type': 'base_image_clean', 'base_image_in_repo': False, 'base_tarball_exists': False, 'description': 'Base --clean: Image not in repo, no tarball - should PASS (build from Dockerfile)'},
-            
-            # Base image with combined flags
-            {'test_type': 'base_image_docker_tarball', 'base_image_in_repo': True, 'base_tarball_exists': True, 'description': 'Base --docker --tarball: Image in repo, tarball exists - should PASS (skip docker, create tarball)'},
-            {'test_type': 'base_image_docker_tarball', 'base_image_in_repo': False, 'base_tarball_exists': True, 'description': 'Base --docker --tarball: Image not in repo, tarball exists - should PASS (restore docker, create tarball)'},
+            {'test_type': 'main_image_clean_tarball', 'target_image_in_repo': True, 'target_tarball_exists': False, 'description': 'Main --clean --tarball: Image in repo, no tarball - should PASS (create tarball)'},
+            {'test_type': 'main_image_clean_tarball', 'target_image_in_repo': True, 'target_tarball_exists': True, 'description': 'Main --clean --tarball: Image in repo, tarball exists - should PASS (remove tarball and recreate)'},
         ]
 
     elif command == "gen-image-base":
@@ -1013,9 +1083,14 @@ def run_single_test(ctx, config_file, container_name, image_name, description, c
     }
 
     try:
-        setup_test_state(ctx, config_file, container_name, image_name, command, params)
-        steps.append(("Prepare test", "PASS"))
-        print(f"      Step 0: Environment prepared", flush=True)
+        setup_success = setup_test_state(ctx, config_file, container_name, image_name, command, params)
+        if setup_success:
+            steps.append(("Prepare test", "PASS"))
+            print(f"      Step 0: Environment prepared", flush=True)
+        else:
+            steps.append(("Prepare test", "FAIL"))
+            print(f"      Step 0: Environment preparation FAILED", flush=True)
+            return False, "Test setup failed", gen_results_table_str(steps), gen_expected_table_str(expected_results), gen_results_table_str(steps)
     except Exception as e:
         steps.append(("Prepare test", "FAIL"))
         print(f"      Step 0: Environment preparation FAILED: {e}", flush=True)
@@ -1029,7 +1104,7 @@ def run_single_test(ctx, config_file, container_name, image_name, description, c
             print(f"      - Setup params: {setup_params}", flush=True)
         print(f"      - Error: {str(e)}", flush=True)
         
-        restore_test_state(ctx, config_file)
+        # Note: Not calling restore_test_state to allow resource reuse between tests
         return False, f"Preparation failed: {str(e)}", gen_results_table_str(steps), gen_expected_table_str(expected_results), gen_results_table_str(steps)
 
     print(f"      Step 1: Running {command} command...", flush=True)
@@ -1046,7 +1121,7 @@ def run_single_test(ctx, config_file, container_name, image_name, description, c
     else:
         print(f"      Step 1: Command failed as expected", flush=True)
 
-    restore_test_state(ctx, config_file)
+    # Note: Not calling restore_test_state to allow resource reuse between tests
 
     print(f"      Validating step results...", flush=True)
     all_match = True
@@ -1079,7 +1154,22 @@ def determine_expected_results(command, params):
     elif command in ["gen-image", "gen-image-base", "clean-image"]:
         # Handle gen-image specific test cases
         if command == "gen-image":
-            # Regular image tests only
+            # Get test type to determine expected behavior
+            test_type = params.get('test_type', 'main_image')
+            
+            # No flags test should FAIL (shows help)
+            if test_type == 'no_flags':
+                return {1: "FAIL"}
+            
+            # Base image tests without flags should FAIL
+            if test_type == 'base_image':
+                return {1: "FAIL"}
+            
+            # Main image tests without flags should FAIL
+            if test_type == 'main_image':
+                return {1: "FAIL"}
+            
+            # Main image tests - check for failure conditions
             target_image_in_repo = params.get('target_image_in_repo', True)
             target_tarball_exists = params.get('target_tarball_exists', True)
             base_image_in_repo = params.get('base_image_in_repo', True)
@@ -1088,9 +1178,13 @@ def determine_expected_results(command, params):
             # Should FAIL if no target image AND no target tarball AND no base image AND no base tarball
             if not target_image_in_repo and not target_tarball_exists and not base_image_in_repo and not base_tarball_exists:
                 return {1: "FAIL"}
+            
+            # Main image tarball tests that should fail
+            if test_type == 'main_image_tarball' and not target_image_in_repo and target_tarball_exists:
+                return {1: "FAIL"}
+            
             # Should PASS in all other cases
-            else:
-                return {}
+            return {}
         
         elif command == "gen-image-base":
             # Base image tests only - all should PASS since Dockerfile is available
@@ -1120,9 +1214,11 @@ def generate_command(command, config_file, test_params=None):
         return f"./fabrinetes run --file {config_file} --no-ask"
     elif command == "gen-image":
         # Generate gen-image command based on test type
-        test_type = test_params.get('test_type', 'regular_image') if test_params else 'regular_image'
+        test_type = test_params.get('test_type', 'main_image') if test_params else 'main_image'
         
-        if test_type == 'regular_image':
+        if test_type == 'no_flags':
+            return f"./fabrinetes gen-image --file {config_file}"
+        elif test_type == 'main_image':
             return f"./fabrinetes gen-image --file {config_file}"
         elif test_type == 'base_image':
             return f"./fabrinetes gen-image --file {config_file} --base-image"
@@ -1130,18 +1226,18 @@ def generate_command(command, config_file, test_params=None):
             return f"./fabrinetes gen-image --file {config_file} --tarball"
         elif test_type == 'main_image_docker':
             return f"./fabrinetes gen-image --file {config_file} --docker"
-        elif test_type == 'main_image_clean':
-            return f"./fabrinetes gen-image --file {config_file} --clean --docker --tarball --no-ask"
-        elif test_type == 'main_image_docker_tarball':
-            return f"./fabrinetes gen-image --file {config_file} --docker --tarball"
+        elif test_type == 'main_image_clean_docker':
+            return f"./fabrinetes gen-image --file {config_file} --clean --docker --no-ask"
+        elif test_type == 'main_image_clean_tarball':
+            return f"./fabrinetes gen-image --file {config_file} --clean --tarball --no-ask"
         elif test_type == 'base_image_tarball':
             return f"./fabrinetes gen-image --file {config_file} --base-image --tarball"
         elif test_type == 'base_image_docker':
             return f"./fabrinetes gen-image --file {config_file} --base-image --docker"
-        elif test_type == 'base_image_clean':
-            return f"./fabrinetes gen-image --file {config_file} --base-image --clean --docker --tarball --no-ask"
-        elif test_type == 'base_image_docker_tarball':
-            return f"./fabrinetes gen-image --file {config_file} --base-image --docker --tarball"
+        elif test_type == 'base_image_clean_docker':
+            return f"./fabrinetes gen-image --file {config_file} --base-image --clean --docker --no-ask"
+        elif test_type == 'base_image_clean_tarball':
+            return f"./fabrinetes gen-image --file {config_file} --base-image --clean --tarball --no-ask"
         else:
             return f"./fabrinetes gen-image --file {config_file}"
     elif command == "gen-image-base":
