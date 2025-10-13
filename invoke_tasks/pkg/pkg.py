@@ -53,6 +53,7 @@ def pkg(ctx, container_name=None, container_id=None, help=False, recover=False, 
     if recover:
         # Execute package recovery
         recover_packages(ctx, container_identifier)
+        return
     elif install:
         # Execute package installation
         if not pkg_cache:
@@ -66,6 +67,7 @@ def pkg(ctx, container_name=None, container_id=None, help=False, recover=False, 
             return
         
         install_packages(ctx, container_identifier, pkg_cache, offline, online, package)
+        return
     else:
         # Show help for recovery/installation modes
         print("Use --recover flag to start package recovery or --install flag to install packages")
@@ -481,21 +483,31 @@ def verify_installation(ctx, container_identifier, packages_data):
     """Verify that packages were installed successfully"""
     print("🔍 Verifying installation...")
     
-    installed_count = 0
-    failed_packages = []
-    
-    for package_name in packages_data.keys():
-        check_cmd = f"docker exec {container_identifier} dpkg -l | grep '^ii.*{package_name}'"
-        result = ctx.run(check_cmd, hide=True, warn=True)
+    try:
+        # Get all installed packages at once
+        check_cmd = f"docker exec {container_identifier} dpkg -l"
+        result = ctx.run(check_cmd, hide=True, warn=True, timeout=30)
         
-        if result.ok and package_name in result.stdout:
-            installed_count += 1
-        else:
-            failed_packages.append(package_name)
-    
-    print(f"✅ Successfully installed: {installed_count}/{len(packages_data)} packages")
-    
-    if failed_packages:
-        print(f"⚠️  Failed packages: {', '.join(failed_packages)}")
+        if not result.ok:
+            print("⚠️  Could not verify installation (dpkg command failed)")
+            return
+        
+        installed_packages = result.stdout
+        installed_count = 0
+        failed_packages = []
+        
+        for package_name in packages_data.keys():
+            if f"ii  {package_name}" in installed_packages:
+                installed_count += 1
+            else:
+                failed_packages.append(package_name)
+        
+        print(f"✅ Successfully installed: {installed_count}/{len(packages_data)} packages")
+        
+        if failed_packages:
+            print(f"⚠️  Failed packages: {', '.join(failed_packages)}")
+            
+    except Exception as e:
+        print(f"⚠️  Verification failed: {e}")
     
     return installed_count, failed_packages
