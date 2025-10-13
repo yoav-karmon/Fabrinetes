@@ -1,11 +1,4 @@
 # ~/.bashrc: executed by bash(1) for non-login shells.
-# Exit early for non-interactive shells (e.g. scp, ssh commands, git over SSH)
-case $- in
-    *i*) ;;  # Interactive shell — continue
-    *) return ;;
-esac
-# Mark this shell as sourced from .bashrc
-
 source /etc/profile.d/init_env.sh
 
 # Define function to configure REPO_TOP and PYTHONPATH

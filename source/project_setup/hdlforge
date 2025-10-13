@@ -1,5 +1,5 @@
 #!/bin/bash
-
+source ~/.bashrc
 update_repo_path
 if [ -z "$REPO_TOP" ]; then
     echo "❌ REPO_TOP is not set. Please export REPO_TOP first."
