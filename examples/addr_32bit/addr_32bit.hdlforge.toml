@@ -1,0 +1,116 @@
+# HDLForge Project Configuration for 32-bit Address Generator Example
+# This file demonstrates how to configure a complete FPGA project using HDLForge
+
+[settings]
+project_name = "addr_32bit"
+project_path = "$REPO_TOP/examples/addr_32bit"
+repo_path_env = "REPO_TOP"
+
+# Verilator Settings
+[verilator_settings]
+build_dir = "_verilator"
+includes_paths = ["src"]
+
+# Simulation targets for Verilator
+[[verilator_settings.sim_targets]]
+name = "basic_test"
+top_module = "addr_32bit_top"
+test_name = "test_basic_functionality"
+python_file = "tests/test_addr_32bit.py"
+build_args = ["--trace", "--timing", "--coverage"]
+defines = ["SIMULATION", "DEBUG"]
+parameters = ["ADDR_WIDTH=32", "INCREMENT=1"]
+PYTHONPATH = ["tests"]
+
+[[verilator_settings.sim_targets]]
+name = "reset_test"
+top_module = "addr_32bit_top"
+test_name = "test_reset_behavior"
+python_file = "tests/test_addr_32bit.py"
+build_args = ["--trace", "--timing"]
+defines = ["SIMULATION"]
+parameters = ["ADDR_WIDTH=32", "INCREMENT=1"]
+PYTHONPATH = ["tests"]
+
+[[verilator_settings.sim_targets]]
+name = "enable_test"
+top_module = "addr_32bit_top"
+test_name = "test_enable_disable"
+python_file = "tests/test_addr_32bit.py"
+build_args = ["--trace", "--timing"]
+defines = ["SIMULATION"]
+parameters = ["ADDR_WIDTH=32", "INCREMENT=1"]
+PYTHONPATH = ["tests"]
+
+[[verilator_settings.sim_targets]]
+name = "increment_test"
+top_module = "addr_32bit_top"
+test_name = "test_address_increment"
+python_file = "tests/test_addr_32bit.py"
+build_args = ["--trace", "--timing"]
+defines = ["SIMULATION"]
+parameters = ["ADDR_WIDTH=32", "INCREMENT=1"]
+PYTHONPATH = ["tests"]
+
+[[verilator_settings.sim_targets]]
+name = "edge_cases_test"
+top_module = "addr_32bit_top"
+test_name = "test_edge_cases"
+python_file = "tests/test_addr_32bit.py"
+build_args = ["--trace", "--timing"]
+defines = ["SIMULATION"]
+parameters = ["ADDR_WIDTH=32", "INCREMENT=1"]
+PYTHONPATH = ["tests"]
+
+[[verilator_settings.sim_targets]]
+name = "random_test"
+top_module = "addr_32bit_top"
+test_name = "test_random_values"
+python_file = "tests/test_addr_32bit.py"
+build_args = ["--trace", "--timing"]
+defines = ["SIMULATION"]
+parameters = ["ADDR_WIDTH=32", "INCREMENT=1"]
+PYTHONPATH = ["tests"]
+
+# Vivado Settings
+[vivado_settings]
+build_dir = "_vivado"
+project_name = "addr_32bit_vivado"
+top_module = "addr_32bit_top"
+part = "xc7a200tfbg484-1"
+defines = ["DEBUG"]
+generics = ["ADDR_WIDTH=32", "INCREMENT=1"]
+
+# Vivado run flows
+[[vivado_settings.runs_flow]]
+name = "main"
+synth = "synth_1"
+impl = ["impl_1"]
+paramaters = ["-flatten_hierarchy none"]
+defines = ["DEBUG"]
+generics = ["ADDR_WIDTH=32", "INCREMENT=1"]
+
+# Source files configuration
+# SystemVerilog source files
+[[sources.files]]
+file = ["src/addr_32bit.sv"]
+verilator = true
+vivado = true
+relative_to_project_path = true
+vivado_fileset = "sources_1"
+
+# Constraints files (if any)
+[[sources.files]]
+file = ["constraints/addr_32bit.xdc"]
+verilator = false
+vivado = true
+relative_to_project_path = true
+vivado_fileset = "constrs_1"
+
+# Additional include files (if any)
+[[sources.files]]
+file = ["src/packages.sv"]
+verilator = true
+vivado = true
+relative_to_project_path = true
+vivado_fileset = "sources_1"
