@@ -31,28 +31,28 @@ hdlforge <command> --project <project_file> [options]
 
 **Before (v1.x):**
 ```bash
-hdlforge addr_32bit.hdlforge.toml Verilator --step sim --SimTargetName basic_test
-hdlforge addr_32bit.hdlforge.toml Verilator --step build --SimTargetName basic_test --clean
+hdlforge <project_file.hdlforge.toml> Verilator --step sim --SimTargetName <target_name>
+hdlforge <project_file.hdlforge.toml> Verilator --step build --SimTargetName <target_name> --clean
 ```
 
 **After (v2.0):**
 ```bash
-hdlforge Verilator --project addr_32bit.hdlforge.toml --step sim --SimTargetName basic_test
-hdlforge Verilator --project addr_32bit.hdlforge.toml --step build --SimTargetName basic_test --clean
+hdlforge Verilator --project <project_file.hdlforge.toml> --step sim --SimTargetName <target_name>
+hdlforge Verilator --project <project_file.hdlforge.toml> --step build --SimTargetName <target_name> --clean
 ```
 
 ### Vivado Commands
 
 **Before (v1.x):**
 ```bash
-hdlforge addr_32bit.hdlforge.toml vivado --step new --clean
-hdlforge addr_32bit.hdlforge.toml vivado --step syn --run-flow main
+hdlforge <project_file.hdlforge.toml> vivado --step new --clean
+hdlforge <project_file.hdlforge.toml> vivado --step syn --run-flow <flow_name>
 ```
 
 **After (v2.0):**
 ```bash
-hdlforge vivado --project addr_32bit.hdlforge.toml --step new --clean
-hdlforge vivado --project addr_32bit.hdlforge.toml --step syn --run-flow main
+hdlforge vivado --project <project_file.hdlforge.toml> --step new --clean
+hdlforge vivado --project <project_file.hdlforge.toml> --step syn --run-flow <flow_name>
 ```
 
 ### Help Commands
@@ -85,11 +85,52 @@ hdlforge projects
 ### ✅ Better Error Handling
 ```bash
 # Old format now shows clear error message:
-$ hdlforge addr_32bit.hdlforge.toml Verilator --step sim
+$ hdlforge <project_file.hdlforge.toml> Verilator --step sim
 ❌ --project argument is required
 Usage: hdlforge <command> --project <project_file> [options]
-Example: hdlforge Verilator --project addr_32bit.hdlforge.toml --step sim --SimTargetName basic_test
+Example: hdlforge Verilator --project <project_file.hdlforge.toml> --step sim --SimTargetName <target_name>
 ```
+
+## Project Configuration Structure
+
+### TOML File Structure
+```toml
+[settings]
+project_name = "<project_name>"
+project_path = "<project_path>"
+
+[verilator_settings]
+build_dir = "<build_directory>"
+
+[[verilator_settings.sim_targets]]
+name = "<target_name>"
+top_module = "<top_module_name>"
+test_name = "<test_function_name>"
+python_file = "<test_file.py>"
+build_args = ["<build_argument>"]
+defines = ["<define_name>"]
+parameters = ["<parameter_name>=<value>"]
+
+[vivado_settings]
+project_name = "<vivado_project_name>"
+top_module = "<top_module_name>"
+part = "<fpga_part_number>"
+
+[[vivado_settings.runs_flow]]
+name = "<flow_name>"
+synth = "<synthesis_run_name>"
+impl = ["<implementation_run_name>"]
+```
+
+### Simulation Target Structure
+Each simulation target in `[[verilator_settings.sim_targets]]` defines:
+- **name**: Target identifier used with `--SimTargetName`
+- **top_module**: SystemVerilog top-level module name
+- **test_name**: Python test function name (decorated with `@cocotb.test()`)
+- **python_file**: Path to test file relative to project
+- **build_args**: Additional Verilator compilation flags
+- **defines**: Preprocessor defines for compilation
+- **parameters**: Module parameters for instantiation
 
 ## Complete Command Reference
 
@@ -166,7 +207,8 @@ Here's a simple script to help migrate common commands:
 #!/bin/bash
 # Migration helper script
 
-PROJECT_FILE="addr_32bit.hdlforge.toml"
+PROJECT_FILE="<project_file.hdlforge.toml>"
+TARGET_NAME="<target_name>"
 
 echo "Testing HDLForge v2.0 commands..."
 
@@ -180,11 +222,11 @@ hdlforge projects
 
 # Test Verilator build
 echo "3. Testing Verilator build..."
-hdlforge Verilator --project "$PROJECT_FILE" --step build --SimTargetName basic_test
+hdlforge Verilator --project "$PROJECT_FILE" --step build --SimTargetName "$TARGET_NAME"
 
 # Test Verilator simulation
 echo "4. Testing Verilator simulation..."
-hdlforge Verilator --project "$PROJECT_FILE" --step sim --SimTargetName basic_test
+hdlforge Verilator --project "$PROJECT_FILE" --step sim --SimTargetName "$TARGET_NAME"
 
 echo "Migration test completed!"
 ```
