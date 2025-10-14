@@ -230,6 +230,245 @@ This repository contains comprehensive documentation:
 
 ---
 
+## 📘 HDLForge Reference Guide
+
+> **Python-based build system that wraps Verilator and Vivado tools**
+
+HDLForge is a comprehensive build system that provides a unified interface for FPGA development workflows, combining Verilator simulation and Vivado synthesis/implementation in a single, consistent command-line tool.
+
+### Quick Reference (TLDR)
+
+```bash
+# Working directory: <project_directory_path>
+# Project file: <project_name>.hdlforge.toml
+
+# Verilator Commands
+hdlforge Verilator --project <project_file.hdlforge.toml> --step <build/sim> --SimTargetName <target_name> [--clean] [--extra-env DEBUG=1] [--flags <flags>]
+
+# Vivado Commands  
+hdlforge vivado --project <project_file.hdlforge.toml> --step <new/syn/impl/bit/list_runs/reset_run> [--run-flow <flow_name>] [--clean]
+
+# Project Management
+hdlforge projects
+hdlforge help
+```
+
+### Command Reference
+
+#### HDLForge Main Command
+```bash
+hdlforge <main_tool> --project <project_file.hdlforge.toml> <--command_flags_of_tool>
+```
+
+**Required Pattern**: All commands must include `--project <project_file.hdlforge.toml>` parameter and be run from the project directory.
+
+#### Verilator Commands
+
+##### Build (Compile SystemVerilog to C++)
+```bash
+cd <project_directory> && hdlforge Verilator --project <project_file.hdlforge.toml> --step build --SimTargetName <target_name> [--clean] [--extra-env DEBUG=1] [--flags <flags>]
+```
+
+##### Simulation (Run simulation - requires successful build)
+```bash
+cd <project_directory> && hdlforge Verilator --project <project_file.hdlforge.toml> --step sim --SimTargetName <target_name>
+```
+
+#### Vivado Commands
+
+##### Create New Project
+```bash
+cd <project_directory> && hdlforge vivado --project <project_file.hdlforge.toml> --step new --clean
+```
+
+##### Synthesis
+```bash
+cd <project_directory> && hdlforge vivado --project <project_file.hdlforge.toml> --step syn --run-flow <flow_name>
+```
+
+##### Implementation
+```bash
+cd <project_directory> && hdlforge vivado --project <project_file.hdlforge.toml> --step impl --run-flow <flow_name>
+```
+
+##### Generate Bitstream
+```bash
+cd <project_directory> && hdlforge vivado --project <project_file.hdlforge.toml> --step bit --run-flow <flow_name>
+```
+
+##### List Runs
+```bash
+cd <project_directory> && hdlforge vivado --project <project_file.hdlforge.toml> --step list_runs
+```
+
+##### Reset Run
+```bash
+cd <project_directory> && hdlforge vivado --project <project_file.hdlforge.toml> --step reset_run
+```
+
+#### Help Commands
+```bash
+hdlforge help
+hdlforge Verilator --help
+hdlforge vivado --help
+hdlforge projects --help
+```
+
+### Project Configuration
+
+#### Project Structure
+- **Project Directory**: Top-level folder containing the `.hdlforge.toml` file
+- **Project File**: `<project_name>.hdlforge.toml` - Configuration file in project directory
+- **Execution Context**: All commands must be run from the project directory
+
+#### Configuration File Sections
+
+##### Basic Settings
+```toml
+[settings]
+project_name = "unique_project_identifier"
+project_path = "$REPO_TOP/projects/<project_name>"
+```
+
+##### Verilator Settings
+```toml
+[verilator_settings]
+build_dir = "_verilator"  # Default build directory
+includes_paths = ["path/to/includes"]
+
+[[verilator_settings.sim_targets]]
+name = "main"
+top_module = "top_module_name"
+test_name = "test_case_name"
+python_file = "test_script.py"
+build_args = ["--trace"]
+defines = ["DEBUG"]
+parameters = ["G_WIDTH=32"]
+PYTHONPATH = ["additional/python/paths"]
+```
+
+##### Vivado Settings
+```toml
+[vivado_settings]
+build_dir = "_vivado"  # Default build directory
+project_name = "vivado_project_name"
+top_module = "top_module_name"
+part = "xc7a200tfbg484-1"
+
+[[vivado_settings.runs_flow]]
+name = "main"
+synth = "synth_1"
+impl = ["impl_1"]
+paramaters = ["-flatten_hierarchy none"]
+defines = ["DEBUG"]
+```
+
+##### Source Files
+```toml
+[[sources.files]]
+file = ["path/to/source1.sv", "path/to/source2.sv"]
+verilator = true
+vivado = true
+relative_to_project_path = true
+vivado_fileset = "sources_1"
+```
+
+### File Organization
+
+#### Source File Categories
+- **sv_common**: Packages, interfaces, shared modules
+- **sv_functional**: Protocol implementations, data processing
+- **sv_interface**: Configuration, control, communication
+- **sv_top**: System integration and hierarchy
+- **sv_platform**: Hardware abstraction
+- **vhdl_files**: Platform-specific components, IP cores
+
+#### Dependency Management
+- **Packages**: Core SystemVerilog packages for constants, types, functions
+- **Interfaces**: Interface definitions (must be included first)
+- **Common Modules**: FIFOs, dual-port RAM, watchdog, exception handler
+- **Build Order**: Controlled by TOML file sections and file dependencies
+
+### Output Organization
+
+#### Verilator Outputs
+- **Build Directory**: `<verilator_settings.build_dir>` (default: `_verilator`)
+- **Test-Specific Folders**: Each `SimTargetName` gets its own subdirectory
+- **VCD Files**: Located at `build_dir/SimTargetName/dump.vcd`
+- **Log Files**: All HDLForge output logged to `/opt/project_setup/logs/hdlforge_YYYYMMDD_pidXXXXX.log`
+
+#### Directory Structure Example
+```
+project_dir/
+├── _verilator/
+│   ├── main/           # SimTargetName=main
+│   │   └── dump.vcd
+│   └── test_variant/   # SimTargetName=test_variant
+│       └── dump.vcd
+└── _vivado/            # Vivado build directory
+```
+
+### File Locations & Development Workflow
+
+#### HDLForge Installation
+- **Installed Files**: `/opt/project_setup/`
+- **Repository Files**: `/home/ykarmon/repo/Fabrinetes/source/project_setup/`
+- **Main Script**: `tasks.py` → installed to system PATH as `hdlforge`
+
+#### Development Workflow
+1. **Edit**: Files in repository `/path/to/repo/Fabrinetes/source/project_setup/`
+2. **Test**: Changes locally in repository directory
+3. **Commit**: Changes to Git repository
+4. **Reinstall**: HDLForge to update system-installed files
+5. **Verify**: Changes work in installed version
+
+> ⚠️ **Warning**: Never edit files in `/opt/project_setup/` or `/usr/local/bin/` directly
+
+#### Setup HDLForge (if not in PATH)
+```bash
+# Option 1: Add to PATH
+export PATH=$PATH:<hdlforge_directory>
+
+# Option 2: Create symlink
+sudo ln -s <hdlforge_script> /usr/local/bin/hdlforge
+
+# Option 3: Add alias
+alias hdlforge='<hdlforge_script>'
+
+# Option 4: Copy to system
+cp <hdlforge_script> /usr/local/bin/hdlforge
+```
+
+### Error Handling & Best Practices
+
+#### Common Error: Missing Project Parameter
+**Error**: `'<tool>' did not receive required positional arguments: 'project'`
+
+**Solution**: Add `--project <project_file.hdlforge.toml>` to your command
+```bash
+# Correct usage
+hdlforge Verilator --project <project_name>.hdlforge.toml --step build --SimTargetName main
+
+# List available projects
+hdlforge projects
+```
+
+#### Best Practices
+1. **Always run commands from the project directory**
+2. **Always specify project explicitly**: Use `--project <project_file.hdlforge.toml>` parameter (required)
+3. **Use specific simulation targets**: Always specify `--SimTargetName` parameter
+4. **Verify builds**: Check for 0 errors and 0 warnings
+5. **Manage dependencies**: Ensure proper file order in TOML configuration
+6. **Clean builds**: Use `--clean` flag when encountering build issues
+7. **Global access**: HDLForge is available in PATH and can be called from anywhere
+
+#### Troubleshooting Configuration Issues
+- **Missing files**: Reorder compilation order with dependencies - do NOT add include statements
+- **Include statements**: Only include interface declarations (`include "interfaces.sv"`), do NOT specify path
+- **Dependencies**: Files with dependencies must be included in order in project configuration file
+
+---
+
 ## 🤝 Contributing
 
 We welcome contributions from the FPGA and open-source communities.

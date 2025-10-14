@@ -1,0 +1,27 @@
+---
+alwaysApply: true
+---
+
+# Git Workflow Rules
+
+## Commit Guidelines
+1. **Atomic Commits**: Split commits by logical subjects/issues - one commit per completed feature/fix
+2. **Concise Messages**: Use single-line commit messages with clear, descriptive subject lines
+3. **Approval Required**: Always ask for permission before committing changes
+4. **Regular Pushes**: Push commits regularly to the current branch to maintain synchronization
+
+## Commit Message Format
+- Use imperative mood: "Add feature", "Fix bug", "Update documentation"
+- Keep under 50 characters for the subject line
+- Be specific about what changed and why
+
+## Branch Management
+- Work on feature branches for significant changes
+- Keep main/master branch stable and deployable
+- Use descriptive branch names: `feature/add-hdlforge-docs`, `fix/container-naming`
+
+## Code Review Process
+- All commits require review before merging to main branch
+- Address review feedback promptly
+- Ensure CI/CD pipelines pass before merging
+
