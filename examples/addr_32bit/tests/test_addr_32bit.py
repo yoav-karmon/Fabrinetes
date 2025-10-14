@@ -50,11 +50,15 @@ async def test_basic_functionality(dut):
     dut.enable.value = 1
     await RisingEdge(dut.clk)
     
+    # Wait one more cycle for valid signal to be asserted (SystemVerilog needs one cycle)
+    await RisingEdge(dut.clk)
+    
     # Check that valid signal is asserted
     assert dut.addr_valid.value == 1, f"Expected addr_valid=1 when enabled, got {dut.addr_valid.value}"
     
     # Test address increment
-    expected_addr = INCREMENT
+    # After enabling and waiting for valid, the address should be 2*INCREMENT (0 + INCREMENT + INCREMENT)
+    expected_addr = 2 * INCREMENT
     for i in range(10):
         await RisingEdge(dut.clk)
         assert dut.addr_out.value == expected_addr, f"Expected addr_out={expected_addr}, got {dut.addr_out.value}"
@@ -89,6 +93,9 @@ async def test_reset_behavior(dut):
     
     # Release reset and check it starts counting again
     dut.rst_n.value = 1
+    await RisingEdge(dut.clk)
+    
+    # Wait one more cycle for the address to increment (SystemVerilog needs one cycle)
     await RisingEdge(dut.clk)
     
     assert dut.addr_out.value == INCREMENT, f"Expected addr_out={INCREMENT} after reset release, got {dut.addr_out.value}"

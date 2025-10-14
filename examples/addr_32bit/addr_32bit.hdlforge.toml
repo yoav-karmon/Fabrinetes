@@ -20,7 +20,7 @@ python_file = "tests/test_addr_32bit.py"
 build_args = ["--trace", "--timing", "--coverage"]
 defines = ["SIMULATION", "DEBUG"]
 parameters = ["ADDR_WIDTH=32", "INCREMENT=1"]
-PYTHONPATH = ["tests"]
+PYTHONPATH = ["tests", "src"]
 
 [[verilator_settings.sim_targets]]
 name = "reset_test"
@@ -30,7 +30,7 @@ python_file = "tests/test_addr_32bit.py"
 build_args = ["--trace", "--timing"]
 defines = ["SIMULATION"]
 parameters = ["ADDR_WIDTH=32", "INCREMENT=1"]
-PYTHONPATH = ["tests"]
+PYTHONPATH = ["tests", "src"]
 
 [[verilator_settings.sim_targets]]
 name = "enable_test"
@@ -40,7 +40,7 @@ python_file = "tests/test_addr_32bit.py"
 build_args = ["--trace", "--timing"]
 defines = ["SIMULATION"]
 parameters = ["ADDR_WIDTH=32", "INCREMENT=1"]
-PYTHONPATH = ["tests"]
+PYTHONPATH = ["tests", "src"]
 
 [[verilator_settings.sim_targets]]
 name = "increment_test"
@@ -50,7 +50,7 @@ python_file = "tests/test_addr_32bit.py"
 build_args = ["--trace", "--timing"]
 defines = ["SIMULATION"]
 parameters = ["ADDR_WIDTH=32", "INCREMENT=1"]
-PYTHONPATH = ["tests"]
+PYTHONPATH = ["tests", "src"]
 
 [[verilator_settings.sim_targets]]
 name = "edge_cases_test"
@@ -60,7 +60,7 @@ python_file = "tests/test_addr_32bit.py"
 build_args = ["--trace", "--timing"]
 defines = ["SIMULATION"]
 parameters = ["ADDR_WIDTH=32", "INCREMENT=1"]
-PYTHONPATH = ["tests"]
+PYTHONPATH = ["tests", "src"]
 
 [[verilator_settings.sim_targets]]
 name = "random_test"
@@ -70,7 +70,7 @@ python_file = "tests/test_addr_32bit.py"
 build_args = ["--trace", "--timing"]
 defines = ["SIMULATION"]
 parameters = ["ADDR_WIDTH=32", "INCREMENT=1"]
-PYTHONPATH = ["tests"]
+PYTHONPATH = ["tests", "src"]
 
 # Vivado Settings
 [vivado_settings]
@@ -108,9 +108,9 @@ relative_to_project_path = true
 vivado_fileset = "constrs_1"
 
 # Additional include files (if any)
-[[sources.files]]
-file = ["src/packages.sv"]
-verilator = true
-vivado = true
-relative_to_project_path = true
-vivado_fileset = "sources_1"
+# [[sources.files]]
+# file = ["src/packages.sv"]
+# verilator = true
+# vivado = true
+# relative_to_project_path = true
+# vivado_fileset = "sources_1"
