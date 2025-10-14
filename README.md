@@ -35,7 +35,7 @@ We focus on:
 | `Cocotb`     | Python-based testbench framework             |
 | `Vivado`     | Synthesis, implementation, bitstream         |
 | `GTKWave`    | VCD viewer (works inside container)          |
-| `Invoke`     | Task runner used internally in CLI           |
+| `Argparse`   | Command-line argument parsing (replaced Invoke) |
 | `HdlForge`   | Project-as-code engine (TOML config)         |
 | `MobaXterm`  | X11 GUI support from Windows hosts           |
 
@@ -69,7 +69,7 @@ By doing this, the developer environment becomes a **Git versioned asset**, just
 ## 🧪 Simulation in One Line
 
 ```bash
-./fabrinetes Verilator --project router --step sim
+hdlforge Verilator --project router.hdlforge.toml --step sim --SimTargetName main
 ````
 
 * Generates VCD (`dump.vcd`)
@@ -81,7 +81,9 @@ By doing this, the developer environment becomes a **Git versioned asset**, just
 ## 🏗️ Vivado Flow
 
 ```bash
-./fabrinetes vivado --project router --new --bit
+hdlforge vivado --project router.hdlforge.toml --step new --clean
+hdlforge vivado --project router.hdlforge.toml --step syn --run-flow main
+hdlforge vivado --project router.hdlforge.toml --step bit --run-flow main
 ```
 
 * Generates and configures Vivado project
@@ -198,8 +200,9 @@ The provided base image installs:
 ## 💡 Example Workflow
 
 ```bash
-./fabrinetes vivado --project router --new --bit
-./fabrinetes Verilator --project router --step sim
+hdlforge vivado --project router.hdlforge.toml --step new --clean
+hdlforge vivado --project router.hdlforge.toml --step syn --run-flow main
+hdlforge Verilator --project router.hdlforge.toml --step sim --SimTargetName main
 gtkwave dump.vcd
 ```
 
@@ -220,6 +223,7 @@ This repository contains comprehensive documentation:
 ### Core Documentation
 - **[Testing Guide](./testing_guide.md)** - Comprehensive guide for testing Fabrinetes functionality, including cleanup, build, run, exec, shell, and automated testing procedures
 - **[Repository Explanation](./repository_explanation.md)** - Detailed explanation of the repository structure, container organization, and configuration management
+- **[HDLForge v2.0 Migration Guide](./HDLForge_v2_Migration_Guide.md)** - Complete migration guide for HDLForge v2.0, including command structure changes and examples
 
 ### Technical Documentation
 - **[Invoke Tasks](./invoke_tasks/README.md)** - Complete documentation of all Fabrinetes tasks, including architecture, usage, and development guidelines
@@ -251,6 +255,27 @@ hdlforge vivado --project <project_file.hdlforge.toml> --step <new/syn/impl/bit/
 # Project Management
 hdlforge projects
 hdlforge help
+```
+
+> **⚠️ Important**: All commands now require the `--project <project_file.hdlforge.toml>` parameter. The old format `hdlforge <project_file> <command>` is no longer supported.
+
+### Recent Changes (v2.0)
+
+**Major Update**: HDLForge has been updated to use `argparse` instead of `invoke` for better command-line interface:
+
+- ✅ **Simplified CLI**: Cleaner command structure with explicit `--project` parameter
+- ✅ **Better Error Messages**: Clear usage instructions and error reporting
+- ✅ **Consistent Interface**: All commands follow the same pattern
+- ✅ **Removed Dependencies**: No longer requires `invoke` package
+- ✅ **Backward Compatibility**: Old format no longer supported for cleaner interface
+
+**Migration Guide**:
+```bash
+# Old format (no longer supported):
+hdlforge <project_file> <command> [options]
+
+# New format (required):
+hdlforge <command> --project <project_file> [options]
 ```
 
 ### Command Reference

@@ -18,6 +18,8 @@ cd examples/addr_32bit
 hdlforge Verilator --project addr_32bit.hdlforge.toml --step sim --SimTargetName basic_test
 ```
 
+> **Note**: All HDLForge commands now require the `--project` parameter. The old format `hdlforge <project_file> <command>` is no longer supported.
+
 ## Example Structure
 
 Each example follows a consistent structure:
@@ -59,5 +61,6 @@ When adding new examples:
 ## Documentation
 
 - [HDLForge Reference Guide](../README.md#hdlforge-reference-guide)
+- [HDLForge v2.0 Migration Guide](../HDLForge_v2_Migration_Guide.md) - **Important**: Read this if upgrading from v1.x
 - [Fabrinetes Main Documentation](../README.md)
 - [Testing Guide](../testing_guide.md)
