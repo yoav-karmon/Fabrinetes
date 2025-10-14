@@ -137,7 +137,7 @@ Each simulation target in `[[verilator_settings.sim_targets]]` defines:
 ### Verilator Commands
 ```bash
 # Build (compile SystemVerilog to C++)
-hdlforge Verilator --project <project_file.hdlforge.toml> --step build --SimTargetName <target_name> [--clean] [--extra-env DEBUG=1] [--flags <flags>]
+hdlforge Verilator --project <project_file.hdlforge.toml> --step build --SimTargetName <target_name> [--clean] [--extra-env <env_var>=<value>] [--flags <flags>]
 
 # Simulation (run simulation - requires successful build)
 hdlforge Verilator --project <project_file.hdlforge.toml> --step sim --SimTargetName <target_name>
