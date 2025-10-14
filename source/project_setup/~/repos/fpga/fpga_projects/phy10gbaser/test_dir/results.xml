@@ -1,6 +1,0 @@
-<testsuites name="results">
-  <testsuite name="all" package="all">
-    <property name="random_seed" value="1757107884" />
-    <testcase name="arp_test" classname="phy10gbaser_test" file="/home/ykarmon/repos/fpga/fpga_projects/phy10gbaser/sources/PY/phy10gbaser_test.py" lineno="85" time="0.3984959125518799" sim_time_ns="3610.001" ratio_time="9059.06657080207" />
-  </testsuite>
-</testsuites>
