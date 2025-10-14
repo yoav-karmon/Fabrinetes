@@ -2,6 +2,9 @@
 *.jou
 _log/
 
+# Build directories (folders starting with _)
+_*/
+
 # Development files
 dev-plan.md
 cursor_send_box/
