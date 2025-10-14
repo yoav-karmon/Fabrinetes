@@ -503,7 +503,7 @@ def verify_sim_target(SimTargetName, verilator_settings)    :
         print(f"Available SimTargetNames: {', '.join(sim_targets_dict.keys())}")
         exit(f"[!x!]  SimTargetName '{SimTargetName}' not found in verilator_settings['sim_targets']")
 
-    return SimTargetName
+    return sim_targets_dict[SimTargetName]
 
 def Verilator(c,project,step=None,clean=False,SimTargetName=None,flags=None,extra_env=None):
     # Capture environment variables set by update_repo_path
@@ -537,15 +537,9 @@ def Verilator(c,project,step=None,clean=False,SimTargetName=None,flags=None,extr
     SOURCES_DICT_LIST = get_file_list_for_tool(tool_name, project_data)
       
     
-    # Verify the parameters
-    SimTargetName=verify_sim_target(SimTargetName, verilator_settings)    
+    # Verify the parameters and get the target data
+    SimTarget = verify_sim_target(SimTargetName, verilator_settings)    
     
-    # Convert sim_targets list to dictionary using 'name' as key
-    sim_targets_dict = {}
-    for target in verilator_settings['sim_targets']:
-        sim_targets_dict[target['name']] = target
-    
-    SimTarget                 = sim_targets_dict[SimTargetName]
     top_module                = SimTarget["top_module"]
     build_args                = SimTarget.get("build_args", [])
     defines                   = SimTarget.get("defines", {})
