@@ -14,8 +14,9 @@ from tabulate import tabulate
 
 
 from pyparsing import Union
+import argparse
 import invoke
-from invoke import task, run
+from invoke import run, Context
 
 from typing import List, Dict, Any,Tuple
 import warnings
@@ -104,16 +105,32 @@ def generate_vivado_tcl(
     output_path.write_text("\n".join(lines))
 
 
-def add_python_paths_from_list(path_list):
+def add_python_paths_from_list(path_list, working_path=None):
     print("\n[i] Updating PYTHONPATH with the following paths:", flush=True)
+    
+    # Always add working_path first if provided
+    if working_path:
+        working_path_abs = os.path.abspath(working_path)
+        if working_path_abs not in sys.path:
+            sys.path.insert(0, working_path_abs)
+            print(f"[OK] Added working_path to PYTHONPATH: {working_path_abs}")
+        else:
+            print(f"[i] working_path already in PYTHONPATH: {working_path_abs}")
+    
+    # Process additional paths from the list
     for path in path_list:
-        # Step 2: Resolve env vars
-        resolved = os.path.expandvars(path)
+        # Resolve relative paths relative to working_path if provided
+        if working_path and not os.path.isabs(path):
+            resolved = str(Path(working_path) / path)
+        else:
+            # Resolve env vars
+            resolved = os.path.expandvars(path)
+        
         print(f"[~] Resolving path: {resolved}")
-        # Step 3: Absolute path
+        # Absolute path
         abs_path = os.path.abspath(resolved)
 
-        # Step 4: Add if not already in sys.path
+        # Add if not already in sys.path (check for duplication)
         if abs_path not in sys.path:
             sys.path.insert(0, abs_path)
             print(f"[OK] Added to PYTHONPATH: {abs_path}")
@@ -177,8 +194,8 @@ def load_project_data(ProjectFilePath):
         return working_path, project_data
 
 def get_project_file_path(project_file_arg:Union[str,None]) ->  Path:
-    INVOKE_PATH= Path(os.environ["HDLFORGE_ORIG_PATH"] )  
-    hdlforge_files = list(INVOKE_PATH.glob("*.hdlforge.toml"))
+    ROOT_FOLDER= Path(os.environ["ROOT_FOLDER"] )  
+    hdlforge_files = list(ROOT_FOLDER.glob("*.hdlforge.toml"))
     
     if(project_file_arg==None):
         print("Available project files in current directory:")
@@ -190,7 +207,7 @@ def get_project_file_path(project_file_arg:Union[str,None]) ->  Path:
         exit(1)
     else:
         # Look for the project file in the current directory
-        project_file_path = INVOKE_PATH / project_file_arg
+        project_file_path = ROOT_FOLDER / project_file_arg
         if not project_file_path.exists():
             print(f"Project file not found: {project_file_path}")
             print("Available project files in current directory:")
@@ -245,7 +262,7 @@ def verify_project_file_path(_working_path: Path, REPO_TOP: Path):
 
 def capture_environment_variables(c: invoke.Context):
     """Capture environment variables set by update_repo_path function and validate repository environment"""
-    invoked_dir = os.environ.get('HDLFORGE_ORIG_PATH', os.getcwd())
+    invoked_dir = os.environ.get('ROOT_FOLDER', os.getcwd())
     
     # Run update_repo_path and capture environment variables
     try:
@@ -362,7 +379,6 @@ def validate_repository_environment(captured_vars: dict, invoked_dir: str):
     print(f"   Git repository: ✓")
     print(f"   Directory structure: ✓")
 
-@task
 def vivado(c,project,verbose=False,step:List[str]=[],clean=False,run_flow=None):
     # Capture environment variables set by update_repo_path
     capture_environment_variables(c)
@@ -475,16 +491,20 @@ def vivado(c,project,verbose=False,step:List[str]=[],clean=False,run_flow=None):
      
    
 def verify_sim_target(SimTargetName, verilator_settings)    :
+    # Convert sim_targets list to dictionary using 'name' as key
+    sim_targets_dict = {}
+    for target in verilator_settings['sim_targets']:
+        sim_targets_dict[target['name']] = target
+    
     if SimTargetName is None:
-        print(f"Available SimTargetNames: {', '.join(verilator_settings['sim_targets'].keys())}")
+        print(f"Available SimTargetNames: {', '.join(sim_targets_dict.keys())}")
         exit(f"[!x!]  SimTargetName must be specified. Use --SimTargetName <target_name>")
-    elif(SimTargetName not in verilator_settings["sim_targets"]):
-        print(f"Available SimTargetNames: {', '.join(verilator_settings['sim_targets'].keys())}")
+    elif(SimTargetName not in sim_targets_dict):
+        print(f"Available SimTargetNames: {', '.join(sim_targets_dict.keys())}")
         exit(f"[!x!]  SimTargetName '{SimTargetName}' not found in verilator_settings['sim_targets']")
 
     return SimTargetName
 
-@task
 def Verilator(c,project,step=None,clean=False,SimTargetName=None,flags=None,extra_env=None):
     # Capture environment variables set by update_repo_path
     capture_environment_variables(c)
@@ -519,9 +539,13 @@ def Verilator(c,project,step=None,clean=False,SimTargetName=None,flags=None,extr
     
     # Verify the parameters
     SimTargetName=verify_sim_target(SimTargetName, verilator_settings)    
-   
     
-    SimTarget                 = verilator_settings["sim_targets"][SimTargetName]
+    # Convert sim_targets list to dictionary using 'name' as key
+    sim_targets_dict = {}
+    for target in verilator_settings['sim_targets']:
+        sim_targets_dict[target['name']] = target
+    
+    SimTarget                 = sim_targets_dict[SimTargetName]
     top_module                = SimTarget["top_module"]
     build_args                = SimTarget.get("build_args", [])
     defines                   = SimTarget.get("defines", {})
@@ -530,8 +554,7 @@ def Verilator(c,project,step=None,clean=False,SimTargetName=None,flags=None,extr
     test_name                 = SimTarget.get("test_name",None)
 
     PYTHONPATH = SimTarget.get("PYTHONPATH", [])
-    # PYTHONPATH.append(str(python_file_path.parent.resolve()))  # Add the directory of the Python file
-    add_python_paths_from_list(PYTHONPATH)
+    add_python_paths_from_list(PYTHONPATH, working_path)
   
 
     
@@ -613,12 +636,10 @@ def Verilator(c,project,step=None,clean=False,SimTargetName=None,flags=None,extr
                     print("\n[!x!]  Verilator build/simulation failed!",flush=True)
                     print(f"Error: {e}",flush=True)
 
-@task
 def projects(c,set_project=None):
     projects=get_project_file_path(None)
 
 
-@task
 def help(c):
     """
     Show HDLForge help information
@@ -686,5 +707,47 @@ def help(c):
     print("  • Python packages: invoke, cocotb, tabulate")
     print()
     print("=" * 80)
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='HDLForge - Hardware Development Tool')
+    subparsers = parser.add_subparsers(dest='command', help='Available commands')
+    
+    # Verilator subcommand
+    verilator_parser = subparsers.add_parser('Verilator')
+    verilator_parser.add_argument('--project', required=True)
+    verilator_parser.add_argument('--step', action='append')
+    verilator_parser.add_argument('--SimTargetName')
+    verilator_parser.add_argument('--clean', action='store_true')
+    verilator_parser.add_argument('--flags')
+    verilator_parser.add_argument('--extra-env')
+    
+    # Vivado subcommand
+    vivado_parser = subparsers.add_parser('vivado')
+    vivado_parser.add_argument('--project', required=True)
+    vivado_parser.add_argument('--step', action='append')
+    vivado_parser.add_argument('--verbose', action='store_true')
+    vivado_parser.add_argument('--clean', action='store_true')
+    vivado_parser.add_argument('--run-flow')
+    
+    # Other subcommands
+    subparsers.add_parser('projects')
+    subparsers.add_parser('help')
+    
+    args = parser.parse_args()
+    
+    # Create invoke Context manually
+    c = Context()
+    
+    if args.command == 'Verilator':
+        Verilator(c, args.project, args.step, args.clean, args.SimTargetName, args.flags, args.extra_env)
+    elif args.command == 'vivado':
+        vivado(c, args.project, args.verbose, args.step, args.clean, args.run_flow)
+    elif args.command == 'projects':
+        projects(c, getattr(args, 'set_project', None))
+    elif args.command == 'help':
+        help(c)
+    else:
+        parser.print_help()
 
 
