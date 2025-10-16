@@ -137,6 +137,32 @@ def main():
     
     if args.cmd == "status":
         config_status(container_info.config_file_resolved)
+    
+    # If no specific command provided but config file is given, run all commands in sequence
+    if args.cmd is None and args.config_file:
+        print("Running all commands in sequence...")
+        print()
+        
+        # Run command (works without additional flags)
+        print("=== RUN COMMAND ===")
+        from invoke_tasks.run.run import run
+        run(args, container_info)
+        print()
+        
+        # Commit command (works without additional flags)
+        print("=== COMMIT COMMAND ===")
+        from invoke_tasks.commit.commit import commit
+        commit(args, container_info)
+        print()
+        
+        # Status command (works without additional flags)
+        print("=== STATUS COMMAND ===")
+        config_status(container_info.config_file_resolved)
+        print()
+        
+        print("Note: Build and restore commands require additional flags:")
+        print("  Build:  --cmd build --config-file <config.toml> --buildbase")
+        print("  Restore: --cmd restore --config-file <config.toml> [--base-image|--image]")
 
 if __name__ == "__main__":
     main()
