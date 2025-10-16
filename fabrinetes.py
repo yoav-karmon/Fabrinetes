@@ -38,13 +38,13 @@ def config_status(config_file):
         
         # Check base image
         base_image_exists = check_image_exists(container_info.base_image_docker)
-        base_tarball_exists = os.path.exists(container_info.tarball_path_absolute)
+        base_tarball_exists = container_info.resolve(os.path.join(container_info.tarball_directory, container_info.base_image_tarball)) is not None
         
         print(f"Base Image:    {'✅' if base_image_exists else '❌'} Docker  {'✅' if base_tarball_exists else '❌'} Tarball")
         
         # Check main image
         main_image_exists = check_image_exists(container_info.image_docker)
-        main_tarball_exists = os.path.exists(container_info.tarball_path_absolute)
+        main_tarball_exists = container_info.resolve(container_info.tarball_path) is not None
         
         print(f"Main Image:    {'✅' if main_image_exists else '❌'} Docker  {'✅' if main_tarball_exists else '❌'} Tarball")
         
@@ -136,7 +136,7 @@ def main():
         restore(args, container_info)
     
     if args.cmd == "status":
-        config_status(container_info.config_file_absolute)
+        config_status(container_info.config_file_resolved)
 
 if __name__ == "__main__":
     main()
