@@ -1,20 +1,34 @@
 [config]
 # X11 and mount configuration
-X11_path = "/mnt/wslg/.X11-unix"
+X11_path = "/mnt/wslg/.X11-unix:/tmp/.X11-unix"
 mounts = [
     "$HOME/.ssh:$HOME/.ssh",
     "$HOME/repo:$HOME/repo",
+    "$HOME/repo/Fabrinetes/source/project_setup:/opt/project_setup",
+    "$HOME/.Xauthority:$HOME/.Xauthority:ro",
+    "init_env.sh:/etc/profile.d/init_env.sh",
+    "bashrc-root:/home/ykarmon/.bashrc",
+    "cursor/.local:/home/ykarmon/.local",
+    "cursor/.dotnet:/home/ykarmon/.dotnet",
+    "cursor/.config:/home/ykarmon/.config",
+    "cursor/.config:/home/ykarmon/.config",
+    "cursor/.cursor:/home/ykarmon/.cursor",
+    "cursor/.gnupg:/home/ykarmon/.gnupg",
+    "verilator/share/verilator:/usr/share/verilator",
+    "vscode/.vscode-server:/home/ykarmon/.vscode-server",
 ]
+
+[config.base_image]
+name = "fabrinetes-skeleton"
+tag = "latest"
+tarball_name = "fabrinetes-skeleton-latest.tar.gz"
+
 
 [config.image]
 name = "fabrinetes-dev-testing"
 tag = "latest"
 tarball_name = "fabrinetes-dev-testing-latest.tar.gz"
 
-[config.base_image]
-name = "fabrinetes-skeleton"
-tag = "latest"
-tarball_name = "fabrinetes-skeleton-latest.tar.gz"
 
 [config.container]
 name = "testing"
