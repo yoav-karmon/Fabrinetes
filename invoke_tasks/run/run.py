@@ -84,8 +84,8 @@ def run(args, container_info):
     docker_command = " ".join(cmd_parts)
     
     # Print formatted version for readability with aligned comments
-    print("Docker Command:")
-    print("=" * 50)
+    print("# Docker Command:")
+    print("# " + "=" * 50)
     
     # Calculate the maximum width for alignment
     max_width = 0
