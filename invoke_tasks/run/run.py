@@ -8,62 +8,47 @@ from .helpers import setup_x11_support, resolve_mounts, printlocals
 from helper_functions.name_generator import get_container_info
 from helper_functions.image_management import ensure_image_available, convert_to_docker_format
 
-@task
-def run(ctx, file=None, rm=False, verbose=False, x11=True, usb=False, ask=True, help=False):
+def print_aligned_comment(text, comment_text, comment_column):
+    """Print a line with aligned comment"""
+    print(f"{text}{' ' * (comment_column - len(text))}{comment_text}")
+
+def run(args, container_info):
     """Run a Docker container with the specified configuration"""
     from invoke_tasks.help.help import show_run_help
     
-    # Check for help flag or missing required arguments
-    if help or not file:
+    # Extract arguments from args object
+    rm = getattr(args, 'rm', False)
+    verbose = getattr(args, 'verbose', False)
+    x11 = getattr(args, 'x11', True)
+    no_x11 = getattr(args, 'no_x11', False)
+    usb = getattr(args, 'usb', False)
+    ask = getattr(args, 'ask', True)
+    help_flag = getattr(args, 'help', False)
+    
+    # Handle x11 flag logic
+    x11_enabled = x11 and not no_x11
+    
+    # Check for help flag
+    if help_flag:
         show_run_help()
         return
-    
-    # Get container configuration using the dataclass
-    try:
-        container_info = get_container_info(file)
-    except Exception as e:
-        print(f"Error loading config file {file}: {e}")
-        return
-    
-    # Stage 1: Find the image name needed to run
-    image_name = container_info.image_docker  # Use Docker format for ensure_image_available
-    print(f"Stage 1: Image needed: {container_info.image_full}")
-    
-    # Stage 2: Check if image exists, try to restore if not
-    print(f"Stage 2: Checking image availability...")
-    if not ensure_image_available(ctx, image_name):
-        import sys
-        sys.exit(1)  # Exit with error code when image is not available
-    
-    # Stage 3: Check if container is running, run if not
-    print(f"Stage 3: Checking container status...")
     
     # Generate container name
     container_name = container_info.run_name
     if not container_name:
         return
+    
     command = 'bash'  # Default command
     mounts = container_info.mounts
     environment = {}  # Default empty environment
     X11_path = container_info.x11_path
-    
-    # Check if container is already running
-    existing_container = ctx.run(f"docker ps -q -f name=^{container_name}$", hide=True, warn=True)
-    if existing_container.stdout.strip():
-        print(f"Error: Container '{container_name}' is already running")
-        print(f"Use './fabrinetes exec --container-name {container_name} --command bash' to access it")
-        return
-    
-    # Check if container exists but is stopped
-    stopped_container = ctx.run(f"docker ps -aq -f name=^{container_name}$", hide=True, warn=True)
-    if stopped_container.stdout.strip():
-        print(f"Container '{container_name}' exists but is stopped. Starting it...")
-        ctx.run(f"docker start {container_name}", hide=True)
-        print(f"✅ Container '{container_name}' started successfully")
-        return
+    image_name = container_info.image_docker
     
     # Build docker command
     cmd_parts = ["docker", "run", "-dit"]
+    
+    # Add WORKDIR environment variable (always)
+    cmd_parts.extend(["-e", f"WORKDIR={container_info.config_directory}"])
     
     if rm:
         cmd_parts.append("--rm")
@@ -79,7 +64,7 @@ def run(ctx, file=None, rm=False, verbose=False, x11=True, usb=False, ask=True, 
         cmd_parts.append(f"-e {key}={value}")
     
     # Resolve and add mounts
-    relative_path = pathlib.Path(file).parent
+    relative_path = pathlib.Path(container_info.config_directory)
     resolved_mounts = resolve_mounts(mounts, relative_path)
     
     for host_path, container_path in resolved_mounts:
@@ -95,21 +80,98 @@ def run(ctx, file=None, rm=False, verbose=False, x11=True, usb=False, ask=True, 
     if verbose:
         printlocals(locals(), verbose=True)
     
-    # Ask for confirmation if requested
-    if ask:
-        print(f"About to run container '{container_name}' with image '{image_name}'")
-        print(f"Command: {' '.join(cmd_parts)}")
-        response = input("Continue? (y/N): ")
-        if response.lower() != 'y':
-            print("Aborted")
-            return
+    # Output the Docker command to stdout in a readable format with comments
+    docker_command = " ".join(cmd_parts)
     
-    # Run the container
-    print(f"Starting container: {container_name}")
-    ctx.run(" ".join(cmd_parts), pty=True)
+    # Print formatted version for readability with aligned comments
+    print("Docker Command:")
+    print("=" * 50)
     
-    print(f"✅ Container '{container_name}' started successfully")
-    print(f"📁 Config file: {file}")
-    print(f"🔗 Mounts: {len(resolved_mounts)} configured")
-    print(f"💡 To exec into container: ./fabrinetes exec --container-name {container_name} --command 'bash'")
-    print(f"💡 To open shell: ./fabrinetes shell --container-name {container_name}")
+    # Calculate the maximum width for alignment
+    max_width = 0
+    lines = []
+    
+    # Build all lines first to calculate max width
+    lines.append("docker run -dit")
+    lines.append("    -e WORKDIR=...")
+    
+    if rm:
+        lines.append("    --rm")
+    
+    if x11 and X11_path:
+        lines.append(f"    --net=host")
+        lines.append(f"    -e DISPLAY=:0")
+        lines.append(f"    -v {X11_path}:/tmp/.X11-unix")
+        lines.append(f"    -v /home/ykarmon/.Xauthority:/home/ykarmon/.Xauthority:ro")
+    
+    if usb:
+        lines.append("    -v /dev/bus/usb:/dev/bus/usb")
+    
+    for key, value in environment.items():
+        lines.append(f"    -e {key}={value}")
+    
+    for host_path, container_path in resolved_mounts:
+        lines.append(f"    -v {host_path}:{container_path}")
+    
+    lines.append(f"    --name {container_name}")
+    lines.append(f"    {convert_to_docker_format(image_name)}")
+    lines.append(f"    {command}")
+    
+    # Find the maximum width for alignment
+    for line in lines:
+        if len(line) > max_width:
+            max_width = len(line)
+    
+    # Add padding to align comments
+    comment_column = max_width + 4
+    
+    # Print base command
+    print_aligned_comment("# docker run -dit", "# Base Docker run command with detached, interactive, tty", comment_column)
+    print_aligned_comment(f"#     -e WORKDIR={container_info.config_directory}", "# Set working directory for relative paths (hardcoded)", comment_column)
+    
+    # Print flags with comments
+    if rm:
+        print_aligned_comment("#     --rm", "# Remove container when it exits (from --rm flag)", comment_column)
+    
+    # Print X11 support with comment
+    if x11 and X11_path:
+        print_aligned_comment("#     --net=host", "# Enable host networking for X11 (hardcoded)", comment_column)
+        print_aligned_comment("#     -e DISPLAY=:0", "# Set display for X11 forwarding (from --x11 flag, DISPLAY=:0 from $DISPLAY env var, means display 0 on localhost)", comment_column)
+        print_aligned_comment(f"#     -v {X11_path}:/tmp/.X11-unix", "# Mount X11 socket (from --x11 flag, config.X11_path)", comment_column)
+        print_aligned_comment("#     -v /home/ykarmon/.Xauthority:/home/ykarmon/.Xauthority:ro", "# Mount X11 auth file (from --x11 flag)", comment_column)
+    
+    # Print USB support with comment
+    if usb:
+        print_aligned_comment("#     -v /dev/bus/usb:/dev/bus/usb", "# Mount USB devices (from --usb flag)", comment_column)
+    
+    # Print environment variables with comments
+    for key, value in environment.items():
+        print_aligned_comment(f"#     -e {key}={value}", "# Environment variable (hardcoded)", comment_column)
+    
+    # Print mounts with individual comments
+    for host_path, container_path in resolved_mounts:
+        # Determine the source of each mount
+        if host_path.startswith("$HOME"):
+            comment = "# Mount from config.mounts array (from $HOME)"
+        elif host_path.startswith("/home/ykarmon"):
+            comment = "# Mount from config.mounts array (from $HOME)"
+        elif host_path.startswith("containers/"):
+            comment = "# Mount from config.mounts array (relative to config file)"
+        elif host_path.startswith("../"):
+            comment = "# Mount from config.mounts array (relative to config file)"
+        elif host_path.startswith("/"):
+            comment = "# Mount from config.mounts array (absolute path)"
+        else:
+            comment = "# Mount from config.mounts array (relative to config file)"
+        
+        print_aligned_comment(f"#     -v {host_path}:{container_path}", comment, comment_column)
+    
+    # Print container name and image with comments
+    print_aligned_comment(f"#     --name {container_name}", "# Container name (from config.container.name)", comment_column)
+    print_aligned_comment(f"#     {convert_to_docker_format(image_name)}", "# Docker image (from config.image.name:tag)", comment_column)
+    print_aligned_comment(f"#     {command}", "# Default command to run (hardcoded)", comment_column)
+    
+    print("# " + "=" * 50)
+    print()
+    print("# Executable command:")
+    print(docker_command)

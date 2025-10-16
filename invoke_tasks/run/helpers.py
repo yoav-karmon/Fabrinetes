@@ -27,8 +27,8 @@ def setup_x11_support(x11, X11_path, cmd_parts):
 
     return cmd_parts
 
-def resolve_mounts(mounts: List[str], relative_path: pathlib.Path) -> List[Tuple[str, str]]:
-    """Resolve mount paths, expanding environment variables and converting to absolute paths"""
+def resolve_mounts(mounts: List[str], config_directory: pathlib.Path) -> List[Tuple[str, str]]:
+    """Return mount paths as-is from config file without any resolution"""
     resolved_mounts = []
     
     for mount in mounts:
@@ -38,13 +38,7 @@ def resolve_mounts(mounts: List[str], relative_path: pathlib.Path) -> List[Tuple
             
         host_path, container_path = mount.split(':', 1)
         
-        # Expand environment variables in host path
-        host_path = os.path.expandvars(host_path)
-        
-        # Convert to absolute path if relative
-        if not os.path.isabs(host_path):
-            host_path = str(relative_path / host_path)
-        
+        # Keep original values from config file (don't expand $HOME or convert paths)
         resolved_mounts.append((host_path, container_path))
     
     return resolved_mounts
