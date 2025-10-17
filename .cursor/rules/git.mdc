@@ -1,13 +1,3 @@
 ---
 alwaysApply: true
 ---
-
-1. Commit changes following proper workflow
-   1.1. Always ask for permission before committing changes
-   1.2. Split commits by logical subjects - one commit per completed feature/fix
-   1.3. Use single-line commit messages with clear, descriptive subject lines
-   1.4. Show proposed commit message and files to be committed
-2. Push commits regularly to the current branch
-   2.1. Push after each completed feature/fix commit
-   2.2. Push before switching branches or ending work session
-   2.3. Push to keep remote repository synchronized
