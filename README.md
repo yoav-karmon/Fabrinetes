@@ -19,12 +19,14 @@ We focus on:
 ---
 ## prerequisite:
 
-| Tool         | Purpose                                      |
-|--------------|----------------------------------------------|
-| `python`     | 3.10                                         |
-| `docker   `  | Out-of-the-box simulation engine             |
-| `VScode`     | Python-based testbench framework             |
-| `MobaXterm`  | X11 GUI support from Windows hosts           |
+| Tool         | Purpose                                      | Installation |
+|--------------|----------------------------------------------|--------------|
+| `python`     | 3.10                                         | System package manager |
+| `docker`     | Out-of-the-box simulation engine             | [Docker Installation Guide](docs/docker-installation.md) |
+| `VScode`     | Python-based testbench framework             | [VS Code Download](https://code.visualstudio.com/) |
+| `MobaXterm`  | X11 GUI support from Windows hosts           | [MobaXterm Download](https://mobaxterm.mobatek.net/) |
+
+**Note**: Docker installation requires user to be added to docker group for non-root access. See the [Docker Installation Guide](docs/docker-installation.md) for detailed setup instructions.
 
 ## Tools & Technologies
 
@@ -170,6 +172,106 @@ tarball_path = container_info.tarball_path       # "containers/fabrinetes-dev-te
 ✅ **Automatic validation** of config file structure  
 
 **Always use `get_container_info(config_file)` instead of manual TOML parsing!**
+
+---
+
+## 🚀 Fabrinetes Usage
+
+### Basic Commands
+```bash
+# Show usage information only (no arguments)
+./fabrinetes.py
+
+# Show help and usage information
+./fabrinetes.py --cmd help
+
+# Build base image from Dockerfile
+./fabrinetes.py --cmd build --config-file containers.toml --buildbase
+
+# Generate Docker run command
+./fabrinetes.py --cmd run --config-file containers.toml
+
+# Generate Docker commit command
+./fabrinetes.py --cmd commit --config-file containers.toml
+
+# Generate Docker restore command
+./fabrinetes.py --config-file containers.toml --cmd restore --base-image
+
+# Show config file status
+./fabrinetes.py --cmd status --config-file containers.toml
+```
+
+### Status Command
+The status command provides comprehensive information about all container components:
+
+```bash
+./fabrinetes.py --cmd status --config-file containers.toml
+```
+
+**Status Information Includes:**
+- **Config Status**: File existence, size, modification date
+- **Image Status**: Base image and main image existence, size, creation date
+- **Tarball Status**: Base and main tarball existence, size, modification date (resolved relative to config file)
+- **Container Status**: Container existence and running state
+- **Directory Status**: Working directory permissions (where config file is located)
+- **Clear Error Messages**: User-friendly Docker error messages with actionable solutions
+
+**Example Output:**
+```
+Config Status:
+  Config File (config): ✅ (exists)
+    Size: 996.0B
+    Modified: 2025-01-15 13:49:22
+
+Image Status:
+  Base Image (config.base_image): ❌ (Docker daemon not running - start Docker service)
+  Main Image (config.image): ❌ (Docker daemon not running - start Docker service)
+
+Tarball Status:
+  Base Tarball (config.base_image.tarball_path): ✅ (exists)
+    Size: 800MB
+    Modified: 2025-01-14 10:30:25
+  Main Tarball (config.image.tarball_path): ❌ (not found)
+
+Container Status:
+  Container (config.container.name): ❌ (Docker daemon not running - start Docker service)
+
+Directory Status:
+  Working Directory: ✅ (exists, writable)
+```
+
+**TOML Key Mapping:**
+- `config` - The configuration file itself
+- `config.base_image` - Base image name and tag
+- `config.image` - Main image name and tag
+- `config.base_image.tarball_path` - Base image tarball path (supports env vars, absolute/relative paths)
+- `config.image.tarball_path` - Main image tarball path (supports env vars, absolute/relative paths)
+- `config.container.name` - Container name
+
+**Directory Logic:**
+- **Working Directory**: Where the config file is located (project directory)
+- **Tarball Paths**: Resolved relative to config file path (from config file settings)
+- **Single Source of Truth**: All paths come from config file, no redundant directory concepts
+
+**Tarball Path Configuration:**
+The `tarball_path` configuration supports flexible path resolution:
+- **Environment Variables**: `$HOME/tarballs/image.tar.gz` → `/home/user/tarballs/image.tar.gz`
+- **Absolute Paths**: `/absolute/path/to/image.tar.gz` → `/absolute/path/to/image.tar.gz`
+- **Relative Paths**: `relative/path/to/image.tar.gz` → resolved relative to config file location
+- **Simple Filenames**: `image.tar.gz` → resolved relative to config file location
+
+**Error Handling:**
+The status command provides clear, actionable error messages for common Docker issues:
+- `Docker daemon not running - start Docker service` - When Docker service is not running
+- `Permission denied - add user to docker group` - When user lacks Docker permissions
+- `Image not found - build or pull image first` - When Docker image doesn't exist
+- `Container not found - run container first` - When Docker container doesn't exist
+- `Network error - check Docker connectivity` - When Docker network issues occur
+
+### Help Commands
+- `./fabrinetes.py` (no arguments) → Shows only usage line
+- `./fabrinetes.py --cmd help` → Shows full help with examples and descriptions
+- `./fabrinetes.py -h` → Shows full help (standard argparse behavior)
 
 ---
 
