@@ -1,0 +1,289 @@
+# Docker Installation Guide for Fabrinetes
+
+## Overview
+
+This guide provides step-by-step instructions for installing Docker on Ubuntu 24.04 LTS and configuring it for use with Fabrinetes. Docker is required for Fabrinetes to build, run, and manage containerized development environments.
+
+## Prerequisites
+
+- Ubuntu 24.04 LTS (Noble Numbat) or compatible system
+- User with sudo privileges
+- Internet connection for package downloads
+- At least 2GB of available disk space
+
+## Installation Steps
+
+### 1. Check System Information
+
+First, verify your system information:
+
+```bash
+# Check OS version
+cat /etc/os-release
+
+# Check current user
+whoami
+
+# Check user groups
+groups
+```
+
+### 2. Update Package Lists
+
+Update the package lists to ensure you have the latest package information:
+
+```bash
+sudo apt update
+```
+
+### 3. Install Docker Engine
+
+Install Docker Engine using the Ubuntu package manager:
+
+```bash
+sudo apt install -y docker.io
+```
+
+This command installs:
+- `docker.io` - Docker Engine
+- `containerd` - Container runtime
+- `runc` - Container runtime
+- `bridge-utils` - Network bridge utilities
+- `dnsmasq-base` - DNS forwarder
+- `pigz` - Parallel gzip compression
+- `ubuntu-fan` - Ubuntu Fan networking
+
+### 4. Verify Installation
+
+Check that Docker is installed correctly:
+
+```bash
+# Check Docker version
+docker --version
+
+# Check Docker service status
+systemctl status docker
+```
+
+Expected output:
+```
+Docker version 28.2.2, build 28.2.2-0ubuntu1~24.04.1
+```
+
+### 5. Start and Enable Docker Service
+
+Docker service should start automatically, but verify and enable it:
+
+```bash
+# Start Docker service
+sudo systemctl start docker
+
+# Enable Docker service to start on boot
+sudo systemctl enable docker
+
+# Check service status
+systemctl status docker
+```
+
+### 6. Add User to Docker Group
+
+To run Docker commands without sudo, add your user to the docker group:
+
+```bash
+# Add current user to docker group
+sudo usermod -aG docker $USER
+
+# Verify group membership
+groups $USER
+```
+
+### 7. Refresh Group Membership
+
+Apply the new group membership:
+
+```bash
+# Option 1: Refresh groups in current session
+newgrp docker
+
+# Option 2: Log out and log back in
+# Option 3: Restart the system
+```
+
+### 8. Verify Docker Access
+
+Test that Docker works without sudo:
+
+```bash
+# Test Docker with hello-world container
+docker run --rm hello-world
+
+# Check Docker system information
+docker info
+
+# List Docker images
+docker images
+```
+
+Expected output for hello-world:
+```
+Hello from Docker!
+This message shows that your installation appears to be working correctly.
+```
+
+## Verification with Fabrinetes
+
+Test that Fabrinetes can access Docker:
+
+```bash
+# Navigate to Fabrinetes directory
+cd /path/to/Fabrinetes
+
+# Run status command
+./fabrinetes.py --cmd status --config-file containers/fabrinetes-dev-testing/config.toml
+```
+
+Expected output should show Docker connectivity without "Docker daemon not running" errors.
+
+## Troubleshooting
+
+### Docker Permission Denied
+
+If you get permission denied errors:
+
+```bash
+# Check if user is in docker group
+groups $USER
+
+# If not in docker group, add user
+sudo usermod -aG docker $USER
+
+# Refresh group membership
+newgrp docker
+```
+
+### Docker Service Not Running
+
+If Docker service is not running:
+
+```bash
+# Start Docker service
+sudo systemctl start docker
+
+# Check service status
+systemctl status docker
+
+# Check service logs
+journalctl -u docker.service
+```
+
+### Docker Images Not Found
+
+If Docker images are not found, this is normal for a fresh installation:
+
+```bash
+# Pull a test image
+docker pull ubuntu:latest
+
+# List available images
+docker images
+```
+
+### Network Issues
+
+If you have network connectivity issues:
+
+```bash
+# Check Docker network
+docker network ls
+
+# Check Docker daemon configuration
+docker info | grep -i network
+```
+
+## Docker Configuration
+
+### Storage Driver
+
+Docker uses the `overlay2` storage driver by default on Ubuntu 24.04, which is optimal for most use cases.
+
+### Network Configuration
+
+Docker creates a default bridge network. For Fabrinetes, this default configuration is sufficient.
+
+### Resource Limits
+
+By default, Docker has no resource limits. For development environments, this is typically acceptable.
+
+## Integration with Fabrinetes
+
+Once Docker is installed and configured:
+
+1. **Build Images**: Use `./fabrinetes.py --cmd build` to build base and main images
+2. **Run Containers**: Use `./fabrinetes.py --cmd run` to generate run commands
+3. **Manage Containers**: Use `./fabrinetes.py --cmd status` to check container status
+4. **Save/Load Images**: Use `./fabrinetes.py --cmd commit` and `./fabrinetes.py --cmd restore`
+
+## Maintenance
+
+### Updating Docker
+
+To update Docker to the latest version:
+
+```bash
+# Update package lists
+sudo apt update
+
+# Upgrade Docker
+sudo apt upgrade docker.io
+
+# Restart Docker service
+sudo systemctl restart docker
+```
+
+### Cleaning Up
+
+To clean up unused Docker resources:
+
+```bash
+# Remove unused containers
+docker container prune
+
+# Remove unused images
+docker image prune
+
+# Remove unused volumes
+docker volume prune
+
+# Remove unused networks
+docker network prune
+
+# Remove all unused resources
+docker system prune
+```
+
+## Security Considerations
+
+- Docker daemon runs with root privileges
+- Only add trusted users to the docker group
+- Regularly update Docker to get security patches
+- Use official images from Docker Hub when possible
+- Scan images for vulnerabilities in production environments
+
+## Additional Resources
+
+- [Docker Official Documentation](https://docs.docker.com/)
+- [Docker Hub](https://hub.docker.com/)
+- [Ubuntu Docker Installation](https://docs.docker.com/engine/install/ubuntu/)
+- [Docker Security Best Practices](https://docs.docker.com/engine/security/)
+
+## Installation Summary
+
+This installation provides:
+- Docker Engine 28.2.2
+- Containerd runtime
+- Overlay2 storage driver
+- Default bridge networking
+- User group permissions
+- Systemd service integration
+
+The installation is now ready for use with Fabrinetes and other containerized applications.
