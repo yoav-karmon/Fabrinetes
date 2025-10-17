@@ -70,14 +70,9 @@ def main():
     elif args.cmd == "clean-images":
         clean_images(args, container_info)
     
-    elif args.cmd is None and args.config_file:
-        print("Running all commands in sequence...")
-        
-        print("=== RUN ===")
-        run(args, container_info)
-        
-        print("=== COMMIT ===")
-        commit(args, container_info)
+    else:
+        print("❌ No command specified or invalid command")
+        parser.print_usage()
 
 if __name__ == "__main__":
     main()
