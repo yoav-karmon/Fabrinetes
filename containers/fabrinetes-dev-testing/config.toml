@@ -18,9 +18,9 @@ mounts = [
 ]
 
 [config.image]
-name = "fabrinetes-testing"
+name = "fabrinetes-image"
 tag = "latest"
-tarball_path = "fabrinetes-testing:latest.tar.gz"
+tarball_path = "fabrinetes-image:latest.tar.gz"
 dockerfile_path = "Dockerfile"
 package_list_path = "packages.txt"
 
