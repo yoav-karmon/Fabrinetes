@@ -27,6 +27,8 @@ class ContainerInfo:
     base_image_tarball_resolved: str
     base_image_dockerfile: str
     base_image_dockerfile_resolved: str
+    base_image_package_list: str
+    base_image_package_list_resolved: str
     
     # Container information
     container_name: str
@@ -227,7 +229,8 @@ Available Commands:
         base_image_full = f"{base_image_name}-{base_image_tag}"
         base_image_docker = f"{base_image_full}:{base_image_tag}"
         base_image_tarball = container_config['base_image']['tarball_path']
-        base_image_dockerfile = container_config['base_image'].get('dockerfile', 'Dockerfile')
+        base_image_dockerfile = container_config['base_image'].get('dockerfile_path', 'Dockerfile')
+        base_image_package_list = container_config['base_image'].get('package_list_path', 'packages.txt')
         
         # Container information
         container_name = container_config['container']['name']
@@ -255,6 +258,8 @@ Available Commands:
             base_image_tarball_resolved="",  # Will be set below
             base_image_dockerfile=base_image_dockerfile,
             base_image_dockerfile_resolved=None,  # Will be set below
+            base_image_package_list=base_image_package_list,
+            base_image_package_list_resolved=None,  # Will be set below
             
             # Container
             container_name=container_name,
@@ -289,8 +294,12 @@ Available Commands:
         # Use resolve method to get dockerfile path
         base_image_dockerfile_resolved = temp_info.resolve(base_image_dockerfile)
         
-        # Update the dockerfile resolved path
+        # Use resolve method to get package list path
+        base_image_package_list_resolved = temp_info.resolve(base_image_package_list)
+        
+        # Update the resolved paths
         temp_info.base_image_dockerfile_resolved = base_image_dockerfile_resolved
+        temp_info.base_image_package_list_resolved = base_image_package_list_resolved
         
         return temp_info
 

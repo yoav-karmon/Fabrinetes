@@ -21,6 +21,8 @@ mounts = [
 name = "fabrinetes-skeleton"
 tag = "latest"
 tarball_path = "fabrinetes-skeleton:latest.tar.gz"
+dockerfile_path = "Dockerfile"
+package_list_path = "packages.txt"
 
 
 [config.image]

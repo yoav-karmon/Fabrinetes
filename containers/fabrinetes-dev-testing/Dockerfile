@@ -2,10 +2,13 @@ FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install basic packages
+# Copy package list
+COPY packages.txt /tmp/packages.txt
+
+# Install packages from package list
 RUN apt-get update && \
-    apt-get install -y locales sudo python3 python3-pip gosu && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
+    xargs -a /tmp/packages.txt apt-get install -y && \
+    apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/packages.txt
 
 # Set up locales
 RUN locale-gen en_US.UTF-8 && update-locale LANG=en_US.UTF-8
