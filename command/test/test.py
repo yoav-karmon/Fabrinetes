@@ -11,7 +11,7 @@ from tabulate import tabulate
 @task
 def test(ctx, command=None, test_number=None, help=False):
 
-    from invoke_tasks.help.help import show_test_help
+    from command.help.help import show_test_help
 
     # Check for help flag or missing required arguments
     if help or not command:

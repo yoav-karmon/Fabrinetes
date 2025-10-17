@@ -11,7 +11,7 @@ def print_aligned_comment(text, comment_text, comment_column):
 
 def commit(args, container_info):
     """Generate a Docker commit command to stdout without executing it"""
-    from invoke_tasks.help.help import show_commit_help
+    from command.help.help import show_commit_help
     
     # Extract arguments from args object
     tag = getattr(args, 'tag', None)

@@ -14,7 +14,7 @@ def print_aligned_comment(text, comment_text, comment_column):
 
 def run(args, container_info):
     """Run a Docker container with the specified configuration"""
-    from invoke_tasks.help.help import show_run_help
+    from command.help.help import show_run_help
     
     # Extract arguments from args object
     rm = getattr(args, 'rm', False)

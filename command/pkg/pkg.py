@@ -11,7 +11,7 @@ import toml
 @task
 def pkg(ctx, container_name=None, container_id=None, help=False, recover=False, install=False, pkg_cache=None, offline=False, online=False, package=None):
     """Package recovery and installation: extract packages from containers or install from pkg-cache"""
-    from invoke_tasks.help.help import show_pkg_help
+    from command.help.help import show_pkg_help
     
     # Check for help flag or missing required arguments
     if help or (not container_name and not container_id):

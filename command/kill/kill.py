@@ -11,7 +11,7 @@ def kill(ctx, container_name=None, help=False):
         container_name: Name of the container to kill
         help: Show help information
     """
-    from invoke_tasks.help.help import show_kill_help
+    from command.help.help import show_kill_help
     
     # Check for help flag or missing required arguments
     if help or not container_name:

@@ -2,12 +2,12 @@
 
 ## Overview
 
-The `invoke_tasks` directory contains all the core functionality of Fabrinetes, organized as modular Python tasks using the `invoke` framework. Each task is responsible for a specific aspect of container and image management.
+The `command` directory contains all the core functionality of Fabrinetes, organized as modular Python tasks using the `invoke` framework. Each task is responsible for a specific aspect of container and image management.
 
 ## Directory Structure
 
 ```
-invoke_tasks/
+command/
 ├── __init__.py          # Package initialization
 ├── clean_image/         # Image cleanup operations
 ├── commit/              # Container commit operations
@@ -217,7 +217,7 @@ init_env = "path/to/init_env.sh"
 ## Development Guidelines
 
 ### Adding New Tasks
-1. Create new directory under `invoke_tasks/`
+1. Create new directory under `command/`
 2. Implement task function with proper decorators
 3. Add help text and argument validation
 4. Create comprehensive tests
