@@ -4,7 +4,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 # Install basic packages
 RUN apt-get update && \
-    apt-get install -y locales sudo python3 python3-pip su-exec && \
+    apt-get install -y locales sudo python3 python3-pip gosu && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Set up locales

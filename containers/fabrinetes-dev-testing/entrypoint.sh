@@ -6,27 +6,32 @@ set -e
 
 # Get user info from environment variables or use defaults
 USERNAME=${CONTAINER_USER:-$(whoami)}
-UID=${CONTAINER_UID:-$(id -u)}
-GID=${CONTAINER_GID:-$(id -g)}
+USER_UID=${CONTAINER_UID:-$(id -u)}
+USER_GID=${CONTAINER_GID:-$(id -g)}
 HOME_DIR=${CONTAINER_HOME:-/home/$USERNAME}
 
-echo "🔧 Setting up dynamic user: $USERNAME (UID:$UID, GID:$GID, HOME:$HOME_DIR)"
+echo "🔧 Setting up dynamic user: $USERNAME (UID:$USER_UID, GID:$USER_GID, HOME:$HOME_DIR)"
 
 # Create user and group dynamically (requires root privileges)
-if ! getent group "$GID" > /dev/null; then
-    echo "📁 Creating group: $USERNAME (GID:$GID)"
-    groupadd --gid "$GID" "$USERNAME"
+if ! getent group "$USER_GID" > /dev/null; then
+    echo "📁 Creating group: $USERNAME (GID:$USER_GID)"
+    groupadd --gid "$USER_GID" "$USERNAME"
 else
-    echo "📁 Group already exists: $(getent group "$GID" | cut -d: -f1)"
+    echo "📁 Group already exists: $(getent group "$USER_GID" | cut -d: -f1)"
 fi
 
-if ! getent passwd "$UID" > /dev/null; then
-    echo "👤 Creating user: $USERNAME (UID:$UID, HOME:$HOME_DIR)"
-    useradd --uid "$UID" --gid "$GID" --shell /bin/bash --create-home --home-dir "$HOME_DIR" "$USERNAME"
+if ! getent passwd "$USER_UID" > /dev/null; then
+    echo "👤 Creating user: $USERNAME (UID:$USER_UID, HOME:$HOME_DIR)"
+    useradd --uid "$USER_UID" --gid "$USER_GID" --shell /bin/bash --create-home --home-dir "$HOME_DIR" "$USERNAME"
 else
     echo "👤 User already exists, updating: $USERNAME"
-    usermod -l "$USERNAME" "$(getent passwd "$UID" | cut -d: -f1)"
-    usermod -d "$HOME_DIR" -m "$USERNAME"
+    # Don't try to modify root user if we're running as root
+    if [ "$USER_UID" != "0" ]; then
+        usermod -l "$USERNAME" "$(getent passwd "$USER_UID" | cut -d: -f1)"
+        usermod -d "$HOME_DIR" -m "$USERNAME"
+    else
+        echo "👤 Running as root, skipping user modification"
+    fi
 fi
 
 # Set up passwordless sudo for the user (requires root privileges)
@@ -48,4 +53,4 @@ echo "🚀 Switching to user: $USERNAME"
 echo "📂 Working directory: $HOME_DIR"
 
 # Switch to the user and execute the command
-exec su-exec "$USERNAME" "$@"
+exec gosu "$USERNAME" "$@"

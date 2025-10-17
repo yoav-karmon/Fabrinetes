@@ -3,7 +3,7 @@ __pycache__/
 *.pyo
 *.pyd
 .Python
-build/
+/build/
 develop-eggs/
 dist/
 downloads/
