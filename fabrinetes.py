@@ -21,13 +21,34 @@ from command.run.run import run
 from command.commit.commit import commit
 from command.restore.restore import restore
 
+# Import status helper
+from helper_functions.status_helper import collect_comprehensive_status, format_status_output
+
 def main():
     """Main function - command dispatcher"""
     parser = ContainerInfo.create_parser()
     args = parser.parse_args()
     
     if len(sys.argv) == 1:
+        parser.print_usage()
+        return
+    
+    # Handle help command early - doesn't need config file
+    if args.cmd == "help":
         parser.print_help()
+        return
+    
+    # Handle status command early - needs special error handling
+    if args.cmd == "status":
+        try:
+            container_info = ContainerInfo.from_args(args)
+            container_info = ContainerInfo.get_container_info(container_info.config_file_resolved)
+            status = collect_comprehensive_status(container_info)
+            print(format_status_output(status))
+        except FileNotFoundError as e:
+            print(f"❌ Config file not found: {e}")
+        except Exception as e:
+            print(f"❌ Error checking status: {e}")
         return
     
     container_info = ContainerInfo.from_args(args)
@@ -44,15 +65,6 @@ def main():
     
     elif args.cmd == "restore":
         restore(args, container_info)
-    
-    elif args.cmd == "status":
-        try:
-            container_info = ContainerInfo.get_container_info(container_info.config_file_resolved)
-            print(f"Config: {os.path.basename(container_info.config_file_resolved)}")
-            print(f"Image: {container_info.image_docker}")
-            print(f"Container: {container_info.run_name}")
-        except Exception as e:
-            print(f"❌ Error checking status: {e}")
     
     elif args.cmd is None and args.config_file:
         print("Running all commands in sequence...")
