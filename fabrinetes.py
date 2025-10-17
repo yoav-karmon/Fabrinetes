@@ -12,18 +12,8 @@ except ImportError as e:
     print("\n👋 Exiting gracefully")
     sys.exit(1)
 
-# Import ContainerInfo
-from helper_functions.config.name_generator import ContainerInfo
-
-# Import command modules
-from command.build.build import build
-from command.run.run import run
-from command.commit.commit import commit
-from command.restore.restore import restore
-from command.clean_images.clean_images import clean_images
-
-# Import status helper
-from helper_functions.status_helper import collect_comprehensive_status, format_status_output
+# Import ContainerInfo and CommandConfig
+from helper_functions.config.name_generator import ContainerInfo, CommandConfig
 
 def main():
     """Main function - command dispatcher"""
@@ -39,40 +29,35 @@ def main():
         parser.print_help()
         return
     
-    # Handle status command early - needs special error handling
-    if args.cmd == "status":
-        try:
-            container_info = ContainerInfo.from_args(args)
-            container_info = ContainerInfo.get_container_info(container_info.config_file_resolved)
-            status = collect_comprehensive_status(container_info)
-            print(format_status_output(status))
-        except FileNotFoundError as e:
-            print(f"❌ Config file not found: {e}")
-        except Exception as e:
-            print(f"❌ Error checking status: {e}")
-        return
+    # Get command definition from centralized config
+    all_commands = CommandConfig.get_all_commands()
+    cmd_def = all_commands.get(args.cmd)
     
-    container_info = ContainerInfo.from_args(args)
-    
-    # Dispatch commands
-    if args.cmd == "build":
-        build(args, container_info)
-    
-    elif args.cmd == "run":
-        run(args, container_info)
-    
-    elif args.cmd == "commit":
-        commit(args, container_info)
-    
-    elif args.cmd == "restore":
-        restore(args, container_info)
-    
-    elif args.cmd == "clean-images":
-        clean_images(args, container_info)
-    
-    else:
+    if cmd_def is None:
         print("❌ No command specified or invalid command")
         parser.print_usage()
+        return
+    
+    # Handle commands that don't require config file
+    if not cmd_def.requires_config:
+        cmd_def.function(args, None)
+        return
+    
+    # Handle commands that require config file
+    try:
+        container_info = ContainerInfo.from_args(args)
+        
+        # Special handling for status command
+        if args.cmd == "status":
+            container_info = ContainerInfo.get_container_info(container_info.config_file_resolved)
+        
+        # Execute the command
+        cmd_def.function(args, container_info)
+        
+    except FileNotFoundError as e:
+        print(f"❌ Config file not found: {e}")
+    except Exception as e:
+        print(f"❌ Error executing {args.cmd}: {e}")
 
 if __name__ == "__main__":
     main()

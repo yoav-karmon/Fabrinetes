@@ -1,2 +1,1 @@
-from .test import test
-
+# Test command module

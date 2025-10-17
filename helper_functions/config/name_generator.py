@@ -5,7 +5,126 @@ import sys
 import toml
 import argparse
 from dataclasses import dataclass
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Callable
+
+@dataclass
+class CommandDefinition:
+    """Definition for a single command"""
+    name: str
+    description: str
+    function: Callable
+    requires_config: bool = True
+    testable: bool = True
+
+@dataclass
+class CommandConfig:
+    """Centralized command configuration - single source of truth for all commands"""
+    
+    @classmethod
+    def get_all_commands(cls) -> Dict[str, CommandDefinition]:
+        """Get all available commands - single source of truth"""
+        from command.build.build import build
+        from command.run.run import run
+        from command.commit.commit import commit
+        from command.restore.restore import restore
+        from command.clean_images.clean_images import clean_images
+        from command.test.test import test
+        
+        return {
+            'build': CommandDefinition(
+                name='build',
+                description='Build image from Dockerfile',
+                function=build,
+                requires_config=True,
+                testable=True
+            ),
+            'run': CommandDefinition(
+                name='run',
+                description='Generate Docker run command',
+                function=run,
+                requires_config=True,
+                testable=True
+            ),
+            'commit': CommandDefinition(
+                name='commit',
+                description='Generate Docker commit command',
+                function=commit,
+                requires_config=True,
+                testable=True
+            ),
+            'restore': CommandDefinition(
+                name='restore',
+                description='Generate Docker restore command',
+                function=restore,
+                requires_config=True,
+                testable=True
+            ),
+            'status': CommandDefinition(
+                name='status',
+                description='Show config file status',
+                function=cls._status_command,
+                requires_config=True,
+                testable=True
+            ),
+            'help': CommandDefinition(
+                name='help',
+                description='Show this help message',
+                function=cls._help_command,
+                requires_config=False,
+                testable=False
+            ),
+            'clean-images': CommandDefinition(
+                name='clean-images',
+                description='Remove Docker image',
+                function=clean_images,
+                requires_config=True,
+                testable=True
+            ),
+            'test': CommandDefinition(
+                name='test',
+                description='Run all commands in test mode',
+                function=test,
+                requires_config=True,
+                testable=False
+            )
+        }
+    
+    @classmethod
+    def get_command_names(cls) -> List[str]:
+        """Get list of command names for argument parser"""
+        return list(cls.get_all_commands().keys())
+    
+    @classmethod
+    def get_testable_commands(cls) -> List[str]:
+        """Get list of testable command names"""
+        commands = cls.get_all_commands()
+        return [name for name, cmd in commands.items() if cmd.testable]
+    
+    @classmethod
+    def get_command_description(cls, name: str) -> str:
+        """Get description for a specific command"""
+        commands = cls.get_all_commands()
+        cmd_def = commands.get(name)
+        return cmd_def.description if cmd_def else 'Unknown command'
+    
+    @classmethod
+    def _status_command(cls, args, container_info):
+        """Internal status command implementation"""
+        try:
+            from helper_functions.status_helper import collect_comprehensive_status, format_status_output
+            container_info = ContainerInfo.get_container_info(container_info.config_file_resolved)
+            status = collect_comprehensive_status(container_info)
+            print(format_status_output(status))
+        except FileNotFoundError as e:
+            print(f"❌ Config file not found: {e}")
+        except Exception as e:
+            print(f"❌ Error checking status: {e}")
+    
+    @classmethod
+    def _help_command(cls, args, container_info):
+        """Internal help command implementation"""
+        parser = ContainerInfo.create_parser()
+        parser.print_help()
 
 @dataclass
 class ContainerInfo:
@@ -99,31 +218,34 @@ class ContainerInfo:
     @classmethod
     def create_parser(cls) -> argparse.ArgumentParser:
         """Create and configure the argument parser"""
+        # Get command names and descriptions from centralized config
+        command_names = CommandConfig.get_command_names()
+        command_descriptions = []
+        
+        for name in command_names:
+            desc = CommandConfig.get_command_description(name)
+            command_descriptions.append(f"  {name:<12} - {desc}")
+        
         parser = argparse.ArgumentParser(
             description="Fabrinetes - Docker Container Management Tool",
             formatter_class=argparse.RawDescriptionHelpFormatter,
-            epilog="""
+            epilog=f"""
 Examples:
   %(prog)s --cmd run --config-file containers.toml
   %(prog)s --cmd build --config-file containers.toml
   %(prog)s --cmd status --config-file containers.toml
   %(prog)s --cmd restore --config-file containers.toml
   %(prog)s --cmd clean-images --config-file containers.toml
+  %(prog)s --cmd test --config-file containers.toml
 
 Available Commands:
-  build        - Build image from Dockerfile
-  run          - Generate Docker run command
-  commit       - Generate Docker commit command
-  restore      - Generate Docker restore command
-  status       - Show config file status
-  help         - Show this help message
-  clean-images - Remove Docker image
+{chr(10).join(command_descriptions)}
             """
         )
         
-        # Main command structure
+        # Main command structure - use centralized command names
         parser.add_argument('--cmd', 
-                           choices=['build', 'run', 'commit', 'restore', 'status', 'help', 'clean-images'],
+                           choices=command_names,
                            help='Command to execute')
         parser.add_argument('--config-file', 
                            help='Path to config.toml file')
