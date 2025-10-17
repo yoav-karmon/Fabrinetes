@@ -137,6 +137,9 @@ Available Commands:
         parser.add_argument('--buildbase', 
                            action='store_true',
                            help='Build base image from Dockerfile (required for build command)')
+        parser.add_argument('--tarball', 
+                           action='store_true',
+                           help='Generate docker save command to create tarball (does not execute)')
         
         # Run command arguments
         parser.add_argument('--rm', 
