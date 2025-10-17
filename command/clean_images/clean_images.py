@@ -10,7 +10,6 @@ def clean_images(args, container_info):
     """Generate Docker rmi command to remove existing images"""
     
     # Extract arguments from args object
-    base_image = getattr(args, 'base_image', False)
     help_flag = getattr(args, 'help', False)
     
     # Check for help flag
@@ -19,17 +18,10 @@ def clean_images(args, container_info):
         show_clean_images_help()
         return
     
-    # Determine which image to clean based on --base-image flag
-    if base_image:
-        # Clean base image
-        image_name = container_info.base_image_docker
-        image_type = "Base Image"
-        config_key = "config.base_image"
-    else:
-        # Clean main image
-        image_name = container_info.image_docker
-        image_type = "Main Image"
-        config_key = "config.image"
+    # Clean image
+    image_name = container_info.image_docker
+    image_type = "Image"
+    config_key = "config.image"
     
     # Build the docker rmi command parts
     cmd_parts = ["docker", "rmi", "-f", image_name]

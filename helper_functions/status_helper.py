@@ -131,12 +131,10 @@ class StatusCollector:
         config_file = self.collect_file_status(self.container_info.config_file_resolved, "Config File", "config")
         
         # Image status
-        base_image = self.collect_docker_image_status(self.container_info.base_image_docker, "Base Image", "config.base_image")
-        main_image = self.collect_docker_image_status(self.container_info.image_docker, "Main Image", "config.image")
+        image = self.collect_docker_image_status(self.container_info.image_docker, "Image", "config.image")
         
         # Tarball status
-        base_tarball = self.collect_file_status(self.container_info.base_image_tarball_resolved, "Base Tarball", "config.base_image.tarball_path")
-        main_tarball = self.collect_file_status(self.container_info.image_tarball_resolved, "Main Tarball", "config.image.tarball_path")
+        tarball = self.collect_file_status(self.container_info.image_tarball_resolved, "Tarball", "config.image.tarball_path")
         
         # Container status
         container = self.collect_docker_container_status(self.container_info.run_name, "Container", "config.container.name")
@@ -146,10 +144,8 @@ class StatusCollector:
         
         return ContainerStatus(
             config_file=config_file,
-            base_image=base_image,
-            main_image=main_image,
-            base_tarball=base_tarball,
-            main_tarball=main_tarball,
+            image=image,
+            tarball=tarball,
             container=container,
             working_directory=working_directory
         )
@@ -161,12 +157,10 @@ class ContainerStatus:
     config_file: StatusInfo
     
     # Image status
-    base_image: StatusInfo
-    main_image: StatusInfo
+    image: StatusInfo
     
     # Tarball status
-    base_tarball: StatusInfo
-    main_tarball: StatusInfo
+    tarball: StatusInfo
     
     # Container status
     container: StatusInfo
@@ -197,26 +191,26 @@ def format_status_output(status: ContainerStatus) -> str:
     
     # Image Status
     output.append("Image Status:")
-    for image in [status.base_image, status.main_image]:
-        status_icon = "✅" if image.exists else "❌"
-        label = f"{image.name} ({image.toml_key})" if image.toml_key else image.name
-        output.append(f"  {label}: {status_icon} ({image.status})")
-        if image.size:
-            output.append(f"    Size: {image.size}")
-        if image.modified:
-            output.append(f"    Created: {image.modified}")
+    image = status.image
+    status_icon = "✅" if image.exists else "❌"
+    label = f"{image.name} ({image.toml_key})" if image.toml_key else image.name
+    output.append(f"  {label}: {status_icon} ({image.status})")
+    if image.size:
+        output.append(f"    Size: {image.size}")
+    if image.modified:
+        output.append(f"    Created: {image.modified}")
     output.append("")
     
     # Tarball Status
     output.append("Tarball Status:")
-    for tarball in [status.base_tarball, status.main_tarball]:
-        status_icon = "✅" if tarball.exists else "❌"
-        label = f"{tarball.name} ({tarball.toml_key})" if tarball.toml_key else tarball.name
-        output.append(f"  {label}: {status_icon} ({tarball.status})")
-        if tarball.size:
-            output.append(f"    Size: {tarball.size}")
-        if tarball.modified:
-            output.append(f"    Modified: {tarball.modified}")
+    tarball = status.tarball
+    status_icon = "✅" if tarball.exists else "❌"
+    label = f"{tarball.name} ({tarball.toml_key})" if tarball.toml_key else tarball.name
+    output.append(f"  {label}: {status_icon} ({tarball.status})")
+    if tarball.size:
+        output.append(f"    Size: {tarball.size}")
+    if tarball.modified:
+        output.append(f"    Modified: {tarball.modified}")
     output.append("")
     
     # Container Status

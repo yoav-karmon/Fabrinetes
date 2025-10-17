@@ -17,18 +17,12 @@ mounts = [
     "vscode/.vscode-server:$HOME/.vscode-server",
 ]
 
-[config.base_image]
-name = "fabrinetes-skeleton"
-tag = "latest"
-tarball_path = "fabrinetes-skeleton:latest.tar.gz"
-dockerfile_path = "Dockerfile"
-package_list_path = "packages.txt"
-
-
 [config.image]
 name = "fabrinetes-testing"
 tag = "latest"
 tarball_path = "fabrinetes-testing:latest.tar.gz"
+dockerfile_path = "Dockerfile"
+package_list_path = "packages.txt"
 
 
 [config.container]

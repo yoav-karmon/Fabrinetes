@@ -17,18 +17,10 @@ class ContainerInfo:
     image_docker: str
     image_tarball: str
     image_tarball_resolved: str
-    
-    # Base image information
-    base_image_name: str
-    base_image_tag: str
-    base_image_full: str
-    base_image_docker: str
-    base_image_tarball: str
-    base_image_tarball_resolved: str
-    base_image_dockerfile: str
-    base_image_dockerfile_resolved: str
-    base_image_package_list: str
-    base_image_package_list_resolved: str
+    image_dockerfile: str
+    image_dockerfile_resolved: str
+    image_package_list: str
+    image_package_list_resolved: str
     
     # Container information
     container_name: str
@@ -113,19 +105,19 @@ class ContainerInfo:
             epilog="""
 Examples:
   %(prog)s --cmd run --config-file containers.toml
-  %(prog)s --cmd build --config-file containers.toml --base-image
+  %(prog)s --cmd build --config-file containers.toml
   %(prog)s --cmd status --config-file containers.toml
-  %(prog)s --cmd restore --config-file containers.toml --base-image
-  %(prog)s --cmd clean-images --config-file containers.toml --base-image
+  %(prog)s --cmd restore --config-file containers.toml
+  %(prog)s --cmd clean-images --config-file containers.toml
 
 Available Commands:
-  build        - Build base image from Dockerfile
+  build        - Build image from Dockerfile
   run          - Generate Docker run command
   commit       - Generate Docker commit command
   restore      - Generate Docker restore command
   status       - Show config file status
   help         - Show this help message
-  clean-images - Remove Docker images (base image if --base-image, main image otherwise)
+  clean-images - Remove Docker image
             """
         )
         
@@ -137,9 +129,6 @@ Available Commands:
                            help='Path to config.toml file')
         
         # Build command arguments
-        parser.add_argument('--base-image', 
-                           action='store_true',
-                           help='Build base image from Dockerfile (required for build command)')
         parser.add_argument('--tarball', 
                            action='store_true',
                            help='Generate docker save command to create tarball (does not execute)')
@@ -222,15 +211,8 @@ Available Commands:
         image_full = f"{image_name}-{image_tag}"
         image_docker = f"{image_full}:{image_tag}"
         image_tarball = container_config['image']['tarball_path']
-        
-        # Base image information
-        base_image_name = container_config['base_image']['name']
-        base_image_tag = container_config['base_image']['tag']
-        base_image_full = f"{base_image_name}-{base_image_tag}"
-        base_image_docker = f"{base_image_full}:{base_image_tag}"
-        base_image_tarball = container_config['base_image']['tarball_path']
-        base_image_dockerfile = container_config['base_image'].get('dockerfile_path', 'Dockerfile')
-        base_image_package_list = container_config['base_image'].get('package_list_path', 'packages.txt')
+        image_dockerfile = container_config['image'].get('dockerfile_path', 'Dockerfile')
+        image_package_list = container_config['image'].get('package_list_path', 'packages.txt')
         
         # Container information
         container_name = container_config['container']['name']
@@ -248,18 +230,10 @@ Available Commands:
             image_docker=image_docker,
             image_tarball=image_tarball,
             image_tarball_resolved="",  # Will be set below
-            
-            # Base image
-            base_image_name=base_image_name,
-            base_image_tag=base_image_tag,
-            base_image_full=base_image_full,
-            base_image_docker=base_image_docker,
-            base_image_tarball=base_image_tarball,
-            base_image_tarball_resolved="",  # Will be set below
-            base_image_dockerfile=base_image_dockerfile,
-            base_image_dockerfile_resolved=None,  # Will be set below
-            base_image_package_list=base_image_package_list,
-            base_image_package_list_resolved=None,  # Will be set below
+            image_dockerfile=image_dockerfile,
+            image_dockerfile_resolved=None,  # Will be set below
+            image_package_list=image_package_list,
+            image_package_list_resolved=None,  # Will be set below
             
             # Container
             container_name=container_name,
@@ -283,23 +257,21 @@ Available Commands:
         
         # Now resolve tarball paths using the helper function
         tarball_path_resolved = temp_info.resolve_tarball_path(image_tarball)
-        base_image_tarball_resolved = temp_info.resolve_tarball_path(base_image_tarball)
         image_tarball_resolved = temp_info.resolve_tarball_path(image_tarball)
         
         # Update the resolved paths
         temp_info.tarball_path_resolved = tarball_path_resolved
-        temp_info.base_image_tarball_resolved = base_image_tarball_resolved
         temp_info.image_tarball_resolved = image_tarball_resolved
         
         # Use resolve method to get dockerfile path
-        base_image_dockerfile_resolved = temp_info.resolve(base_image_dockerfile)
+        image_dockerfile_resolved = temp_info.resolve(image_dockerfile)
         
         # Use resolve method to get package list path
-        base_image_package_list_resolved = temp_info.resolve(base_image_package_list)
+        image_package_list_resolved = temp_info.resolve(image_package_list)
         
         # Update the resolved paths
-        temp_info.base_image_dockerfile_resolved = base_image_dockerfile_resolved
-        temp_info.base_image_package_list_resolved = base_image_package_list_resolved
+        temp_info.image_dockerfile_resolved = image_dockerfile_resolved
+        temp_info.image_package_list_resolved = image_package_list_resolved
         
         return temp_info
 
