@@ -16,6 +16,7 @@ class ContainerInfo:
     image_full: str
     image_docker: str
     image_tarball: str
+    image_tarball_resolved: str
     
     # Base image information
     base_image_name: str
@@ -23,6 +24,7 @@ class ContainerInfo:
     base_image_full: str
     base_image_docker: str
     base_image_tarball: str
+    base_image_tarball_resolved: str
     base_image_dockerfile: str
     base_image_dockerfile_resolved: str
     
@@ -32,17 +34,14 @@ class ContainerInfo:
     
     # Paths (original from config)
     tarball_path: str
-    tarball_directory: str
     
     # Paths (resolved absolute)
     tarball_path_resolved: str
-    tarball_directory_resolved: str
     
     # Working directory and config paths
     working_directory: str
     config_file: str
     config_file_resolved: str
-    config_directory: str
     
     # Configuration
     mounts: List[str]
@@ -65,7 +64,7 @@ class ContainerInfo:
                 resolved_path = path
             else:
                 # Resolve relative to config directory
-                resolved_path = os.path.join(self.config_directory, path)
+                resolved_path = os.path.join(self.working_directory, path)
             
             # Check if the resolved path exists
             if os.path.exists(resolved_path):
@@ -74,6 +73,34 @@ class ContainerInfo:
                 return None
         except Exception:
             return None
+    
+    def resolve_tarball_path(self, path: str) -> str:
+        """Resolve tarball path with environment variable support
+        
+        Supports:
+        - Environment variables: $HOME/tarballs/image.tar.gz
+        - Absolute paths: /absolute/path/to/image.tar.gz
+        - Relative paths: relative/path/to/image.tar.gz (relative to config file)
+        
+        Args:
+            path: Tarball path to resolve
+            
+        Returns:
+            Resolved absolute path
+        """
+        try:
+            # Expand environment variables
+            expanded_path = os.path.expandvars(path)
+            
+            # If path is already absolute, use it as is
+            if os.path.isabs(expanded_path):
+                return expanded_path
+            else:
+                # Resolve relative to working directory (config file location)
+                return os.path.join(self.working_directory, expanded_path)
+        except Exception:
+            # Return original path if resolution fails
+            return path
     
     @classmethod
     def create_parser(cls) -> argparse.ArgumentParser:
@@ -95,12 +122,13 @@ Available Commands:
   commit   - Generate Docker commit command
   restore  - Generate Docker restore command
   status   - Show config file status
+  help     - Show this help message
             """
         )
         
         # Main command structure
         parser.add_argument('--cmd', 
-                           choices=['build', 'run', 'commit', 'restore', 'status'],
+                           choices=['build', 'run', 'commit', 'restore', 'status', 'help'],
                            help='Command to execute')
         parser.add_argument('--config-file', 
                            help='Path to config.toml file')
@@ -175,11 +203,11 @@ Available Commands:
         # Resolve config file to absolute path
         config_file_absolute = os.path.abspath(config_file)
         
-        # Get working directory (where the script was invoked from)
-        working_directory = os.getcwd()
+        # Get working directory (where the config file is located)
+        working_directory = os.path.dirname(config_file_absolute)
         
-        # Get config directory
-        config_directory = os.path.dirname(config_file_absolute)
+        # Get tarball directory (where the script was invoked from - where tarballs are stored)
+        tarball_directory_base = os.getcwd()
         
         # Load config
         config = toml.load(config_file_absolute)
@@ -190,14 +218,14 @@ Available Commands:
         image_tag = container_config['image']['tag']
         image_full = f"{image_name}-{image_tag}"
         image_docker = f"{image_full}:{image_tag}"
-        image_tarball = container_config['image']['tarball_name']
+        image_tarball = container_config['image']['tarball_path']
         
         # Base image information
         base_image_name = container_config['base_image']['name']
         base_image_tag = container_config['base_image']['tag']
         base_image_full = f"{base_image_name}-{base_image_tag}"
         base_image_docker = f"{base_image_full}:{base_image_tag}"
-        base_image_tarball = container_config['base_image']['tarball_name']
+        base_image_tarball = container_config['base_image']['tarball_path']
         base_image_dockerfile = container_config['base_image'].get('dockerfile', 'Dockerfile')
         
         # Container information
@@ -205,14 +233,9 @@ Available Commands:
         run_name = f"{image_full}.run"
         
         # Paths (original from config)
-        tarball_directory = f"containers/{image_name}"
-        tarball_path = f"{tarball_directory}/{image_tarball}"
+        tarball_path = image_tarball
         
-        # Resolved absolute paths
-        tarball_directory_resolved = os.path.join(config_directory, tarball_directory)
-        tarball_path_resolved = os.path.join(config_directory, tarball_path)
-        
-        # Create temporary ContainerInfo to use resolve method
+        # Create temporary ContainerInfo to use resolve methods
         temp_info = cls(
             # Image
             image_name=image_name,
@@ -220,6 +243,7 @@ Available Commands:
             image_full=image_full,
             image_docker=image_docker,
             image_tarball=image_tarball,
+            image_tarball_resolved="",  # Will be set below
             
             # Base image
             base_image_name=base_image_name,
@@ -227,6 +251,7 @@ Available Commands:
             base_image_full=base_image_full,
             base_image_docker=base_image_docker,
             base_image_tarball=base_image_tarball,
+            base_image_tarball_resolved="",  # Will be set below
             base_image_dockerfile=base_image_dockerfile,
             base_image_dockerfile_resolved=None,  # Will be set below
             
@@ -236,22 +261,29 @@ Available Commands:
             
             # Paths (original from config)
             tarball_path=tarball_path,
-            tarball_directory=tarball_directory,
             
-            # Paths (resolved absolute)
-            tarball_path_resolved=tarball_path_resolved,
-            tarball_directory_resolved=tarball_directory_resolved,
+            # Paths (resolved absolute) - will be updated below
+            tarball_path_resolved="",
             
             # Working directory and config paths
             working_directory=working_directory,
             config_file=config_file,
             config_file_resolved=config_file_absolute,
-            config_directory=config_directory,
             
             # Configuration
             mounts=container_config['mounts'],
             x11_path=container_config['X11_path']
         )
+        
+        # Now resolve tarball paths using the helper function
+        tarball_path_resolved = temp_info.resolve_tarball_path(image_tarball)
+        base_image_tarball_resolved = temp_info.resolve_tarball_path(base_image_tarball)
+        image_tarball_resolved = temp_info.resolve_tarball_path(image_tarball)
+        
+        # Update the resolved paths
+        temp_info.tarball_path_resolved = tarball_path_resolved
+        temp_info.base_image_tarball_resolved = base_image_tarball_resolved
+        temp_info.image_tarball_resolved = image_tarball_resolved
         
         # Use resolve method to get dockerfile path
         base_image_dockerfile_resolved = temp_info.resolve(base_image_dockerfile)

@@ -16,12 +16,12 @@ mounts = [
 [config.image]
 name = "fabrinetes-fpga-full"
 tag = "latest"
-tarball_name = "fabrinetes-fpga-full-latest.tar.gz"
+tarball_path = "fabrinetes-fpga-full-latest.tar.gz"
 
 [config.base_image]
 name = "fabrinetes-skeleton"
 tag = "latest"
-tarball_name = "fabrinetes-skeleton-latest.tar.gz"
+tarball_path = "fabrinetes-skeleton-latest.tar.gz"
 
 [config.container]
 name = "fpga-dev"

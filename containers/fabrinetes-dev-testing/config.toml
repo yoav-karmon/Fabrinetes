@@ -21,13 +21,13 @@ mounts = [
 [config.base_image]
 name = "fabrinetes-skeleton"
 tag = "latest"
-tarball_name = "fabrinetes-skeleton:latest.tar.gz"
+tarball_path = "fabrinetes-skeleton:latest.tar.gz"
 
 
 [config.image]
 name = "fabrinetes-testing"
 tag = "latest"
-tarball_name = "fabrinetes-testing:latest.tar.gz"
+tarball_path = "fabrinetes-testing:latest.tar.gz"
 
 
 [config.container]
