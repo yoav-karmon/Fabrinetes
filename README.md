@@ -201,6 +201,48 @@ tarball_path = container_info.tarball_path       # "containers/fabrinetes-dev-te
 ./fabrinetes.py --cmd status --config-file containers.toml
 ```
 
+### Dynamic User Setup
+
+Fabrinetes containers now support **dynamic user creation** at runtime instead of static build-time user setup. This makes containers reusable for any user without hardcoded paths.
+
+#### How It Works
+- **Entrypoint Script**: Creates user dynamically when container starts
+- **Environment Variables**: Configure user details at runtime
+- **Passwordless Sudo**: Automatically set up for the created user
+- **Dynamic Paths**: All paths use `$HOME` instead of hardcoded user directories
+
+#### Environment Variables
+```bash
+# Optional - defaults to current user if not specified
+CONTAINER_USER=username    # Username to create
+CONTAINER_UID=1000         # User ID
+CONTAINER_GID=1000         # Group ID  
+CONTAINER_HOME=/home/user  # Home directory
+```
+
+#### Example Usage
+```bash
+# Run with default user (current user)
+docker run -it fabrinetes-testing-dynamic
+
+# Run with custom user
+docker run -it \
+  -e CONTAINER_USER=developer \
+  -e CONTAINER_UID=1001 \
+  -e CONTAINER_GID=1001 \
+  fabrinetes-testing-dynamic
+
+# Test dynamic user setup
+./containers/fabrinetes-dev-testing/test-dynamic-user.sh
+```
+
+#### Benefits
+- ✅ **Reusable**: Same container works for any user
+- ✅ **No Hardcoded Paths**: All paths use environment variables
+- ✅ **Passwordless Sudo**: Automatically configured
+- ✅ **Runtime Flexibility**: User creation happens at container start
+- ✅ **Security**: Proper user isolation and permissions
+
 ### Status Command
 The status command provides comprehensive information about all container components:
 
