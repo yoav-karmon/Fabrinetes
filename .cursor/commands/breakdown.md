@@ -5,6 +5,8 @@ code design guide lines:
     - put all fucntion it used as member functions
     - call process once in code, then pass it as refernce
 
+- import: all import done on top of file
+
 1. tasks list: 
     1.1 break this prompt into small simple tasks first and list them
     1.2 five this task list a name
