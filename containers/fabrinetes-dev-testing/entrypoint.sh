@@ -40,8 +40,8 @@ echo "$USERNAME ALL=(ALL) NOPASSWD:ALL" > "/etc/sudoers.d/$USERNAME"
 chmod 0440 "/etc/sudoers.d/$USERNAME"
 
 # Set hostname (requires root privileges)
-echo "🏷️ Setting hostname to: skeleton"
-echo "skeleton" > /etc/hostname
+echo "🏷️ Setting hostname to: Fabrinetes"
+echo "Fabrinetes" > /etc/hostname
 
 # Set up environment variables for the user
 export HOME="$HOME_DIR"
