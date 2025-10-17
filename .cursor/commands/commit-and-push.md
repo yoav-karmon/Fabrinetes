@@ -1,4 +1,4 @@
-make sure .cursor/commands
+make sure .cursor/* is not ignored by git
 review all files changed using git diff
 group files by LOGICAL SUBJECT (not by file count)
 - One logical feature/refactoring = One commit (even if it touches many files)
