@@ -114,21 +114,22 @@ Examples:
   %(prog)s --cmd build --config-file containers.toml --base-image
   %(prog)s --cmd status --config-file containers.toml
   %(prog)s --cmd restore --config-file containers.toml --base-image
-  %(prog)s --cmd commit --config-file containers.toml
+  %(prog)s --cmd clean-images --config-file containers.toml --base-image
 
 Available Commands:
-  build    - Build base image from Dockerfile
-  run      - Generate Docker run command
-  commit   - Generate Docker commit command
-  restore  - Generate Docker restore command
-  status   - Show config file status
-  help     - Show this help message
+  build        - Build base image from Dockerfile
+  run          - Generate Docker run command
+  commit       - Generate Docker commit command
+  restore      - Generate Docker restore command
+  status       - Show config file status
+  help         - Show this help message
+  clean-images - Remove Docker images (base image if --base-image, main image otherwise)
             """
         )
         
         # Main command structure
         parser.add_argument('--cmd', 
-                           choices=['build', 'run', 'commit', 'restore', 'status', 'help'],
+                           choices=['build', 'run', 'commit', 'restore', 'status', 'help', 'clean-images'],
                            help='Command to execute')
         parser.add_argument('--config-file', 
                            help='Path to config.toml file')
@@ -137,9 +138,6 @@ Available Commands:
         parser.add_argument('--base-image', 
                            action='store_true',
                            help='Build base image from Dockerfile (required for build command)')
-        parser.add_argument('--clean-images', 
-                           action='store_true',
-                           help='Remove existing images before building (base image if --base-image, main image otherwise)')
         parser.add_argument('--tarball', 
                            action='store_true',
                            help='Generate docker save command to create tarball (does not execute)')

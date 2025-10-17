@@ -20,6 +20,7 @@ from command.build.build import build
 from command.run.run import run
 from command.commit.commit import commit
 from command.restore.restore import restore
+from command.clean_images.clean_images import clean_images
 
 # Import status helper
 from helper_functions.status_helper import collect_comprehensive_status, format_status_output
@@ -65,6 +66,9 @@ def main():
     
     elif args.cmd == "restore":
         restore(args, container_info)
+    
+    elif args.cmd == "clean-images":
+        clean_images(args, container_info)
     
     elif args.cmd is None and args.config_file:
         print("Running all commands in sequence...")
