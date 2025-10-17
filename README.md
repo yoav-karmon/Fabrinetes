@@ -226,8 +226,8 @@ This repository contains comprehensive documentation:
 - **[HDLForge v2.0 Migration Guide](./HDLForge_v2_Migration_Guide.md)** - Complete migration guide for HDLForge v2.0, including command structure changes and examples
 
 ### Technical Documentation
-- **[Invoke Tasks](./invoke_tasks/README.md)** - Complete documentation of all Fabrinetes tasks, including architecture, usage, and development guidelines
-- **[Test Framework](./invoke_tasks/test/README.md)** - Detailed documentation of the automated testing system, test scenarios, and framework architecture
+- **[Command Tasks](./command/README.md)** - Complete documentation of all Fabrinetes tasks, including architecture, usage, and development guidelines
+- **[Test Framework](./command/test/README.md)** - Detailed documentation of the automated testing system, test scenarios, and framework architecture
 
 ### Development Guidelines
 - **ContainerInfo Dataclass** - Centralized naming system using `ContainerInfo` dataclass for all container, image, and tarball naming. Always use `get_container_info(config_file)` to get consistent naming across all modules.

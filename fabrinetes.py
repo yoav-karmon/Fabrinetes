@@ -7,7 +7,6 @@ import sys
 try:
     import toml
     import docker
-    print("🔧 Fabrinetes ready!")
 except ImportError as e:
     print(f"❌ Missing package: {e}")
     print("\n👋 Exiting gracefully")
@@ -15,6 +14,12 @@ except ImportError as e:
 
 # Import ContainerInfo
 from helper_functions.config.name_generator import ContainerInfo
+
+# Import command modules
+from command.build.build import build
+from command.run.run import run
+from command.commit.commit import commit
+from command.restore.restore import restore
 
 def main():
     """Main function - command dispatcher"""
@@ -27,38 +32,18 @@ def main():
     
     container_info = ContainerInfo.from_args(args)
     
-    # Dispatch commands with try-catch
+    # Dispatch commands
     if args.cmd == "build":
-        try:
-            from invoke_tasks.build.build import build
-            build(args, container_info)
-        except ImportError as e:
-            print(f"❌ Failed to import build module: {e}")
-            sys.exit(1)
+        build(args, container_info)
     
     elif args.cmd == "run":
-        try:
-            from invoke_tasks.run.run import run
-            run(args, container_info)
-        except ImportError as e:
-            print(f"❌ Failed to import run module: {e}")
-            sys.exit(1)
+        run(args, container_info)
     
     elif args.cmd == "commit":
-        try:
-            from invoke_tasks.commit.commit import commit
-            commit(args, container_info)
-        except ImportError as e:
-            print(f"❌ Failed to import commit module: {e}")
-            sys.exit(1)
+        commit(args, container_info)
     
     elif args.cmd == "restore":
-        try:
-            from invoke_tasks.restore.restore import restore
-            restore(args, container_info)
-        except ImportError as e:
-            print(f"❌ Failed to import restore module: {e}")
-            sys.exit(1)
+        restore(args, container_info)
     
     elif args.cmd == "status":
         try:
@@ -73,20 +58,10 @@ def main():
         print("Running all commands in sequence...")
         
         print("=== RUN ===")
-        try:
-            from invoke_tasks.run.run import run
-            run(args, container_info)
-        except ImportError as e:
-            print(f"❌ Failed to import run module: {e}")
-            sys.exit(1)
+        run(args, container_info)
         
         print("=== COMMIT ===")
-        try:
-            from invoke_tasks.commit.commit import commit
-            commit(args, container_info)
-        except ImportError as e:
-            print(f"❌ Failed to import commit module: {e}")
-            sys.exit(1)
+        commit(args, container_info)
 
 if __name__ == "__main__":
     main()
