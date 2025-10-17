@@ -27,7 +27,7 @@ def setup_x11_support(x11, X11_path, cmd_parts):
 
     return cmd_parts
 
-def resolve_mounts(mounts: List[str], config_directory: pathlib.Path) -> List[Tuple[str, str]]:
+def resolve_mounts(mounts: List[str], working_directory: pathlib.Path) -> List[Tuple[str, str]]:
     """Return mount paths as-is from config file without any resolution"""
     resolved_mounts = []
     

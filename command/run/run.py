@@ -48,7 +48,7 @@ def run(args, container_info):
     cmd_parts = ["docker", "run", "-dit"]
     
     # Add WORKDIR environment variable (always)
-    cmd_parts.extend(["-e", f"WORKDIR={container_info.config_directory}"])
+    cmd_parts.extend(["-e", f"WORKDIR={container_info.working_directory}"])
     
     if rm:
         cmd_parts.append("--rm")
@@ -64,7 +64,7 @@ def run(args, container_info):
         cmd_parts.append(f"-e {key}={value}")
     
     # Resolve and add mounts
-    relative_path = pathlib.Path(container_info.config_directory)
+    relative_path = pathlib.Path(container_info.working_directory)
     resolved_mounts = resolve_mounts(mounts, relative_path)
     
     for host_path, container_path in resolved_mounts:
@@ -127,7 +127,7 @@ def run(args, container_info):
     
     # Print base command
     print_aligned_comment("# docker run -dit", "# Base Docker run command with detached, interactive, tty", comment_column)
-    print_aligned_comment(f"#     -e WORKDIR={container_info.config_directory}", "# Set working directory for relative paths (hardcoded)", comment_column)
+    print_aligned_comment(f"#     -e WORKDIR={container_info.working_directory}", "# Set working directory for relative paths", comment_column)
     
     # Print flags with comments
     if rm:
