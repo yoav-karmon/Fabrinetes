@@ -111,7 +111,7 @@ class ContainerInfo:
             epilog="""
 Examples:
   %(prog)s --cmd run --config-file containers.toml
-  %(prog)s --cmd build --config-file containers.toml --buildbase
+  %(prog)s --cmd build --config-file containers.toml --base-image
   %(prog)s --cmd status --config-file containers.toml
   %(prog)s --cmd restore --config-file containers.toml --base-image
   %(prog)s --cmd commit --config-file containers.toml
@@ -134,9 +134,12 @@ Available Commands:
                            help='Path to config.toml file')
         
         # Build command arguments
-        parser.add_argument('--buildbase', 
+        parser.add_argument('--base-image', 
                            action='store_true',
                            help='Build base image from Dockerfile (required for build command)')
+        parser.add_argument('--clean-images', 
+                           action='store_true',
+                           help='Remove existing images before building (base image if --base-image, main image otherwise)')
         parser.add_argument('--tarball', 
                            action='store_true',
                            help='Generate docker save command to create tarball (does not execute)')
@@ -162,9 +165,6 @@ Available Commands:
                            help='Enable verbose output')
         
         # Restore command arguments
-        parser.add_argument('--base-image', 
-                           action='store_true',
-                           help='Restore base image from tarball')
         parser.add_argument('--image', 
                            action='store_true',
                            help='Restore main image from tarball')

@@ -10,29 +10,35 @@ def build(args, container_info):
     """Generate Docker build command for base image only"""
     
     # Extract arguments from args object
-    buildbase = getattr(args, 'buildbase', False)
+    base_image = getattr(args, 'base_image', False)
+    clean_images = getattr(args, 'clean_images', False)
     tarball = getattr(args, 'tarball', False)
     help_flag = getattr(args, 'help', False)
     
     # Check for help flag or missing required arguments
     if help_flag:
-        from invoke_tasks.help.help import show_build_help
+        from command.help.help import show_build_help
         show_build_help()
         return
     
     # Handle tarball generation
     if tarball:
-        generate_tarball_command(container_info, buildbase)
+        generate_tarball_command(container_info, base_image)
         return
     
-    # Validate buildbase flag is required
-    if not buildbase:
+    # Validate base_image flag is required
+    if not base_image:
         print("❌ Error: Build command now only works for base images")
-        print("Usage: ./fabrinetes --cmd build --config-file <config.toml> --buildbase")
+        print("Usage: ./fabrinetes --cmd build --config-file <config.toml> --base-image")
         print("")
         print("The build command is now dedicated to building base images only.")
         print("For main images, use the future 'install' command (not implemented yet).")
         return
+    
+    # Handle clean images functionality
+    if clean_images:
+        generate_clean_images_command(container_info, base_image)
+        print()
     
     # Generate base image build command using dockerfile from dataclass
     image_name = container_info.base_image_docker
@@ -78,10 +84,10 @@ def build(args, container_info):
     else:
             print(" ".join(cmd_parts))
 
-def generate_tarball_command(container_info, buildbase):
+def generate_tarball_command(container_info, base_image):
     """Generate docker save command to create tarball"""
     
-    if buildbase:
+    if base_image:
         # Generate tarball for base image
         image_name = container_info.base_image_docker
         tarball_path = container_info.base_image_tarball_resolved
@@ -114,6 +120,45 @@ def generate_tarball_command(container_info, buildbase):
     
     print_aligned_comment("# docker save", "# Docker save command", comment_column)
     print_aligned_comment(f"#     -o {tarball_path}", f"# Output tarball path (from {config_key}.tarball_path)", comment_column)
+    print_aligned_comment(f"#     {image_name}", f"# Image name:tag (from {config_key}.name:tag)", comment_column)
+    
+    print("# " + "=" * 50)
+    print()
+    print("# Executable command:")
+    print(" ".join(cmd_parts))
+
+def generate_clean_images_command(container_info, base_image):
+    """Generate docker rmi command to remove existing images"""
+    
+    if base_image:
+        # Clean base image
+        image_name = container_info.base_image_docker
+        image_type = "Base Image"
+        config_key = "config.base_image"
+    else:
+        # Clean main image
+        image_name = container_info.image_docker
+        image_type = "Main Image"
+        config_key = "config.image"
+    
+    # Build the docker rmi command parts
+    cmd_parts = ["docker", "rmi", "-f", image_name]
+    
+    # Calculate max width for aligned comments
+    lines_to_measure = []
+    lines_to_measure.append("docker rmi -f")
+    lines_to_measure.append(f"    {image_name}")
+    
+    max_width = 0
+    for line in lines_to_measure:
+        if len(line) > max_width:
+            max_width = len(line)
+    comment_column = max_width + 4
+    
+    print(f"# Docker Remove Command ({image_type}):")
+    print("# " + "=" * 50)
+    
+    print_aligned_comment("# docker rmi -f", "# Force remove Docker image", comment_column)
     print_aligned_comment(f"#     {image_name}", f"# Image name:tag (from {config_key}.name:tag)", comment_column)
     
     print("# " + "=" * 50)

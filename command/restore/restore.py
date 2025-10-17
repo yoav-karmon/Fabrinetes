@@ -28,7 +28,7 @@ def restore(args, container_info):
     
     # Validate arguments
     if not base_image and not image:
-        print("❌ Error: Restore command requires either --base-image or --image flag")
+        print("❌ Error: Restore command requires either --restore-base-image or --restore-image flag")
         print("Usage: ./fabrinetes --cmd restore --config-file <config.toml> [--base-image|--image]")
         print("")
         print("Options:")
@@ -43,11 +43,11 @@ def restore(args, container_info):
     
     # Determine which tar.gz file to restore from using ContainerInfo paths
     if base_image:
-        tar_path = os.path.join(container_info.tarball_directory, container_info.base_image_tarball)
+        tar_path = container_info.base_image_tarball_resolved
         image_name = container_info.base_image_docker
         restore_type = "base-image"
     elif image:
-        tar_path = container_info.tarball_path
+        tar_path = container_info.image_tarball_resolved
         image_name = container_info.image_docker
         restore_type = "image"
     else:
@@ -58,7 +58,7 @@ def restore(args, container_info):
     cmd_parts = ["docker", "load", "-i", tar_path]
     
     # Add WORKDIR environment variable (always)
-    cmd_parts.insert(0, f"WORKDIR={container_info.config_directory}")
+    cmd_parts.insert(0, f"WORKDIR={container_info.working_directory}")
     cmd_parts.insert(0, "env")
     
     # Calculate max width for aligned comments
@@ -76,7 +76,7 @@ def restore(args, container_info):
     print("# Docker Restore Command:")
     print("# " + "=" * 50)
     
-    print_aligned_comment(f"# env WORKDIR={container_info.config_directory}", "# Set working directory for relative paths (hardcoded)", comment_column)
+    print_aligned_comment(f"# env WORKDIR={container_info.working_directory}", "# Set working directory for relative paths (hardcoded)", comment_column)
     print_aligned_comment("# docker load -i", "# Base Docker load command (hardcoded)", comment_column)
     print_aligned_comment(f"#     {tar_path}", f"# Tarball path (from {'--base-image' if base_image else '--image'} flag, {'config.base_image.tarball' if base_image else 'config.image.tarball'})", comment_column)
     
@@ -104,6 +104,6 @@ def restore(args, container_info):
     
     if tarball_found:
         # Update command with found tarball path
-        cmd_parts = ["env", f"WORKDIR={container_info.config_directory}", "docker", "load", "-i", tar_path]
+        cmd_parts = ["env", f"WORKDIR={container_info.working_directory}", "docker", "load", "-i", tar_path]
     
     print(" ".join(cmd_parts))
