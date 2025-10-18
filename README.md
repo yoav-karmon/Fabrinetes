@@ -164,12 +164,46 @@ tarball_path = container_info.tarball_path       # "containers/fabrinetes-dev-te
 - **Paths**: `tarball_path`, `tarball_directory`
 - **Config**: `mounts`, `x11_path`, `config_file`
 
+### Path Validation and Dual Display
+The `ContainerInfo` dataclass includes comprehensive path validation and dual path display:
+
+#### Path Validation
+```python
+# Validate all paths before command execution
+validation_errors = container_info.validate_paths()
+if validation_errors:
+    print("error: " + "; ".join(validation_errors))
+    return
+```
+
+**Validated Paths:**
+- Tarball paths (base and main images)
+- Dockerfile paths
+- Package list paths
+- Config file paths
+- Working directory paths
+
+#### Dual Path Display
+All commands now show **original TOML values** in comments and **resolved absolute paths** in executable commands:
+
+**Example Output:**
+```bash
+# Comments show original TOML values:
+#     -v cursor/.config:$HOME/.config                    # Mount from config.mounts array (relative to config file)
+
+# Executable command shows resolved paths:
+docker run -dit -v /home/ykarmon/repo/Fabrinetes/containers/fabrinetes-dev-testing/cursor/.config:/home/ykarmon/.config ...
+```
+
 ### Benefits
 ✅ **Single source of truth** for all naming  
 ✅ **Type safety** with dataclass structure  
 ✅ **Consistent naming** across all modules  
 ✅ **Easy maintenance** - change naming logic in one place  
 ✅ **Automatic validation** of config file structure  
+✅ **Path validation** - ensures all required files exist  
+✅ **Dual path display** - original values in comments, resolved paths in commands  
+✅ **Error handling** - clear "error: ..." messages when validation fails  
 
 **Always use `get_container_info(config_file)` instead of manual TOML parsing!**
 
@@ -186,7 +220,7 @@ tarball_path = container_info.tarball_path       # "containers/fabrinetes-dev-te
 ./fabrinetes.py --cmd help
 
 # Build base image from Dockerfile
-./fabrinetes.py --cmd build --config-file containers.toml --buildbase
+./fabrinetes.py --cmd build --config-file containers.toml
 
 # Generate Docker run command
 ./fabrinetes.py --cmd run --config-file containers.toml
@@ -197,9 +231,133 @@ tarball_path = container_info.tarball_path       # "containers/fabrinetes-dev-te
 # Generate Docker restore command
 ./fabrinetes.py --config-file containers.toml --cmd restore --base-image
 
+# Clean up Docker images
+./fabrinetes.py --cmd clean-images --config-file containers.toml
+
 # Show config file status
 ./fabrinetes.py --cmd status --config-file containers.toml
 ```
+
+### Container Lifecycle Management
+
+Fabrinetes provides a complete container lifecycle management system using only Fabrinetes commands:
+
+#### Complete Workflow Example
+```bash
+# 1. Clean up existing images and tarballs
+python3 fabrinetes.py --cmd clean-images --config-file containers/fabrinetes-dev-testing/config.toml | bash
+rm -f containers/fabrinetes-dev-testing/*.tar.gz
+
+# 2. Build new image from Dockerfile
+python3 fabrinetes.py --cmd build --config-file containers/fabrinetes-dev-testing/config.toml | bash
+
+# 3. Check status of all components
+python3 fabrinetes.py --cmd status --config-file containers/fabrinetes-dev-testing/config.toml
+
+# 4. Run container (when needed)
+python3 fabrinetes.py --cmd run --config-file containers/fabrinetes-dev-testing/config.toml | bash
+
+# 5. Commit changes (when needed)
+python3 fabrinetes.py --cmd commit --config-file containers/fabrinetes-dev-testing/config.toml | bash
+```
+
+#### Key Benefits
+- ✅ **Single Command Interface**: All Docker operations through Fabrinetes API
+- ✅ **Consistent Naming**: Automatic container/image naming from config
+- ✅ **Status Monitoring**: Comprehensive status checking for all components
+- ✅ **Clean Workflow**: Easy cleanup and rebuild process
+- ✅ **Documentation**: All commands documented with examples
+- ✅ **Persistent Containers**: Run command keeps containers running with `sleep infinity`
+- ✅ **Proper Mount Resolution**: Automatic path resolution for relative and environment variable paths
+
+### Unified Command Building System
+
+Fabrinetes now uses a **unified command building system** that eliminates code duplication and ensures consistent behavior across all Docker commands.
+
+#### Architecture Overview
+The system is built around two main components:
+
+1. **ContainerInfo Dataclass** (`helper_functions/config/name_generator.py` - 403 lines)
+   - Single source of truth for all container configuration
+   - Path validation and resolution
+   - Centralized naming system
+
+2. **CommandBuilder System** (`helper_functions/command_builder.py` - 415 lines)
+   - Unified command building logic using `CmdPart` class hierarchy
+   - Consistent error handling with `echo` statements for piped execution
+   - Dual path display (original TOML values in comments, resolved paths in executable commands)
+
+#### Key Features
+
+**✅ Single Source of Truth**
+- All command building logic centralized in `CommandBuilder` class
+- No more duplicated code across command files
+- Consistent behavior across all commands
+
+**✅ Unified Error Handling**
+- All commands use `echo 'error: ...'` for piped execution compatibility
+- Consistent validation error display
+- Commands show full structure even on validation failure
+
+**✅ Dual Path Display**
+- Comments show original TOML values (e.g., `cursor/.config:$HOME/.config`)
+- Executable commands show resolved absolute paths
+- Clear separation between configuration and execution
+
+**✅ Optimized File Sizes**
+- Command files reduced to 36-69 lines each (from 80-300+ lines)
+- Main logic files kept under 500 lines
+- Better maintainability and readability
+
+#### CmdPart Class Hierarchy
+The system uses a hierarchy of `CmdPart` classes for different command components:
+
+- **`CmdPartFlag`**: Boolean flags like `--rm`, `--x11`
+- **`CmdPartArg`**: Arguments with values like `-t image_name`
+- **`CmdPartFile`**: File paths with validation like `-f Dockerfile`
+- **`CmdPartMount`**: Volume mounts like `-v host:container`
+- **`CmdPartMounts`**: Multiple volume mounts from config
+- **`CmdPartEnv`**: Environment variables like `-e WORKDIR=path`
+- **`CmdPartX11`**: X11 support with socket validation
+- **`CmdPartName`**: Container/image names
+- **`CmdPartHardcoded`**: Fixed values without resolution
+
+#### Command File Structure
+All command files now follow the same simple pattern:
+```python
+#!/usr/bin/env python3
+
+from helper_functions.command_builder import CommandBuilder, CmdPartEnv, CmdPartArg
+
+def build(args, container_info):
+    """Generate Docker build command for image"""
+    # Create command builder
+    builder = CommandBuilder("Build (Image)")
+    builder.set_base_command(["env", "docker", "build"])
+    
+    # Add parts
+    builder.add_part("workdir", CmdPartEnv("WORKDIR", container_member="working_directory"))
+    builder.add_part("image_name", CmdPartArg("-t", "image_docker"))
+    
+    # Build and execute command
+    commented_str, execution_str, errors = builder.build_command(container_info)
+    print(commented_str)
+    print(execution_str)
+```
+
+#### Error Handling Example
+```bash
+# When validation fails, commands show:
+# Docker Error Command:
+# ==================================================
+# Validation failed - showing command structure for reference
+# ==================================================
+# 
+# Executable command:
+echo 'error: Tarball path does not exist: fabrinetes-image:latest.tar.gz'
+```
+
+This approach ensures that scripts using `| bash` piping will see clear error messages instead of broken commands.
 
 ### Dynamic User Setup
 
