@@ -50,6 +50,7 @@ def test(args, container_info):
                 def __init__(self):
                     # Add all possible attributes that commands might check
                     self.help = False
+                    self.show_help = False  # Add missing show_help attribute
                     self.tarball = False
                     self.rm = False
                     self.x11 = False
