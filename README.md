@@ -225,6 +225,12 @@ docker run -dit -v /home/ykarmon/repo/Fabrinetes/containers/fabrinetes-dev-testi
 # Generate Docker run command
 ./fabrinetes.py --cmd run --config-file containers.toml
 
+# Generate Docker exec command (interactive shell)
+./fabrinetes.py --cmd exec --config-file containers.toml | bash
+
+# Generate Docker exec command with specific command
+./fabrinetes.py --cmd exec --config-file containers.toml --exec-cmd "hdlforge test" | bash
+
 # Generate Docker commit command
 ./fabrinetes.py --cmd commit --config-file containers.toml
 
@@ -257,7 +263,10 @@ python3 fabrinetes.py --cmd status --config-file containers/fabrinetes-dev-testi
 # 4. Run container (when needed)
 python3 fabrinetes.py --cmd run --config-file containers/fabrinetes-dev-testing/config.toml | bash
 
-# 5. Commit changes (when needed)
+# 5. Execute commands in running container
+python3 fabrinetes.py --cmd exec --config-file containers/fabrinetes-dev-testing/config.toml --exec-cmd "hdlforge test" | bash
+
+# 6. Commit changes (when needed)
 python3 fabrinetes.py --cmd commit --config-file containers/fabrinetes-dev-testing/config.toml | bash
 ```
 
