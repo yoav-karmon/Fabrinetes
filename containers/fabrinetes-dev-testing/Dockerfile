@@ -23,4 +23,3 @@ RUN chmod +x /usr/local/bin/entrypoint.sh
 
 # Set entrypoint for dynamic user creation
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
-CMD ["/bin/bash"]
