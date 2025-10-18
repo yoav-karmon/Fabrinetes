@@ -297,6 +297,23 @@ def show_restore_help():
     }
     show_command_help('restore', command_data)
 
+def show_exec_help():
+    """Show help for exec command"""
+    command_data = {
+        'syntax': './fabrinetes exec --config-file <config-file> [--exec-cmd <command>]',
+        'description': 'Generate Docker exec command for running container with proper user context',
+        'arguments': [
+            '--config-file <config-file> (REQUIRED) - Path to config file',
+            '--exec-cmd <command> (OPTIONAL) - Command to execute inside container'
+        ],
+        'examples': [
+            './fabrinetes exec --config-file containers/my-container/config.toml | bash',
+            './fabrinetes exec --config-file containers/my-container/config.toml --exec-cmd "hdlforge test" | bash',
+            './fabrinetes exec --config-file containers/my-container/config.toml --exec-cmd "cd /home/user/repo && ls -la" | bash'
+        ]
+    }
+    show_command_help('exec', command_data)
+
 
 # Global help function for no arguments
 def show_config_status(config_file):
@@ -376,6 +393,12 @@ def show_global_help():
             'allowed_values': 'config-file: containers/<path>/config.toml (REQUIRED)'
         },
         {
+            'command': './fabrinetes exec',
+            'args': '--config-file <config-file> [--exec-cmd <command>]',
+            'description': 'Execute commands in running container with proper user context',
+            'allowed_values': 'config-file: containers/<path>/config.toml (REQUIRED)'
+        },
+        {
             'command': './fabrinetes commit',
             'args': '--config-file <config-file> [--tag <tag>] [--message <message>]',
             'description': 'Generate Docker commit command to stdout without executing it',
@@ -421,6 +444,7 @@ def show_global_help():
         "./fabrinetes --config-file <config> [--cmd <command>]",
         "./fabrinetes build --config-file <config> --buildbase",
         "./fabrinetes run --config-file <config> [--rm|--x11|--usb|--ask|--verbose]",
+        "./fabrinetes exec --config-file <config> [--exec-cmd <command>]",
         "./fabrinetes commit --config-file <config> [--tag <tag>] [--message <message>]",
         "./fabrinetes restore --config-file <config> [--base-image|--image]",
         "./fabrinetes status --config-file <config>",

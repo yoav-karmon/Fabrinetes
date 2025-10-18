@@ -29,6 +29,7 @@ class CommandConfig:
         from command.restore.restore import restore
         from command.clean_images.clean_images import clean_images
         from command.test.test import test
+        from command.exec.exec import exec_cmd
         
         return {
             'build': CommandDefinition(
@@ -86,6 +87,13 @@ class CommandConfig:
                 function=test,
                 requires_config=True,
                 testable=False
+            ),
+            'exec': CommandDefinition(
+                name='exec',
+                description='Generate Docker exec command for running container',
+                function=exec_cmd,
+                requires_config=True,
+                testable=True
             )
         }
     
@@ -232,6 +240,8 @@ class ContainerInfo:
             epilog=f"""
 Examples:
   %(prog)s --cmd run --config-file containers.toml
+  %(prog)s --cmd exec --config-file containers.toml
+  %(prog)s --cmd exec --config-file containers.toml --exec-cmd "hdlforge test"
   %(prog)s --cmd build --config-file containers.toml
   %(prog)s --cmd status --config-file containers.toml
   %(prog)s --cmd restore --config-file containers.toml
@@ -285,6 +295,11 @@ Available Commands:
                            help='Tag for the committed image')
         parser.add_argument('--message', 
                            help='Commit message')
+        
+        # Exec command arguments
+        parser.add_argument('--exec-cmd', 
+                           nargs='*',
+                           help='Command to execute inside the container')
         
         return parser
     
