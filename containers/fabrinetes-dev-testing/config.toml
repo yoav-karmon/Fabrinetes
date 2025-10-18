@@ -4,16 +4,14 @@ X11_path = "/mnt/wslg/.X11-unix:/tmp/.X11-unix"
 mounts = [
     "$HOME/.ssh:$HOME/.ssh",
     "$HOME/repo:$HOME/repo",
-    "$HOME/repo/Fabrinetes/source/project_setup:/opt/project_setup",
     "$HOME/.Xauthority:$HOME/.Xauthority:ro",
     "init_env.sh:/etc/profile.d/init_env.sh",
-    "bashrc-root:$HOME/.bashrc",
+    "../../source/bashrc-root:$HOME/.bashrc",
     "cursor/.local:$HOME/.local",
     "cursor/.dotnet:$HOME/.dotnet",
     "cursor/.config:$HOME/.config",
     "cursor/.cursor:$HOME/.cursor",
     "cursor/.gnupg:$HOME/.gnupg",
-    "verilator/share/verilator:/usr/share/verilator",
     "vscode/.vscode-server:$HOME/.vscode-server",
 ]
 
