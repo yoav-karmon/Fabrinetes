@@ -35,13 +35,14 @@ def run(args, container_info):
                                           comment="# Set working directory for relative paths"))
     
     # Add user creation environment variables
-    builder.add_part("container_user", CmdPartEnv("CONTAINER_USER", "ykarmon", 
+    current_user = os.getenv('USER', os.getenv('USERNAME', 'user'))
+    builder.add_part("container_user", CmdPartEnv("CONTAINER_USER", current_user, 
                                                  comment="# Set container username for entrypoint"))
     builder.add_part("container_uid", CmdPartEnv("CONTAINER_UID", str(os.getuid()), 
                                                 comment="# Set container user ID for entrypoint"))
     builder.add_part("container_gid", CmdPartEnv("CONTAINER_GID", str(os.getgid()), 
                                                 comment="# Set container group ID for entrypoint"))
-    builder.add_part("container_home", CmdPartEnv("CONTAINER_HOME", "/home/ykarmon", 
+    builder.add_part("container_home", CmdPartEnv("CONTAINER_HOME", f"/home/{current_user}", 
                                                  comment="# Set container home directory for entrypoint"))
     
     # Add flags
