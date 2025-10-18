@@ -75,7 +75,7 @@ if [ -z "$REPO_TOP" ]; then
     exit 1
 fi
 
-TASKS_DIR="/opt/project_setup"
+TASKS_DIR="$(dirname "$0")"
 shell_id="$PPID"
 timestamp=$(date +%Y%m%d)
 time=$(date +%H%M%S)
