@@ -27,8 +27,16 @@ else
     echo "👤 User already exists, updating: $USERNAME"
     # Don't try to modify root user if we're running as root
     if [ "$USER_UID" != "0" ]; then
-        usermod -l "$USERNAME" "$(getent passwd "$USER_UID" | cut -d: -f1)"
-        usermod -d "$HOME_DIR" -m "$USERNAME"
+        existing_user=$(getent passwd "$USER_UID" | cut -d: -f1)
+        if [ "$existing_user" != "$USERNAME" ]; then
+            usermod -l "$USERNAME" "$existing_user"
+        fi
+        # Only move home directory if it doesn't already exist
+        if [ ! -d "$HOME_DIR" ]; then
+            usermod -d "$HOME_DIR" -m "$USERNAME"
+        else
+            usermod -d "$HOME_DIR" "$USERNAME"
+        fi
     else
         echo "👤 Running as root, skipping user modification"
     fi
@@ -53,4 +61,6 @@ echo "🚀 Switching to user: $USERNAME"
 echo "📂 Working directory: $HOME_DIR"
 
 # Switch to the user and execute the command
+# Change to user's home directory first
+cd "$HOME_DIR"
 exec gosu "$USERNAME" "$@"

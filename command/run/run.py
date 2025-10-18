@@ -34,6 +34,16 @@ def run(args, container_info):
     builder.add_part("workdir", CmdPartEnv("WORKDIR", container_member="working_directory", 
                                           comment="# Set working directory for relative paths"))
     
+    # Add user creation environment variables
+    builder.add_part("container_user", CmdPartEnv("CONTAINER_USER", "ykarmon", 
+                                                 comment="# Set container username for entrypoint"))
+    builder.add_part("container_uid", CmdPartEnv("CONTAINER_UID", str(os.getuid()), 
+                                                comment="# Set container user ID for entrypoint"))
+    builder.add_part("container_gid", CmdPartEnv("CONTAINER_GID", str(os.getgid()), 
+                                                comment="# Set container group ID for entrypoint"))
+    builder.add_part("container_home", CmdPartEnv("CONTAINER_HOME", "/home/ykarmon", 
+                                                 comment="# Set container home directory for entrypoint"))
+    
     # Add flags
     if rm:
         builder.add_part("rm", CmdPartFlag("--rm", comment="# Remove container when it exits (from --rm flag)"))
@@ -60,7 +70,7 @@ def run(args, container_info):
                                               comment="# Docker image (from config.image.name:tag)"))
     
     # Add command
-    builder.add_part("command", CmdPartFlag("sleep infinity", comment="# Command to keep container running (hardcoded)"))
+    builder.add_part("command", CmdPartFlag("bash", comment="# Command to keep container running with interactive shell"))
     
     # Build and execute command
     commented_str, execution_str, errors = builder.build_command(container_info)
