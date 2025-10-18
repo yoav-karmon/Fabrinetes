@@ -2,23 +2,17 @@
 
 import time
 import subprocess
-from invoke import task
-from helper_functions.name_generator import get_container_info
-
-def print_aligned_comment(text, comment_text, comment_column):
-    """Print a line with aligned comment"""
-    print(f"{text}{' ' * (comment_column - len(text))}{comment_text}")
+from helper_functions.command_builder import CommandBuilder, CmdPartHardcoded, CmdPartName
+from command.help.help import show_commit_help
 
 def commit(args, container_info):
     """Generate a Docker commit command to stdout without executing it"""
-    from command.help.help import show_commit_help
+    # Extract arguments
+    tag = args.tag
+    message = args.message
+    help_flag = args.show_help
     
-    # Extract arguments from args object
-    tag = getattr(args, 'tag', None)
-    message = getattr(args, 'message', None)
-    help_flag = getattr(args, 'help', False)
-    
-    # Check for help flag
+    # Check for help flag first
     if help_flag:
         show_commit_help()
         return
@@ -34,33 +28,26 @@ def commit(args, container_info):
     if not message:
         message = f"Committed {container_name} at {time.strftime('%Y-%m-%d %H:%M:%S')}"
     
-    # Build docker commit command parts
-    cmd_parts = ["docker", "commit", "-m", f'"{message}"', container_name, f"{container_info.image_full}:{tag}"]
+    # Create command builder
+    builder = CommandBuilder("Commit")
+    builder.set_base_command(["docker", "commit", "-m"])
     
-    # Calculate max width for aligned comments
-    lines_to_measure = []
-    lines_to_measure.append("docker commit -m")
-    lines_to_measure.append(f'    "{message}"')
-    lines_to_measure.append(f"    {container_name}")
-    lines_to_measure.append(f"    {container_info.image_full}:{tag}")
+    # Add commit message
+    builder.add_part("message", CmdPartHardcoded(f'"{message}"', 
+                                                comment="# Commit message (from --message flag or auto-generated)"))
     
-    max_width = 0
-    for line in lines_to_measure:
-        if len(line) > max_width:
-            max_width = len(line)
-    comment_column = max_width + 4
+    # Add container name
+    builder.add_part("container_name", CmdPartName("run_name", 
+                                                  comment="# Container name (from config.container.run_name)"))
     
-    print("# Docker Commit Command:")
-    print("# " + "=" * 50)
+    # Add target image
+    builder.add_part("target_image", CmdPartHardcoded(f"{container_info.image_full}:{tag}",
+                                                     comment="# Target image name:tag (from config.image.name:tag)"))
     
-    print_aligned_comment("# docker commit -m", "# Base Docker commit command (hardcoded)", comment_column)
-    print_aligned_comment(f'#     "{message}"', "# Commit message (from --message flag or auto-generated)", comment_column)
-    print_aligned_comment(f"#     {container_name}", "# Container name (from config.container.run_name)", comment_column)
-    print_aligned_comment(f"#     {container_info.image_full}:{tag}", "# Target image name:tag (from config.image.name:tag)", comment_column)
+    # Build and execute command
+    commented_str, execution_str, errors = builder.build_command(container_info)
     
-    print("# " + "=" * 50)
-    print()
-    print("# Executable command:")
+    print(commented_str)
     
     # Check if container exists and is running
     try:
@@ -70,12 +57,12 @@ def commit(args, container_info):
         )
         if not result.stdout.strip():
             # Container not running
-            error_msg = f"Error: Container '{container_name}' is not running"
-            print(f"echo '{error_msg}'")
+            error_msg = f"Container '{container_name}' is not running"
+            print(f"echo 'error: {error_msg}'")
         else:
             # Container is running, show the actual command
-            print(" ".join(cmd_parts))
+            print(execution_str)
     except subprocess.CalledProcessError:
         # Docker command failed
-        error_msg = f"Error: Could not check container status for '{container_name}'"
-        print(f"echo '{error_msg}'")
+        error_msg = f"Could not check container status for '{container_name}'"
+        print(f"echo 'error: {error_msg}'")

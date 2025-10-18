@@ -4,31 +4,44 @@ import os
 import pathlib
 from typing import List, Tuple
 
-def setup_x11_support(x11, X11_path, cmd_parts):
+def setup_x11_support(x11_enabled: bool, container_info) -> List[str]:
     """Helper function to set up X11 support for Docker containers"""
-    if x11:
-        if X11_path:
-            print(f"X11 support enabled at {X11_path}")
-            X11_path = os.path.expandvars(X11_path)
-            X11_path = pathlib.Path(X11_path)
-            if not X11_path.exists():
-                print(f"Error: X11 socket {X11_path} does not exist")
+    x11_args = []
+    
+    if x11_enabled:
+        # Get X11 path from dataclass
+        x11_path = container_info.x11_path
+        
+        if x11_path:
+            print(f"X11 support enabled at {x11_path}")
+            # Expand environment variables
+            expanded_x11_path = os.path.expandvars(x11_path)
+            x11_path_obj = pathlib.Path(expanded_x11_path)
+            
+            if not x11_path_obj.exists():
+                print(f"Error: X11 socket {x11_path} does not exist")
                 import sys
                 sys.exit(1)
         else:
             # Default X11 socket path
-            X11_path = pathlib.Path("/tmp/.X11-unix")
-            print(f"X11 support enabled at {X11_path}")
+            x11_path_obj = pathlib.Path("/tmp/.X11-unix")
+            print(f"X11 support enabled at {x11_path_obj}")
 
-        cmd_parts.append("--net=host")
-        cmd_parts.append(f"-e DISPLAY={os.environ['DISPLAY']}")
-        cmd_parts.append(f"-v {X11_path}:/tmp/.X11-unix")
-        cmd_parts.append(f"-v {os.environ['HOME']}/.Xauthority:/home/{os.getenv('USER', 'user')}/.Xauthority:ro")
+        # Add X11-related arguments
+        x11_args.append("--net=host")
+        x11_args.append(f"-e DISPLAY={os.environ['DISPLAY']}")
+        x11_args.append(f"-v {x11_path_obj}:/tmp/.X11-unix")
+        x11_args.append(f"-v {os.environ['HOME']}/.Xauthority:/home/{os.getenv('USER', 'user')}/.Xauthority:ro")
 
-    return cmd_parts
+    return x11_args
 
-def resolve_mounts(mounts: List[str], working_directory: pathlib.Path) -> List[Tuple[str, str]]:
-    """Return mount paths as-is from config file without any resolution"""
+def resolve_mounts(mounts: List[str], working_directory: pathlib.Path) -> List[Tuple[str, str, str, str]]:
+    """
+    Resolve mount paths from config file, expanding $HOME and converting relative paths to absolute.
+    
+    Returns:
+        List of tuples: (original_host_path, original_container_path, resolved_host_path, resolved_container_path)
+    """
     resolved_mounts = []
     
     for mount in mounts:
@@ -36,10 +49,18 @@ def resolve_mounts(mounts: List[str], working_directory: pathlib.Path) -> List[T
             print(f"Warning: Invalid mount format '{mount}', skipping")
             continue
             
-        host_path, container_path = mount.split(':', 1)
+        original_host_path, original_container_path = mount.split(':', 1)
         
-        # Keep original values from config file (don't expand $HOME or convert paths)
-        resolved_mounts.append((host_path, container_path))
+        # Expand $HOME environment variable for resolved paths
+        resolved_host_path = os.path.expandvars(original_host_path)
+        resolved_container_path = os.path.expandvars(original_container_path)
+        
+        # Convert relative paths to absolute paths for resolved paths
+        if not os.path.isabs(resolved_host_path):
+            # If host path is relative, make it relative to the working directory
+            resolved_host_path = str(working_directory / resolved_host_path)
+        
+        resolved_mounts.append((original_host_path, original_container_path, resolved_host_path, resolved_container_path))
     
     return resolved_mounts
 
