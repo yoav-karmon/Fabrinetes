@@ -16,17 +16,14 @@ code design guide lines:
     2.1 run over the tasks list item
         2.1.1 pet task item: list what file are involve and update.
 
-3. task list global review:
-    3.1 udpate tasks to
-        3.1.2 keep files under aprox ~400 lines by:
-            3.1.2.1 reuse fucntions
-            3.1.2.2 if needed: create helper function in new files
-            3.1.2.3 cache operation into line at start of functions if rused a lot.
-
-
-
 execute the task list:
 4. after each task completion: comment under the task what did you do in the task. 
+
+3. post excution review:
+    3.1 change imolentation to keep files under aprox ~400 lines by:
+        3.1.1 reuse fucntions
+        3.1.2 identify cache operation for nultpyle function calls, and consoledate into one.
+        3.1.3 if needed: create helper function in new files
 
 6. after completion:
     6.1 review readme file in repo and update them
