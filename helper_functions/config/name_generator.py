@@ -249,6 +249,9 @@ Available Commands:
                            help='Command to execute')
         parser.add_argument('--config-file', 
                            help='Path to config.toml file')
+        parser.add_argument('--show-help', 
+                           action='store_true',
+                           help='Show help for the specific command')
         
         # Build command arguments
         parser.add_argument('--tarball', 
@@ -262,9 +265,6 @@ Available Commands:
         parser.add_argument('--x11', 
                            action='store_true',
                            help='Enable X11 forwarding')
-        parser.add_argument('--no-x11', 
-                           action='store_true',
-                           help='Disable X11 forwarding')
         parser.add_argument('--usb', 
                            action='store_true',
                            help='Enable USB device access')
