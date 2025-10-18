@@ -22,11 +22,7 @@ def build(args, container_info):
     
     # Create command builder
     builder = CommandBuilder("Build (Image)")
-    builder.set_base_command(["env", "docker", "build"])
-    
-    # Add WORKDIR environment variable
-    builder.add_part("workdir", CmdPartEnv("WORKDIR", container_member="working_directory", 
-                                          comment="# Set working directory for relative paths"))
+    builder.set_base_command(["docker", "build"])
     
     # Add image name argument
     builder.add_part("image_name", CmdPartArg("-t", "image_docker", 
