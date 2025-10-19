@@ -1,0 +1,108 @@
+#!/bin/bash
+
+# Check if any arguments are provided
+if [ $# -lt 1 ]; then
+    echo "Usage: hdlforge <command> --project <project_file> [options]"
+    echo "Example: hdlforge Verilator --project addr_32bit.hdlforge.toml --step sim --SimTargetName basic_test"
+    exit 1
+fi
+
+# Check if command requires --project argument
+if [[ "$1" == "help" || "$1" == "projects" ]]; then
+    # Commands that don't need --project parameter
+    PROJECT_FILE=""
+    PROJECT_FILE_PATH=""
+    PROJECT_DIR=""
+    PROJECT_FILENAME=""
+else
+    # Commands that need --project parameter
+    # Extract project file from --project argument
+    PROJECT_FILE=""
+    PROJECT_FILE_PATH=""
+    PROJECT_DIR=""
+    PROJECT_FILENAME=""
+    
+    # Parse arguments to find --project
+    args=("$@")
+    for i in "${!args[@]}"; do
+        if [[ "${args[i]}" == "--project" && $((i+1)) -lt ${#args[@]} ]]; then
+            PROJECT_FILE="${args[i+1]}"
+            break
+        fi
+    done
+    
+    if [ -z "$PROJECT_FILE" ]; then
+        echo "❌ --project argument is required"
+        echo "Usage: hdlforge <command> --project <project_file> [options]"
+        echo "Example: hdlforge Verilator --project addr_32bit.hdlforge.toml --step sim --SimTargetName basic_test"
+        exit 1
+    fi
+    
+    # Resolve project file path (handle both relative and absolute paths)
+    if [[ "$PROJECT_FILE" == /* ]]; then
+        # Absolute path
+        PROJECT_FILE_PATH="$PROJECT_FILE"
+    else
+        # Relative path - resolve relative to current directory
+        PROJECT_FILE_PATH="$(realpath "$PROJECT_FILE")"
+    fi
+    
+    # Check if project file exists
+    if [ ! -f "$PROJECT_FILE_PATH" ]; then
+        echo "❌ Project file not found: $PROJECT_FILE_PATH"
+        exit 1
+    fi
+    
+    # Get the directory containing the project file
+    PROJECT_DIR="$(dirname "$PROJECT_FILE_PATH")"
+    PROJECT_FILENAME="$(basename "$PROJECT_FILE_PATH")"
+fi
+
+# Change to project directory (only if PROJECT_DIR is set)
+if [ -n "$PROJECT_DIR" ]; then
+    cd "$PROJECT_DIR" || {
+        echo "❌ Failed to cd into project directory: $PROJECT_DIR"
+        exit 1
+    }
+fi
+
+# Source bashrc and run update_repo_path from project directory
+source ~/.bashrc
+update_repo_path
+
+if [ -z "$REPO_TOP" ]; then
+    echo "❌ REPO_TOP is not set. Please export REPO_TOP first."
+    exit 1
+fi
+
+TASKS_DIR="$(dirname "$0")"
+shell_id="$PPID"
+timestamp=$(date +%Y%m%d)
+time=$(date +%H%M%S)
+
+# Set ROOT_FOLDER to project file location (was HDLFORGE_ORIG_PATH)
+# Only set if PROJECT_DIR is available
+if [ -n "$PROJECT_DIR" ]; then
+    export ROOT_FOLDER="$PROJECT_DIR"
+else
+    export ROOT_FOLDER="$(pwd)"
+fi
+mkdir -p "$TASKS_DIR/logs"
+log_file="$TASKS_DIR/logs/hdlforge_${timestamp}_pid${shell_id}.log"
+
+# Change to the tasks directory before running python
+cd "$TASKS_DIR" || {
+    echo "❌ Failed to cd into $TASKS_DIR"
+    echo "run update_repo_path correctly."
+    exit 1
+}
+
+# If no commands are passed, default to --list
+if [ $# -eq 0 ]; then
+    set -- --list
+fi
+
+echo "--------$(pwd): $Date: $timestamp Time $time------" >> "$log_file"
+
+# Execute the command
+exec python3 "$TASKS_DIR/tasks.py" "$@" | tee -a "$log_file"
