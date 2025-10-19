@@ -30,6 +30,7 @@ class CommandConfig:
         from command.clean_images.clean_images import clean_images
         from command.test.test import test
         from command.exec.exec import exec_cmd
+        from command.push.push import push
         
         return {
             'build': CommandDefinition(
@@ -92,6 +93,13 @@ class CommandConfig:
                 name='exec',
                 description='Generate Docker exec command for running container',
                 function=exec_cmd,
+                requires_config=True,
+                testable=True
+            ),
+            'push': CommandDefinition(
+                name='push',
+                description='Generate Docker push commands for GitHub Container Registry',
+                function=push,
                 requires_config=True,
                 testable=True
             )
@@ -247,6 +255,7 @@ Examples:
   %(prog)s --cmd restore --config-file containers.toml
   %(prog)s --cmd clean-images --config-file containers.toml
   %(prog)s --cmd test --config-file containers.toml
+  %(prog)s --cmd push --config-file containers.toml --github-username myuser
 
 Available Commands:
 {chr(10).join(command_descriptions)}
@@ -300,6 +309,12 @@ Available Commands:
         parser.add_argument('--exec-cmd', 
                            nargs='*',
                            help='Command to execute inside the container')
+        
+        # Push command arguments
+        parser.add_argument('--github-username', 
+                           help='GitHub username for container registry')
+        parser.add_argument('--registry', 
+                           help='Container registry URL (default: ghcr.io)')
         
         return parser
     

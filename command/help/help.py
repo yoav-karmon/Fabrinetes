@@ -314,6 +314,24 @@ def show_exec_help():
     }
     show_command_help('exec', command_data)
 
+def show_push_help():
+    """Show help for push command"""
+    command_data = {
+        'syntax': './fabrinetes push --config-file <config-file> --github-username <username> [--registry <registry>]',
+        'description': 'Generate Docker push commands for GitHub Container Registry (GHCR)',
+        'arguments': [
+            ['--config-file', 'Path to config.toml file (REQUIRED)', 'Yes', 'containers/<path>/config.toml'],
+            ['--github-username', 'GitHub username for GHCR (REQUIRED)', 'Yes', 'your GitHub username'],
+            ['--registry', 'Container registry URL (optional)', 'No', 'ghcr.io (default) or custom registry']
+        ],
+        'examples': [
+            './fabrinetes push --config-file containers/fabrinetes-dev-testing/config.toml --github-username myuser | bash',
+            './fabrinetes push --config-file containers/fabrinetes-dev-testing/config.toml --github-username myuser --registry ghcr.io | bash',
+            './fabrinetes push --config-file containers/my-container/config.toml --github-username myuser --registry myregistry.com | bash'
+        ]
+    }
+    show_command_help('push', command_data)
+
 
 # Global help function for no arguments
 def show_config_status(config_file):

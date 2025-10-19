@@ -1,9 +1,0 @@
-cocotb==1.9.1
-invoke
-toml
-tomli_w
-pyparsing
-scapy
-typeguard
-tabulate
-pcapng
