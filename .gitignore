@@ -22,3 +22,6 @@ wheels/
 
 # Ignore all folders starting with underscore
 _*/
+
+# Ignore all log files
+*.log
