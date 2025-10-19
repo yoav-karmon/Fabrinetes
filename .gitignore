@@ -19,3 +19,6 @@ wheels/
 .installed.cfg
 *.egg
 *.tar.gz
+
+# Ignore all folders starting with underscore
+_*/
