@@ -6,17 +6,11 @@ mounts = [
     "$HOME/repo:$HOME/repo",
     "$HOME/.Xauthority:$HOME/.Xauthority:ro",
     "init_env.sh:/etc/profile.d/init_env.sh",
-    "../../source/bashrc-root:$HOME/.bashrc",
-    "cursor/.local:$HOME/.local",
-    "cursor/.dotnet:$HOME/.dotnet",
-    "cursor/.config:$HOME/.config",
-    "cursor/.cursor:$HOME/.cursor",
-    "cursor/.gnupg:$HOME/.gnupg",
-    "vscode/.vscode-server:$HOME/.vscode-server",
+    "../../hdlforge/bashrc-root:$HOME/.bashrc"
 ]
 
 [config.image]
-name = "fabrinetes-image"
+name = "ykarmon/fabrinetes"
 tag = "latest"
 tarball_path = "fabrinetes-image:latest.tar.gz"
 dockerfile_path = "Dockerfile"

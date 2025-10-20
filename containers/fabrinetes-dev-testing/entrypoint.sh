@@ -10,21 +10,21 @@ USER_UID=${CONTAINER_UID:-$(id -u)}
 USER_GID=${CONTAINER_GID:-$(id -g)}
 HOME_DIR=${CONTAINER_HOME:-/home/$USERNAME}
 
-echo "🔧 Setting up dynamic user: $USERNAME (UID:$USER_UID, GID:$USER_GID, HOME:$HOME_DIR)"
+echo "Setting up dynamic user: $USERNAME (UID:$USER_UID, GID:$USER_GID, HOME:$HOME_DIR)"
 
 # Create user and group dynamically (requires root privileges)
 if ! getent group "$USER_GID" > /dev/null; then
-    echo "📁 Creating group: $USERNAME (GID:$USER_GID)"
+    echo "Creating group: $USERNAME (GID:$USER_GID)"
     groupadd --gid "$USER_GID" "$USERNAME"
 else
-    echo "📁 Group already exists: $(getent group "$USER_GID" | cut -d: -f1)"
+    echo "Group already exists: $(getent group "$USER_GID" | cut -d: -f1)"
 fi
 
 if ! getent passwd "$USER_UID" > /dev/null; then
-    echo "👤 Creating user: $USERNAME (UID:$USER_UID, HOME:$HOME_DIR)"
+    echo "Creating user: $USERNAME (UID:$USER_UID, HOME:$HOME_DIR)"
     useradd --uid "$USER_UID" --gid "$USER_GID" --shell /bin/bash --create-home --home-dir "$HOME_DIR" "$USERNAME"
 else
-    echo "👤 User already exists, updating: $USERNAME"
+    echo "User already exists, updating: $USERNAME"
     # Don't try to modify root user if we're running as root
     if [ "$USER_UID" != "0" ]; then
         existing_user=$(getent passwd "$USER_UID" | cut -d: -f1)
@@ -38,17 +38,17 @@ else
             usermod -d "$HOME_DIR" "$USERNAME"
         fi
     else
-        echo "👤 Running as root, skipping user modification"
+        echo "Running as root, skipping user modification"
     fi
 fi
 
 # Set up passwordless sudo for the user (requires root privileges)
-echo "🔐 Setting up passwordless sudo for $USERNAME"
+echo "Setting up passwordless sudo for $USERNAME"
 echo "$USERNAME ALL=(ALL) NOPASSWD:ALL" > "/etc/sudoers.d/$USERNAME"
 chmod 0440 "/etc/sudoers.d/$USERNAME"
 
 # Set hostname (requires root privileges)
-echo "🏷️ Setting hostname to: Fabrinetes"
+echo "Setting hostname to: Fabrinetes"
 echo "Fabrinetes" > /etc/hostname
 
 # Set up environment variables for the user
@@ -56,9 +56,9 @@ export HOME="$HOME_DIR"
 export USER="$USERNAME"
 export SHELL="/bin/bash"
 
-echo "✅ Dynamic user setup complete!"
-echo "🚀 Switching to user: $USERNAME"
-echo "📂 Working directory: $HOME_DIR"
+echo "Dynamic user setup complete!"
+echo "Switching to user: $USERNAME"
+echo "Working directory: $HOME_DIR"
 
 # Switch to the user and execute the command
 # Change to user's home directory first
