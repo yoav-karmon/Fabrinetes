@@ -2,9 +2,27 @@
 
 import os
 import pathlib
-from helper_functions.command_builder import CommandBuilder, CmdPartEnv, CmdPartFlag, CmdPartMounts, CmdPartX11, CmdPartArg, CmdPartName
+from typing import Optional
+from helper_functions.command_builder import CommandBuilder, CmdPartEnv, CmdPartFlag, CmdPartMounts, CmdPartX11, CmdPartArg, CmdPartName, CmdPart
 from helper_functions.image_management import convert_to_docker_format
 from command.help.help import show_run_help
+
+class CmdPartUser(CmdPart):
+    """Command part for user parameter (-u)"""
+    
+    def __init__(self, user_value: str, comment: Optional[str] = None):
+        super().__init__(hardcoded="-u", comment=comment)
+        self.user_value = user_value
+    
+    def comment_str(self) -> str:
+        return f"#     {self.hardcoded} {self.user_value}"
+    
+    def execution_str(self) -> str:
+        return f"{self.hardcoded} {self.user_value}"
+    
+    def resolve(self, container_info) -> bool:
+        # User value is already set, no resolution needed
+        return True
 
 def run(args, container_info):
     """Run a Docker container with the specified configuration"""
@@ -28,7 +46,7 @@ def run(args, container_info):
     
     # Create command builder
     builder = CommandBuilder("Run")
-    builder.set_base_command(["docker", "run", "-dit"])
+    builder.set_base_command(["docker", "run", "-d"])
     
     # Add WORKDIR environment variable
     builder.add_part("workdir", CmdPartEnv("WORKDIR", container_member="working_directory", 
@@ -62,16 +80,21 @@ def run(args, container_info):
         builder.add_part("mounts", CmdPartMounts(container_info.mounts, 
                                                 comment="# Mount from config.mounts array"))
     
+    # Add user parameter (commented out for now - entrypoint handles user switching)
+    # builder.add_part("user", CmdPartUser(str(os.getuid()), 
+    #                                    comment="# Run container as specified user (from CONTAINER_UID env var)"))
+    
     # Add container name
     builder.add_part("container_name", CmdPartArg("--name", "run_name", 
                                                  comment="# Container name (from config.container.name)"))
     
     # Add image name
     builder.add_part("image_name", CmdPartName("image_docker", 
-                                              comment="# Docker image (from config.image.name:tag)"))
+                                              comment="# Docker image (from config.image.name:tag)",
+                                              check_image_exists=True))
     
     # Add command
-    builder.add_part("command", CmdPartFlag("bash", comment="# Command to keep container running with interactive shell"))
+    builder.add_part("command", CmdPartFlag("sleep infinity", comment="# Command to keep container running indefinitely"))
     
     # Build and execute command
     commented_str, execution_str, errors = builder.build_command(container_info)
