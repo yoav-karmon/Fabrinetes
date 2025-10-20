@@ -25,3 +25,4 @@ _*/
 
 # Ignore all log files
 *.log
+venv/
