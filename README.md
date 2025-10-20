@@ -86,9 +86,28 @@ Fabrinetes includes a sophisticated two-level path management system that automa
 ### Global Container Path Management
 
 **File**: `containers/my-project/init_env.sh`
-- Sets **system-wide tools** for the entire container
+- Sets **system-wide paths** for the entire container
 - Includes Vivado, Fabrinetes project setup, local binaries
 - Works across **all repositories** in the container
+
+**Adding Tools to PATH:**
+To add tools to your container, you typically need to:
+1. **Mount the tool** in your `config.toml`
+2. **Add the mounted path** to `init_env.sh`
+
+**Example - Adding Vivado:**
+```toml
+# In config.toml - mount Vivado installation
+mounts = [
+    "$HOME/AMD/Vivado/2021.2:/opt/vivado",  # Mount Vivado to /opt/vivado
+    # ... other mounts
+]
+```
+
+```bash
+# In init_env.sh - add Vivado to PATH
+export PATH="/opt/vivado/bin:$PATH"  # Add Vivado tools to system PATH
+```
 
 **Configuration in `containers/my-project/init_env.sh`:**
 ```bash
