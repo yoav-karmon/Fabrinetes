@@ -101,20 +101,6 @@ echo ""
 read_image_config "$CONFIG_FILE"
 echo ""
 
-# Pull the Docker image
-pull_docker_image() {
-    print_info "Pulling Docker image: $IMAGE_ID"
-    if docker pull "$IMAGE_ID"; then
-        print_success "Successfully pulled image: $IMAGE_ID"
-    else
-        print_error "Failed to pull image: $IMAGE_ID"
-        exit 1
-    fi
-}
-
-pull_docker_image
-echo ""
-
 # Run fabrinetes with config file
 run_fabrinetes() {
     print_info "Fabrinetes Container Runner"
@@ -136,7 +122,11 @@ run_fabrinetes() {
     echo "START OF FABRINETES OUTPUT"
     print_info "=========================================="
     
-    "$SCRIPT_DIR/fabrinetes.py" --config-file "$CONFIG_FILE" --cmd run | bash
+    # Run fabrinetes command, but don't fail if image pull fails
+    if ! "$SCRIPT_DIR/fabrinetes.py" --config-file "$CONFIG_FILE" --cmd run | bash; then
+        print_warning "Fabrinetes command failed, but continuing..."
+        print_info "This might be due to image not found in cloud or other issues"
+    fi
     
     print_info "=========================================="
     echo "END OF FABRINETES OUTPUT"
