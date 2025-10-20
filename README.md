@@ -209,6 +209,31 @@ HdlForge uses `REPO_TOP` to:
 - Ensure tools work with the correct project structure
 - Provide clear error messages when repository context is wrong
 
+**Adding HdlForge to PATH:**
+To make HdlForge easier to use, add it to your PATH in `init_env.sh`:
+
+```bash
+# Add HdlForge to PATH for easier access
+export PATH="$HOME/repo/Fabrinetes/hdlforge/project_setup:$PATH"
+```
+
+**Usage Examples:**
+```bash
+# After adding to PATH, you can run HdlForge from anywhere:
+$ hdlforge --list
+$ hdlforge Verilator --project router.hdlforge.toml --step sim
+$ hdlforge GHDL --project cpu.hdlforge.toml --step compile
+
+# Without PATH setup, you'd need to use full path:
+$ $HOME/repo/Fabrinetes/hdlforge/project_setup/hdlforge --list
+```
+
+**Benefits:**
+- **Shorter commands** - no need for full paths
+- **Works from any directory** - HdlForge finds project files automatically
+- **Consistent interface** - same command regardless of location
+- **Better integration** - works seamlessly with `update_repo_path`
+
 ## Important: Container Configuration Requirements
 
 **For proper container setup, you must:**
