@@ -87,7 +87,6 @@ Fabrinetes includes a sophisticated two-level path management system that automa
 
 **File**: `containers/my-project/init_env.sh`
 - Sets **system-wide paths** for the entire container
-- Includes Vivado, Fabrinetes project setup, local binaries
 - Works across **all repositories** in the container
 
 **Adding Tools to PATH:**
@@ -109,7 +108,7 @@ mounts = [
 export PATH="/opt/vivado/bin:$PATH"  # Add Vivado tools to system PATH
 ```
 
-**Configuration in `containers/my-project/init_env.sh`:**
+**Example Configuration in `containers/my-project/init_env.sh`:**
 ```bash
 # Global PATH setup for entire container (works across all repositories)
 export PATH="/opt/vivado/bin:$HOME/repo/Fabrinetes/source/project_setup:$HOME/.local/bin:$PATH"
@@ -117,6 +116,8 @@ export PATH="/opt/vivado/bin:$HOME/repo/Fabrinetes/source/project_setup:$HOME/.l
 # License file path (adjust to your setup)
 export XILINXD_LICENSE_FILE="$HOME/repos/phy_project/Xilinx.lic"
 ```
+
+**Note**: This is an example configuration. You need to create your own `init_env.sh` based on your specific tools and setup.
 
 ### Per-Repository Path Management
 
