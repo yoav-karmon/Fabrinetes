@@ -2,6 +2,26 @@
 
 > Inspired by Kubernetes. Built for FPGA Devs.
 
+## TLDR - Quick Start
+
+```bash
+# 1. Clone and setup
+git clone https://github.com/yoav-karmon/Fabrinetes.git
+cd Fabrinetes
+
+# 2. Create your container config
+mkdir -p containers/my-project
+cp containers/fabrinetes-dev-local/config.toml containers/my-project/
+cp containers/fabrinetes-dev-local/init_env.sh containers/my-project/
+
+# 3. Run container
+./setup.sh -f containers/my-project/config.toml
+
+# 4. Attach VS Code/Cursor
+# Install "Remote - Containers" extension
+# Command Palette: "Remote-Containers: Attach to Running Container"
+```
+
 Fabrinetes is an open-source orchestration toolkit for modern FPGA development, 
 combining containers, Verilator, Vivado, Cocotb, and reproducible environments 
 all configured as code.
