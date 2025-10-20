@@ -346,7 +346,7 @@ def show_config_status(config_file):
         status = get_config_status(config_file)
         
         if 'error' in status:
-            print(f"❌ Error loading config file: {status['error']}")
+            print(f"Error loading config file: {status['error']}")
             return
         
         # Display status information
@@ -354,23 +354,23 @@ def show_config_status(config_file):
         print("-" * 20)
         
         # Base image status
-        base_status = "✅" if status['base_image']['exists'] else "❌"
-        base_tarball_status = "✅" if status['base_image']['tarball_exists'] else "❌"
+        base_status = "OK" if status['base_image']['exists'] else "MISSING"
+        base_tarball_status = "OK" if status['base_image']['tarball_exists'] else "MISSING"
         print(f"Base Image:    {base_status} Docker  {base_tarball_status} Tarball")
         
         # Main image status
-        main_status = "✅" if status['main_image']['exists'] else "❌"
-        main_tarball_status = "✅" if status['main_image']['tarball_exists'] else "❌"
+        main_status = "OK" if status['main_image']['exists'] else "MISSING"
+        main_tarball_status = "OK" if status['main_image']['tarball_exists'] else "MISSING"
         print(f"Main Image:    {main_status} Docker  {main_tarball_status} Tarball")
         
         # Container status
         container_status = status['container']['status']
         if container_status == "running":
-            print(f"Container:     🟢 Running")
+            print(f"Container:     Running")
         elif container_status == "stopped":
-            print(f"Container:     🟡 Stopped")
+            print(f"Container:     Stopped")
         else:
-            print(f"Container:     🔴 None")
+            print(f"Container:     None")
         
         print()
         
@@ -383,7 +383,7 @@ def show_config_status(config_file):
         print()
         
     except Exception as e:
-        print(f"❌ Error processing config file: {e}")
+        print(f"Error processing config file: {e}")
 
 def show_global_help():
     """Show global help when no arguments are provided"""

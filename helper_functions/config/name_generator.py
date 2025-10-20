@@ -132,9 +132,9 @@ class CommandConfig:
             status = collect_comprehensive_status(container_info)
             print(format_status_output(status))
         except FileNotFoundError as e:
-            print(f"❌ Config file not found: {e}")
+            print(f"Config file not found: {e}")
         except Exception as e:
-            print(f"❌ Error checking status: {e}")
+            print(f"Error checking status: {e}")
     
     @classmethod
     def _help_command(cls, args, container_info):
@@ -176,16 +176,16 @@ class ContainerInfo:
     mounts: List[str]
     x11_path: str
     
-    def resolve(self, path: str) -> str:
+    def resolve(self, path: str, check_exists: bool = True) -> str:
         """
         Resolve a path relative to the config directory.
-        Returns None if the path cannot be resolved or doesn't exist.
         
         Args:
             path: Path to resolve (can be relative or absolute)
+            check_exists: If True, returns None if path doesn't exist. If False, returns resolved path regardless.
             
         Returns:
-            Resolved absolute path if it exists, None otherwise
+            Resolved absolute path if it exists (or if check_exists=False), None otherwise
         """
         try:
             # If path is already absolute, use it as is
@@ -195,11 +195,11 @@ class ContainerInfo:
                 # Resolve relative to config directory
                 resolved_path = os.path.join(self.working_directory, path)
             
-            # Check if the resolved path exists
-            if os.path.exists(resolved_path):
-                return resolved_path
-            else:
+            # Check if the resolved path exists (only if requested)
+            if check_exists and not os.path.exists(resolved_path):
                 return None
+            
+            return resolved_path
         except Exception:
             return None
     
@@ -322,7 +322,7 @@ Available Commands:
     def from_args(cls, args: argparse.Namespace) -> 'ContainerInfo':
         """Create ContainerInfo from parsed arguments"""
         if not args.config_file:
-            print("❌ Error: --config-file is required")
+            print("Error: --config-file is required")
             print("Usage: ./fabrinetes --cmd <command> --config-file <config.toml>")
             print("")
             print("Example config file locations:")
@@ -353,22 +353,86 @@ Available Commands:
         # Get tarball directory (where the script was invoked from - where tarballs are stored)
         tarball_directory_base = os.getcwd()
         
-        # Load config
-        config = toml.load(config_file_absolute)
+        # Load config with error handling
+        try:
+            config = toml.load(config_file_absolute)
+        except FileNotFoundError:
+            print(f"Error: Config file not found: {config_file_absolute}")
+            print("Please check the file path and try again.")
+            sys.exit(1)
+        except PermissionError:
+            print(f"Error: Permission denied reading config file: {config_file_absolute}")
+            print("Please check file permissions and try again.")
+            sys.exit(1)
+        except toml.TomlDecodeError as e:
+            print(f"Error: TOML file corruption or syntax error in: {config_file_absolute}")
+            print(f"Parse error: {e}")
+            print("Please check the TOML syntax and try again.")
+            print("Common issues:")
+            print("  - Missing quotes around strings")
+            print("  - Invalid table syntax")
+            print("  - Unclosed brackets or quotes")
+            print("  - Invalid characters")
+            sys.exit(1)
+        except Exception as e:
+            print(f"Error: Failed to load config file: {config_file_absolute}")
+            print(f"Unexpected error: {e}")
+            print("Please check the file and try again.")
+            sys.exit(1)
+        
+        # Validate config structure
+        if 'config' not in config:
+            print(f"Error: Missing '[config]' section in: {config_file_absolute}")
+            print("The config file must contain a '[config]' section.")
+            sys.exit(1)
+        
         container_config = config['config']
         
+        # Validate required sections
+        if 'image' not in container_config:
+            print(f"Error: Missing '[config.image]' section in: {config_file_absolute}")
+            print("The config file must contain a '[config.image]' section.")
+            sys.exit(1)
+        
+        if 'container' not in container_config:
+            print(f"Error: Missing '[config.container]' section in: {config_file_absolute}")
+            print("The config file must contain a '[config.container]' section.")
+            sys.exit(1)
+        
+        # Validate required image fields
+        image_section = container_config['image']
+        required_image_fields = ['name', 'tag', 'tarball_path']
+        for field in required_image_fields:
+            if field not in image_section:
+                print(f"Error: Missing required field '[config.image.{field}]' in: {config_file_absolute}")
+                print(f"The config file must contain '{field}' in the '[config.image]' section.")
+                sys.exit(1)
+        
+        # Validate required container fields
+        container_section = container_config['container']
+        required_container_fields = ['name']
+        for field in required_container_fields:
+            if field not in container_section:
+                print(f"Error: Missing required field '[config.container.{field}]' in: {config_file_absolute}")
+                print(f"The config file must contain '{field}' in the '[config.container]' section.")
+                sys.exit(1)
+        
         # Image information
-        image_name = container_config['image']['name']
-        image_tag = container_config['image']['tag']
+        image_name = image_section['name']
+        image_tag = image_section['tag']
         image_full = f"{image_name}-{image_tag}"
-        image_docker = f"{image_full}:{image_tag}"
-        image_tarball = container_config['image']['tarball_path']
-        image_dockerfile = container_config['image'].get('dockerfile_path', 'Dockerfile')
-        image_package_list = container_config['image'].get('package_list_path', 'packages.txt')
+        image_docker = f"{image_name}:{image_tag}"
+        image_tarball = image_section['tarball_path']
+        image_dockerfile = image_section.get('dockerfile_path', 'Dockerfile')
+        image_package_list = image_section.get('package_list_path', 'packages.txt')
         
         # Container information
-        container_name = container_config['container']['name']
-        run_name = f"{image_full}.run"
+        container_name = container_section['name']
+        run_name = f"{container_name}.run"
+        
+        # Validate optional sections and set defaults
+        mounts = container_config.get('mounts', [])
+        x11_path = container_config.get('X11_path', '/tmp/.X11-unix:/tmp/.X11-unix')
         
         # Paths (original from config)
         tarball_path = image_tarball
@@ -403,8 +467,8 @@ Available Commands:
             config_file_resolved=config_file_absolute,
             
             # Configuration
-            mounts=container_config['mounts'],
-            x11_path=container_config['X11_path']
+            mounts=mounts,
+            x11_path=x11_path
         )
         
         # Now resolve tarball paths using the helper function
@@ -415,8 +479,8 @@ Available Commands:
         temp_info.tarball_path_resolved = tarball_path_resolved
         temp_info.image_tarball_resolved = image_tarball_resolved
         
-        # Use resolve method to get dockerfile path
-        image_dockerfile_resolved = temp_info.resolve(image_dockerfile)
+        # Use resolve method to get dockerfile path (don't check existence for build files)
+        image_dockerfile_resolved = temp_info.resolve(image_dockerfile, check_exists=False)
         
         # Use resolve method to get package list path
         image_package_list_resolved = temp_info.resolve(image_package_list)
