@@ -10,170 +10,123 @@ print_warning() { echo "[WARNING] $1"; }
 print_error() { echo "[ERROR] $1"; }
 
 show_usage() {
-    echo "Usage: $0 [OPTIONS]"
-    echo "  --pull IMAGE     Pull specific image"
-    echo "  --force          Force remove local image before pulling"
-    echo "  --info           Show available images only"
-    echo "  --create-config  Create .devcontainer/devcontainer.json config file"
+    echo "Usage: $0 -f <config_file> [-i <image_id>]"
+    echo "  -f FILE          Config file (required)"
+    echo "  -i IMAGE         Image ID (optional - will prompt if not provided)"
     echo "  -h, --help       Show help"
     echo ""
     echo "Examples:"
-    echo "  $0 --info"
-    echo "  $0 --pull ykarmon/fabrinetes:latest"
-    echo "  $0 --pull ykarmon/fabrinetes:latest --force"
-    echo "  $0 --create-config"
-    echo "  $0"
+    echo "  $0 -f containers/fabrinetes-dev-local/config.toml"
+    echo "  $0 -f containers/fabrinetes-dev-local/config.toml -i ykarmon/fabrinetes:latest"
 }
-
-# Parse arguments
-INTERACTIVE=true
-PULL_IMAGE=""
-SHOW_INFO=false
-FORCE=false
-CREATE_CONFIG=false
-
-while [[ $# -gt 0 ]]; do
-    case $1 in
-        --pull) PULL_IMAGE="$2"; INTERACTIVE=false; shift 2 ;;
-        --force) FORCE=true; shift ;;
-        --info) SHOW_INFO=true; INTERACTIVE=false; shift ;;
-        --create-config) CREATE_CONFIG=true; INTERACTIVE=false; shift ;;
-        -h|--help) show_usage; exit 0 ;;
-        *) print_error "Unknown option: $1"; show_usage; exit 1 ;;
-    esac
-done
 
 # Show available images
 show_images() {
     print_info "Available images:"
+    local counter=1
     curl -s "https://hub.docker.com/v2/repositories/ykarmon/fabrinetes/tags/?page_size=100" | \
-    jq -r '.results[] | "ykarmon/fabrinetes:\(.name) - \(.last_updated) - \(.full_size | . / 1024 / 1024 | floor)MB"' 2>/dev/null || {
+    jq -r '.results[] | "ykarmon/fabrinetes:\(.name) - \(.last_updated) - \(.full_size | . / 1024 / 1024 | floor)MB"' 2>/dev/null | \
+    while read -r line; do
+        echo "  $counter. $line"
+        ((counter++))
+    done || {
         print_error "Failed to fetch images"
         exit 1
     }
 }
 
-# Pull image - let Docker handle everything
-pull_image() {
-    local image="$1"
-    
-    # Force remove local image if --force flag is used
-    if [[ "$FORCE" == "true" ]]; then
-        print_info "Force removing local image $image..."
-        echo "Command: docker rmi $image"
-        echo "=========================================="
-        echo "START OF DOCKER OUTPUT"
-        echo "=========================================="
-        docker rmi "$image" 2>/dev/null || print_warning "Image $image not found locally or already removed"
-        echo "=========================================="
-        echo "END OF DOCKER OUTPUT"
-        echo "=========================================="
+# Parse arguments
+CONFIG_FILE=""
+IMAGE_ID=""
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -f) CONFIG_FILE="$2"; shift 2 ;;
+        -i) IMAGE_ID="$2"; shift 2 ;;
+        -h|--help) show_usage; exit 0 ;;
+        *) print_error "Unknown option: $1"; show_usage; exit 1 ;;
+    esac
+done
+
+# Always show available images first
+print_info "Docker Image Setup"
+echo ""
+show_images
+echo ""
+
+# Validate required config file
+if [[ -z "$CONFIG_FILE" ]]; then
+    print_error "Config file is required. Use -f <config_file>"
+    show_usage
+    exit 1
+fi
+
+# Validate config file exists
+if [[ ! -f "$CONFIG_FILE" ]]; then
+    print_error "Config file '$CONFIG_FILE' not found"
+    exit 1
+fi
+
+# Select image if not provided
+select_image() {
+    if [[ -n "$IMAGE_ID" ]]; then
+        print_info "Using provided image: $IMAGE_ID"
+        return
     fi
     
-    print_info "Pulling $image..."
-    echo "Command: docker pull $image"
-    echo "=========================================="
-    echo "START OF DOCKER OUTPUT"
-    echo "=========================================="
-    docker pull "$image"
-    echo "=========================================="
-    echo "END OF DOCKER OUTPUT"
-    echo "=========================================="
-    print_success "Image pulled successfully!"
+    # Get user selection
+    while true; do
+        read -p "Select image number or 'q' to quit: " selection
+        if [[ "$selection" == "q" ]]; then
+            print_info "Exiting..."
+            exit 0
+        fi
+        
+        # Get available images
+        local images=($(curl -s "https://hub.docker.com/v2/repositories/ykarmon/fabrinetes/tags/?page_size=100" | jq -r '.results[] | "ykarmon/fabrinetes:\(.name)"' 2>/dev/null))
+        
+        # Validate selection
+        if [[ "$selection" =~ ^[0-9]+$ ]] && [[ "$selection" -ge 1 ]] && [[ "$selection" -le ${#images[@]} ]]; then
+            IMAGE_ID="${images[$((selection-1))]}"
+            print_info "Selected image: $IMAGE_ID"
+            break
+        else
+            print_error "Invalid selection. Please enter a number between 1 and ${#images[@]}"
+        fi
+    done
 }
 
-# Create devcontainer configuration
-create_devcontainer_config() {
-    local project_dir="$(pwd)"
-    local devcontainer_dir="$project_dir/.devcontainer"
-    local config_file="$devcontainer_dir/devcontainer.json"
+# Run fabrinetes with config file
+run_fabrinetes() {
+    print_info "Fabrinetes Container Runner"
+    print_info "Config file: $CONFIG_FILE"
     
-    print_info "Creating devcontainer configuration..."
-    
-    # Create .devcontainer directory if it doesn't exist
-    if [[ ! -d "$devcontainer_dir" ]]; then
-        mkdir -p "$devcontainer_dir"
-        print_info "Created directory: $devcontainer_dir"
+    # Check if fabrinetes.py exists
+    if [[ ! -f "./fabrinetes.py" ]]; then
+        print_error "fabrinetes.py not found in current directory"
+        exit 1
     fi
     
-    # Check if config file already exists
-    if [[ -f "$config_file" ]]; then
-        print_warning "Configuration file already exists: $config_file"
-        read -p "Do you want to overwrite it? (y/N): " overwrite
-        if [[ "$overwrite" != "y" && "$overwrite" != "Y" ]]; then
-            print_info "Skipping configuration creation."
-            return 0
-        fi
-    fi
+    # Run the command
+    print_info "Running: ./fabrinetes.py --config-file $CONFIG_FILE --cmd run | bash"
+    echo ""
+    print_info "=========================================="
+    echo "START OF FABRINETES OUTPUT"
+    print_info "=========================================="
     
-    # Get current user info
-    local current_user="${USER:-$(whoami)}"
-    local current_uid="$(id -u)"
-    local current_gid="$(id -g)"
-    local current_home="$HOME"
+    ./fabrinetes.py --config-file "$CONFIG_FILE" --cmd run | bash
     
-    # Create the devcontainer.json content
-    cat > "$config_file" << EOF
-{
-  "name": "Fabrinetes Dev Container",
-  "image": "ykarmon/fabrinetes:latest",
-  "remoteUser": "$current_user",
-  "workspaceFolder": "/home/$current_user/workspace",
-  "containerEnv": {
-    "CONTAINER_USER": "$current_user",
-    "CONTAINER_UID": "$current_uid",
-    "CONTAINER_GID": "$current_gid",
-    "CONTAINER_HOME": "/home/$current_user",
-    "WORKDIR": "$project_dir"
-  },
-  "mounts": [
-    "source=\${localWorkspaceFolder},target=/home/$current_user/workspace,type=bind"
-  ],
-  "postCreateCommand": "echo 'Dev container ready!'",
-  "customizations": {
-    "vscode": {
-      "extensions": [
-        "ms-python.python",
-        "ms-vscode.vscode-json"
-      ]
-    }
-  }
-}
-EOF
-    
-    print_success "Created devcontainer configuration: $config_file"
-    print_info "Configuration includes:"
-    print_info "  - Image: ykarmon/fabrinetes:latest"
-    print_info "  - User: $current_user (UID: $current_uid)"
-    print_info "  - Workspace: /home/$current_user/workspace"
-    print_info "  - Environment variables for container setup"
-    print_info ""
-    print_info "To use this configuration:"
-    print_info "  1. Open this directory in Cursor"
-    print_info "  2. Cursor will detect the .devcontainer/devcontainer.json"
-    print_info "  3. Attach to your running container"
-    print_info "  4. Cursor will connect as user '$current_user'"
+    print_info "=========================================="
+    echo "END OF FABRINETES OUTPUT"
+    print_info "=========================================="
+    print_success "Fabrinetes command completed!"
 }
 
 # Main execution
-print_info "Docker Image Setup"
+# Select image (images already shown above)
+select_image
 
-if [[ "$SHOW_INFO" == "true" ]]; then
-    show_images
-elif [[ "$CREATE_CONFIG" == "true" ]]; then
-    create_devcontainer_config
-elif [[ -n "$PULL_IMAGE" ]]; then
-    pull_image "$PULL_IMAGE"
-else
-    show_images
-    echo ""
-    print_info "Additional options:"
-    print_info "  - Create devcontainer config: $0 --create-config"
-    echo ""
-    read -p "Enter image to pull (e.g., ykarmon/fabrinetes:latest) or 'q' to quit: " selected_image
-    if [[ "$selected_image" != "q" ]]; then
-        pull_image "$selected_image"
-    fi
-fi
+# Run fabrinetes
+run_fabrinetes
 
 print_success "Done!"
