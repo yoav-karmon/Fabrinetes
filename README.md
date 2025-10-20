@@ -59,16 +59,7 @@ mounts = [
 ]
 ```
 
-4. Configure global environment in `containers/my-project/init_env.sh`:
-```bash
-# Global PATH setup for entire container (works across all repositories)
-export PATH="/opt/vivado/bin:$HOME/repo/Fabrinetes/source/project_setup:$HOME/.local/bin:$PATH"
-
-# License file path (adjust to your setup)
-export XILINXD_LICENSE_FILE="$HOME/repos/phy_project/Xilinx.lic"
-```
-
-5. Use the setup script with your configuration:
+4. Use the setup script with your configuration:
 ```bash
 ./setup.sh -f containers/my-project/config.toml
 ```
@@ -79,7 +70,7 @@ The setup script will:
 - Build and run the container automatically
 - Display progress and completion status
 
-6. Access your container:
+5. Access your container:
 
 **VS Code/Cursor Remote Container (Recommended)**
 1. Open VS Code or Cursor in the repository root
@@ -99,9 +90,13 @@ Fabrinetes includes a sophisticated two-level path management system that automa
 - Includes Vivado, Fabrinetes project setup, local binaries
 - Works across **all repositories** in the container
 
+**Configuration in `containers/my-project/init_env.sh`:**
 ```bash
-# Global PATH setup for entire container
+# Global PATH setup for entire container (works across all repositories)
 export PATH="/opt/vivado/bin:$HOME/repo/Fabrinetes/source/project_setup:$HOME/.local/bin:$PATH"
+
+# License file path (adjust to your setup)
+export XILINXD_LICENSE_FILE="$HOME/repos/phy_project/Xilinx.lic"
 ```
 
 ### Per-Repository Path Management
