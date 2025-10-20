@@ -279,3 +279,6 @@ By default, packages are private. To make them public:
 3. **Security**: Regularly update base images and dependencies
 4. **Documentation**: Keep Dockerfile and scripts well-documented
 5. **Testing**: Test images before pushing to production tags
+
+
+

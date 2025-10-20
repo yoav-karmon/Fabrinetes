@@ -8,8 +8,8 @@ try:
     import toml
     import docker
 except ImportError as e:
-    print(f"❌ Missing package: {e}")
-    print("\n👋 Exiting gracefully")
+    print(f"Missing package: {e}")
+    print("\nExiting gracefully")
     sys.exit(1)
 
 # Import ContainerInfo and CommandConfig
@@ -34,7 +34,7 @@ def main():
     cmd_def = all_commands.get(args.cmd)
     
     if cmd_def is None:
-        print("❌ No command specified or invalid command")
+        print("No command specified or invalid command")
         parser.print_usage()
         return
     
