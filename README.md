@@ -158,6 +158,41 @@ source "$REPO_TOP/tools/tool_box/setup.sh"
 
 This creates a **seamless development environment** where global tools are always available, but repository-specific tools are automatically configured based on the current working directory.
 
+### Using REPO_TOP in Custom Tools
+
+You can use the `REPO_TOP` environment variable in your own functions and tools to verify you're in the correct repository:
+
+**Example - Custom Tool Verification:**
+```bash
+#!/bin/bash
+# Custom tool that requires specific repository
+
+if [ -z "$REPO_TOP" ]; then
+    echo "❌ REPO_TOP not set. Run 'update_repo_path' first."
+    exit 1
+fi
+
+# Verify we're in the expected repository
+expected_repo="my-project"
+current_repo=$(basename "$REPO_TOP")
+
+if [ "$current_repo" != "$expected_repo" ]; then
+    echo "❌ Wrong repository. Expected: $expected_repo, Current: $current_repo"
+    echo "   Please run: cd /path/to/$expected_repo && update_repo_path"
+    exit 1
+fi
+
+echo "✅ Running in correct repository: $current_repo"
+# Your tool logic here...
+```
+
+**HdlForge Integration:**
+HdlForge uses `REPO_TOP` to:
+- Verify it's running in a Git repository
+- Set project-specific paths and configurations
+- Ensure tools work with the correct project structure
+- Provide clear error messages when repository context is wrong
+
 ## Important: Container Configuration Requirements
 
 **For proper container setup, you must:**
