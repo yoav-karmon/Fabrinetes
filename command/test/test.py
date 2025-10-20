@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import sys
-from helper_functions.config.name_generator import CommandConfig
+from command.helper_functions.config.name_generator import CommandConfig
 
 def test(args, container_info):
     """Run all commands in test mode - automatically discovers and tests all available commands"""
@@ -51,7 +51,6 @@ def test(args, container_info):
                     # Add all possible attributes that commands might check
                     self.help = False
                     self.show_help = False  # Add missing show_help attribute
-                    self.tarball = False
                     self.rm = False
                     self.x11 = False
                     self.no_x11 = False
@@ -61,6 +60,7 @@ def test(args, container_info):
                     self.image = False
                     self.tag = None
                     self.message = None
+                    self.exec_cmd = None
             
             test_args = TestArgs()
             

@@ -35,11 +35,8 @@ def validate_command_result(ctx: Context, result, container_name: str, command: 
         "gen-image": validate_gen_image_result,
         "gen-image-base": validate_gen_image_base_result,
         "clean-image": validate_clean_image_result,
-        "kill": validate_kill_result,
-        "commit": validate_commit_result,
         "exec": validate_exec_result,
         "shell": validate_shell_result,
-        "pkg": validate_pkg_result,
         "clean": validate_clean_result,
     }
     
@@ -214,74 +211,6 @@ def validate_clean_image_result(ctx: Context, result, container_name: str, expec
         return "FAIL"
 
 
-def validate_kill_result(ctx: Context, result, container_name: str, expected_results: dict) -> str:
-    """Validate kill command results"""
-    if expected_results.get(1) == "FAIL":
-        # Expected failure cases
-        failure_indicators = [
-            "Error:",
-            "not found",
-            "not running",
-            "❌"
-        ]
-        
-        for indicator in failure_indicators:
-            if indicator in result.stdout:
-                return "FAIL"
-        
-        return "PASS"  # Unexpected success
-    else:
-        # Expected success cases
-        success_indicators = [
-            "Successfully",
-            "successfully",
-            "✅",
-            "killed",
-            "removed",
-            "stopped"
-        ]
-        
-        for indicator in success_indicators:
-            if indicator in result.stdout:
-                return "PASS"
-        
-        return "FAIL"
-
-
-def validate_commit_result(ctx: Context, result, container_name: str, expected_results: dict) -> str:
-    """Validate commit command results"""
-    if expected_results.get(1) == "FAIL":
-        # Expected failure cases
-        failure_indicators = [
-            "Error:",
-            "not found",
-            "not running",
-            "❌"
-        ]
-        
-        for indicator in failure_indicators:
-            if indicator in result.stdout:
-                return "FAIL"
-        
-        return "PASS"  # Unexpected success
-    else:
-        # Expected success cases
-        success_indicators = [
-            "Successfully",
-            "successfully",
-            "✅",
-            "committed",
-            "created",
-            "Image"
-        ]
-        
-        for indicator in success_indicators:
-            if indicator in result.stdout:
-                return "PASS"
-        
-        return "FAIL"
-
-
 def validate_exec_result(ctx: Context, result, container_name: str, expected_results: dict) -> str:
     """Validate exec command results"""
     if expected_results.get(1) == "FAIL":
@@ -337,40 +266,6 @@ def validate_shell_result(ctx: Context, result, container_name: str, expected_re
             return "PASS"
         else:
             return "FAIL"
-
-
-def validate_pkg_result(ctx: Context, result, container_name: str, expected_results: dict) -> str:
-    """Validate pkg command results"""
-    if expected_results.get(1) == "FAIL":
-        # Expected failure cases
-        failure_indicators = [
-            "Error:",
-            "not found",
-            "not running",
-            "❌"
-        ]
-        
-        for indicator in failure_indicators:
-            if indicator in result.stdout:
-                return "FAIL"
-        
-        return "PASS"  # Unexpected success
-    else:
-        # Expected success cases
-        success_indicators = [
-            "Successfully",
-            "successfully",
-            "✅",
-            "installed",
-            "updated",
-            "package"
-        ]
-        
-        for indicator in success_indicators:
-            if indicator in result.stdout:
-                return "PASS"
-        
-        return "FAIL"
 
 
 def validate_clean_result(ctx: Context, result, container_name: str, expected_results: dict) -> str:

@@ -4,7 +4,7 @@ import os
 import glob
 import subprocess
 from invoke import task
-from helper_functions.name_generator import get_container_info
+from command.helper_functions.name_generator import get_container_info
 
 def get_running_containers():
     """Get list of running container names"""
@@ -31,10 +31,6 @@ def check_image_exists(image_name):
     except Exception:
         return False
 
-def check_tarball_exists(tarball_path):
-    """Check if tarball file exists"""
-    return os.path.exists(tarball_path)
-
 def check_container_status(container_name):
     """Check container status: running, stopped, or none"""
     try:
@@ -59,25 +55,15 @@ def get_config_status(config_file):
     try:
         container_info = get_container_info(config_file)
         
-        # Check base image status
-        base_image_exists = check_image_exists(container_info.base_image_docker)
-        base_tarball_exists = check_tarball_exists(container_info.tarball_directory + "/" + container_info.base_image_tarball)
-        
         # Check main image status
         main_image_exists = check_image_exists(container_info.image_docker)
-        main_tarball_exists = check_tarball_exists(container_info.tarball_path)
         
         # Check container status
         container_status = check_container_status(container_info.run_name)
         
         return {
-            'base_image': {
-                'exists': base_image_exists,
-                'tarball_exists': base_tarball_exists
-            },
             'main_image': {
-                'exists': main_image_exists,
-                'tarball_exists': main_tarball_exists
+                'exists': main_image_exists
             },
             'container': {
                 'status': container_status
@@ -86,8 +72,7 @@ def get_config_status(config_file):
     except Exception as e:
         return {
             'error': str(e),
-            'base_image': {'exists': False, 'tarball_exists': False},
-            'main_image': {'exists': False, 'tarball_exists': False},
+            'main_image': {'exists': False},
             'container': {'status': 'none'}
         }
 
@@ -167,104 +152,13 @@ def show_build_help():
     }
     show_command_help('build', command_data)
 
-def show_commit_help():
-    """Show help for commit command"""
-    command_data = {
-        'syntax': './fabrinetes commit --config-file <config-file> [--tag <tag>] [--message <message>]',
-        'description': 'Generate Docker commit command to stdout without executing it',
-        'arguments': [
-            ['--config-file', 'Path to config.toml file (REQUIRED)', 'Yes', 'containers/<path>/config.toml'],
-            ['--tag', 'Tag for the new image (default: from config)', 'No', 'any tag name'],
-            ['--message', 'Commit message (optional)', 'No', 'any message']
-        ],
-        'examples': [
-            './fabrinetes commit --config-file containers/fabrinetes-dev-testing/config.toml',
-            './fabrinetes commit --config-file containers/fabrinetes-dev-testing/config.toml --tag v1.0 --message "Added new features"'
-        ]
-    }
-    show_command_help('commit', command_data)
-
-
-def show_clean_help():
-    """Show help for clean command"""
-    command_data = {
-        'syntax': './fabrinetes clean --config-file <config-file> [options]',
-        'description': 'Comprehensive clean command for base images, containers, and images',
-        'arguments': [
-            ['--config-file', 'Path to config.toml file (REQUIRED)', 'Yes', 'containers/<path>/config.toml'],
-            ['--base-image', 'Clean base image (remove from Docker and tarball)', 'No', 'optional flag'],
-            ['--image', 'Clean main image (remove from Docker and tarball)', 'No', 'optional flag'],
-            ['--container', 'Clean container (kill and remove)', 'No', 'optional flag'],
-            ['--all', 'Clean everything (base image, image, container)', 'No', 'optional flag'],
-            ['--dangling', 'Remove dangling images', 'No', 'optional flag'],
-        ],
-        'examples': [
-            './fabrinetes clean --config-file containers/fabrinetes-dev-testing/config.toml --all',
-            './fabrinetes clean --config-file containers/fabrinetes-dev-testing/config.toml --base-image --image',
-            './fabrinetes clean --config-file containers/fabrinetes-dev-testing/config.toml --container --dangling',
-            './fabrinetes clean --config-file containers/fabrinetes-dev-testing/config.toml --base-image',
-            './fabrinetes clean --config-file containers/fabrinetes-dev-testing/config.toml --image --container'
-        ]
-    }
-    show_command_help('clean', command_data)
-
-def show_kill_help():
-    """Show help for kill command"""
-    command_data = {
-        'syntax': './fabrinetes kill <container-name>',
-        'description': 'Stop and remove a specific container (not the image)',
-        'arguments': [
-            ['container-name', 'Name of the container to kill', 'Yes', 'From Docker Containers table above']
-        ],
-        'examples': [
-            './fabrinetes kill fabrinetes-dev-testing.fabrinetes-skeleton.latest.run',
-            './fabrinetes kill fabrinetes-skeleton.latest.run'
-        ]
-    }
-    show_command_help('kill', command_data)
-
-def show_pkg_help():
-    """Show help for pkg command"""
-    command_data = {
-        'syntax': './fabrinetes pkg --container-name <container-name> [--recover|--install]',
-        'description': 'Package recovery and installation: extract packages from containers or install from pkg-cache',
-        'arguments': [
-            ['--container-name', 'Name of the running container to manage', 'Yes', 'From Docker Containers table above'],
-            ['--container-id', 'Alternative: Container ID for targeting', 'No', 'Container ID like ffb2b6947fb9'],
-            ['--recover', 'Extract packages from container and create pkg-cache', 'No', 'Recovery mode'],
-            ['--install', 'Install packages from pkg-cache to container', 'No', 'Installation mode'],
-            ['--pkg-cache', 'Path to pkg-cache directory for installation', 'No', 'e.g., containers/ffb2b6947fb9/pkg-cache'],
-            ['--offline', 'Use offline mode (install from local .deb files)', 'No', 'Requires --install'],
-            ['--online', 'Use online mode (use apt-get install)', 'No', 'Requires --install'],
-            ['--package', 'Specific package to install (optional)', 'No', 'If not provided, install all packages']
-        ],
-        'examples': [
-            '# Recovery mode',
-            './fabrinetes pkg --container-name fabrinetes-fpga-dev-1 --recover',
-            './fabrinetes pkg --container-id ffb2b6947fb9 --recover',
-            '',
-            '# Offline installation (all packages)',
-            './fabrinetes pkg --container-name fabrinetes-dev-testing-latest.run --install --pkg-cache containers/ffb2b6947fb9/pkg-cache --offline',
-            '',
-            '# Online installation (all packages)',
-            './fabrinetes pkg --container-name fabrinetes-dev-testing-latest.run --install --pkg-cache containers/ffb2b6947fb9/pkg-cache --online',
-            '',
-            '# Install specific package offline',
-            './fabrinetes pkg --container-name fabrinetes-dev-testing-latest.run --install --pkg-cache containers/ffb2b6947fb9/pkg-cache --offline --package git',
-            '',
-            '# Install specific package online',
-            './fabrinetes pkg --container-name fabrinetes-dev-testing-latest.run --install --pkg-cache containers/ffb2b6947fb9/pkg-cache --online --package python3-pip'
-        ]
-    }
-    show_command_help('pkg', command_data)
-
 def show_test_help():
     """Show help for test command"""
     command_data = {
         'syntax': './fabrinetes test --command <command> [--test-number <number>]',
         'description': 'Test commands using comprehensive test vectors with fabrinetes-dev-testing container',
         'arguments': [
-            ['--command', 'Test command to run', 'Yes', 'run, build, clean, kill, commit, pkg, all'],
+            ['--command', 'Test command to run', 'Yes', 'run, build, clean, all'],
             ['--test-number', 'Run specific test by number (1-based)', 'No', '1, 2, 3, etc.']
         ],
         'examples': [
@@ -272,30 +166,10 @@ def show_test_help():
             './fabrinetes test --command run --test-number 5',
             './fabrinetes test --command build', 
             './fabrinetes test --command clean',
-            './fabrinetes test --command kill',
-            './fabrinetes test --command commit',
-            './fabrinetes test --command pkg',
             './fabrinetes test --command all'
         ]
     }
     show_command_help('test', command_data)
-
-def show_restore_help():
-    """Show help for restore command"""
-    command_data = {
-        'syntax': './fabrinetes restore --config-file <config-file> [--base-image|--image]',
-        'description': 'Generate Docker load command to restore images from tar.gz files',
-        'arguments': [
-            '--config-file <config-file> (REQUIRED) - Path to config file',
-            '--base-image - Restore base image from tar.gz',
-            '--image - Restore main image from tar.gz'
-        ],
-        'examples': [
-            './fabrinetes restore --config-file containers/my-container/config.toml --base-image',
-            './fabrinetes restore --config-file containers/my-container/config.toml --image'
-        ]
-    }
-    show_command_help('restore', command_data)
 
 def show_exec_help():
     """Show help for exec command"""
@@ -353,15 +227,9 @@ def show_config_status(config_file):
         print("Status:")
         print("-" * 20)
         
-        # Base image status
-        base_status = "OK" if status['base_image']['exists'] else "MISSING"
-        base_tarball_status = "OK" if status['base_image']['tarball_exists'] else "MISSING"
-        print(f"Base Image:    {base_status} Docker  {base_tarball_status} Tarball")
-        
         # Main image status
         main_status = "OK" if status['main_image']['exists'] else "MISSING"
-        main_tarball_status = "OK" if status['main_image']['tarball_exists'] else "MISSING"
-        print(f"Main Image:    {main_status} Docker  {main_tarball_status} Tarball")
+        print(f"Main Image:    {main_status} Docker")
         
         # Container status
         container_status = status['container']['status']
@@ -400,51 +268,39 @@ def show_global_help():
     commands = [
         {
             'command': './fabrinetes build',
-            'args': '--config-file <config-file> [--base-image]',
-            'description': 'Generate Docker image from config file',
+            'args': '--config-file <config-file>',
+            'description': 'Build image from Dockerfile',
             'allowed_values': 'config-file: containers/<path>/config.toml (REQUIRED)'
         },
         {
             'command': './fabrinetes run',
             'args': '--config-file <config-file> [--rm] [--x11] [--usb] [--ask] [--verbose]',
-            'description': 'Run container with specified config',
+            'description': 'Generate Docker run command',
             'allowed_values': 'config-file: containers/<path>/config.toml (REQUIRED)'
         },
         {
             'command': './fabrinetes exec',
             'args': '--config-file <config-file> [--exec-cmd <command>]',
-            'description': 'Execute commands in running container with proper user context',
-            'allowed_values': 'config-file: containers/<path>/config.toml (REQUIRED)'
-        },
-        {
-            'command': './fabrinetes commit',
-            'args': '--config-file <config-file> [--tag <tag>] [--message <message>]',
-            'description': 'Generate Docker commit command to stdout without executing it',
-            'allowed_values': 'config-file: containers/<path>/config.toml (REQUIRED)'
-        },
-        {
-            'command': './fabrinetes kill',
-            'args': '--config-file <config-file> [container-name]',
-            'description': 'Stop and remove container',
-            'allowed_values': 'config-file: containers/<path>/config.toml (REQUIRED)'
-        },
-        {
-            'command': './fabrinetes pkg',
-            'args': '--config-file <config-file> --container-name [container-name]',
-            'description': 'Package management: generate package file with versions and download .deb files',
-            'allowed_values': 'config-file: containers/<path>/config.toml (REQUIRED)'
-        },
-        {
-            'command': './fabrinetes restore',
-            'args': '--config-file <config-file> [--base-image|--image]',
-            'description': 'Restore Docker image from tarball',
+            'description': 'Generate Docker exec command for running container',
             'allowed_values': 'config-file: containers/<path>/config.toml (REQUIRED)'
         },
         {
             'command': './fabrinetes status',
             'args': '--config-file <config-file>',
-            'description': 'Show config file status and available commands',
+            'description': 'Show config file status',
             'allowed_values': 'config-file: containers/<path>/config.toml (REQUIRED)'
+        },
+        {
+            'command': './fabrinetes test',
+            'args': '--config-file <config-file>',
+            'description': 'Run all commands in test mode',
+            'allowed_values': 'config-file: containers/<path>/config.toml (REQUIRED)'
+        },
+        {
+            'command': './fabrinetes help',
+            'args': '',
+            'description': 'Show this help message',
+            'allowed_values': 'No arguments required'
         }
     ]
     
@@ -460,17 +316,37 @@ def show_global_help():
     # Compressed examples using templates
     example_templates = [
         "./fabrinetes --config-file <config> [--cmd <command>]",
-        "./fabrinetes build --config-file <config> --buildbase",
+        "./fabrinetes build --config-file <config>",
         "./fabrinetes run --config-file <config> [--rm|--x11|--usb|--ask|--verbose]",
         "./fabrinetes exec --config-file <config> [--exec-cmd <command>]",
-        "./fabrinetes commit --config-file <config> [--tag <tag>] [--message <message>]",
-        "./fabrinetes restore --config-file <config> [--base-image|--image]",
         "./fabrinetes status --config-file <config>",
-        "./fabrinetes pkg --config-file <config> --container-name <name>"
+        "./fabrinetes test --config-file <config>"
     ]
     
     for i, template in enumerate(example_templates, 1):
         print(f"{i}. {template}")
+    
+    # Docker Syntax Reference
+    print("\n\nDocker Syntax Reference:")
+    print("-" * 30)
+    print("Common Docker commands that can be used directly:")
+    print("")
+    print("1. Docker Commit:")
+    print("   docker commit -m \"<message>\" <container_name> <image_name:tag>")
+    print("   Example: docker commit -m \"Added new features\" fabrinetes-local-run.run ykarmon/fabrinetes:v1.1")
+    print("")
+    print("2. Docker Run:")
+    print("   docker run -d --name <container_name> <image_name:tag> <command>")
+    print("   Example: docker run -d --name my-container ubuntu:latest sleep infinity")
+    print("")
+    print("3. Docker Exec:")
+    print("   docker exec -it <container_name> <command>")
+    print("   Example: docker exec -it my-container bash")
+    print("")
+    print("4. Docker Build:")
+    print("   docker build -t <image_name:tag> -f <dockerfile> <context>")
+    print("   Example: docker build -t my-image:latest -f Dockerfile .")
+    print("")
     
     # Note: All commands now require --config-file parameter
     print("\n\nNote:")

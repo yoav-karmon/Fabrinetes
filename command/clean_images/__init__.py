@@ -1,1 +1,0 @@
-# Clean Images Command Module
