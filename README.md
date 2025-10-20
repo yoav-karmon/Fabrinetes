@@ -31,14 +31,75 @@ git clone https://github.com/yoav-karmon/Fabrinetes.git
 cd Fabrinetes
 ```
 
-2. Build your first container:
+2. Use the setup script to build and run your first container:
 ```bash
-./fabrinetes.py --cmd build --config-file containers/fabrinetes-dev-local/config.toml | bash
+./setup.sh -f containers/fabrinetes-dev-local/config.toml
 ```
 
-3. Run a simulation:
+The setup script will:
+- Show available Docker images from Docker Hub
+- Let you select an image (or use the latest)
+- Build and run the container automatically
+- Display progress and completion status
+
+3. Access your container:
 ```bash
-hdlforge Verilator --project router.hdlforge.toml --step sim --SimTargetName main
+# Interactive shell
+./fabrinetes.py --cmd exec --config-file containers/fabrinetes-dev-local/config.toml | bash
+
+# Run a simulation
+./fabrinetes.py --cmd exec --config-file containers/fabrinetes-dev-local/config.toml --exec-cmd "hdlforge Verilator --project router.hdlforge.toml --step sim --SimTargetName main" | bash
+```
+
+## Setup Script
+
+The `setup.sh` script is the recommended way to get started with Fabrinetes:
+
+### Basic Usage
+```bash
+# Interactive setup (shows available images)
+./setup.sh -f containers/fabrinetes-dev-local/config.toml
+
+# Specify image directly
+./setup.sh -f containers/fabrinetes-dev-local/config.toml -i ykarmon/fabrinetes:latest
+```
+
+### What the Setup Script Does
+1. **Fetches available images** from Docker Hub
+2. **Displays numbered list** of available images with sizes and dates
+3. **Interactive selection** or accepts pre-specified image
+4. **Runs fabrinetes automatically** to build and start container
+5. **Shows progress** with clear success/error messages
+
+### Setup Script Options
+- `-f <config_file>`: Required config file path
+- `-i <image_id>`: Optional image ID (skips interactive selection)
+- `-h, --help`: Show usage information
+
+### Example Output
+```
+Docker Image Setup
+
+Available images:
+  1. ykarmon/fabrinetes:latest - 2025-10-20T10:53:22.123456Z - 1400MB
+  2. ykarmon/fabrinetes:v1.0 - 2025-10-19T15:30:45.789012Z - 1350MB
+
+Select image number or 'q' to quit: 1
+Selected image: ykarmon/fabrinetes:latest
+
+Fabrinetes Container Runner
+Config file: containers/fabrinetes-dev-local/config.toml
+Running: ./fabrinetes.py --config-file containers/fabrinetes-dev-local/config.toml --cmd run | bash
+
+==========================================
+START OF FABRINETES OUTPUT
+==========================================
+[SUCCESS] Container started successfully
+==========================================
+END OF FABRINETES OUTPUT
+==========================================
+[SUCCESS] Fabrinetes command completed!
+[SUCCESS] Done!
 ```
 
 ## Tools & Integration
@@ -57,7 +118,16 @@ tool-specific setup and ensuring reproducible builds.
 
 ## Usage Examples
 
-### CLI Mode (Automation)
+### Getting Started (Recommended)
+```bash
+# Use setup script for easy container setup
+./setup.sh -f containers/fabrinetes-dev-local/config.toml
+
+# Access your running container
+./fabrinetes.py --cmd exec --config-file containers/fabrinetes-dev-local/config.toml | bash
+```
+
+### Manual CLI Mode (Advanced)
 ```bash
 # Build container
 ./fabrinetes.py --cmd build --config-file containers.toml | bash
