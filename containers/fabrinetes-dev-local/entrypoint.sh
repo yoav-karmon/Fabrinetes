@@ -17,14 +17,23 @@ if ! getent group "$USER_GID" > /dev/null; then
     echo "Creating group: $USERNAME (GID:$USER_GID)"
     groupadd --gid "$USER_GID" "$USERNAME"
 else
-    echo "Group already exists: $(getent group "$USER_GID" | cut -d: -f1)"
+    existing_group=$(getent group "$USER_GID" | cut -d: -f1)
+    echo "Group already exists: $existing_group"
+    # Rename the group if it's not the expected name
+    if [ "$existing_group" != "$USERNAME" ]; then
+        echo "Renaming group from $existing_group to $USERNAME"
+        groupmod -n "$USERNAME" "$existing_group"
+    fi
 fi
 
 if ! getent passwd "$USER_UID" > /dev/null; then
     echo "Creating user: $USERNAME (UID:$USER_UID, HOME:$HOME_DIR)"
     useradd --uid "$USER_UID" --gid "$USER_GID" --shell /bin/bash --create-home --home-dir "$HOME_DIR" "$USERNAME"
     # Set proper ownership of home directory after creation
-    chown -R "$USERNAME:$USERNAME" "$HOME_DIR"
+    # Only change ownership of files directly in the home directory, not subdirectories
+    chown "$USERNAME:$USERNAME" "$HOME_DIR" 2>/dev/null || true
+    # Skip read-only files like .Xauthority - only change writable files
+    find "$HOME_DIR" -maxdepth 1 -type f -writable -exec chown "$USERNAME:$USERNAME" {} \; 2>/dev/null || true
     # Set up passwordless sudo for the user (requires root privileges)
     echo "Setting up passwordless sudo for $USERNAME"
     echo "$USERNAME ALL=(ALL) NOPASSWD:ALL" > "/etc/sudoers.d/$USERNAME"
@@ -44,7 +53,10 @@ else
             usermod -d "$HOME_DIR" "$USERNAME"
         fi
         # Set proper ownership of home directory (for both new and existing)
-        chown -R "$USERNAME:$USERNAME" "$HOME_DIR"
+        # Only change ownership of files directly in the home directory, not subdirectories
+        chown "$USERNAME:$USERNAME" "$HOME_DIR" 2>/dev/null || true
+        # Skip read-only files like .Xauthority - only change writable files
+        find "$HOME_DIR" -maxdepth 1 -type f -writable -exec chown "$USERNAME:$USERNAME" {} \; 2>/dev/null || true
         # Set up passwordless sudo for the user (requires root privileges)
         echo "Setting up passwordless sudo for $USERNAME"
         echo "$USERNAME ALL=(ALL) NOPASSWD:ALL" > "/etc/sudoers.d/$USERNAME"
@@ -57,6 +69,21 @@ fi
 # Set hostname (requires root privileges)
 echo "Setting hostname to: Fabrinetes"
 echo "Fabrinetes" > /etc/hostname
+
+# Create a custom bash wrapper that automatically switches to the dynamic user
+echo "Creating custom bash wrapper for automatic user switching"
+cat > /usr/local/bin/bash << EOF
+#!/bin/bash
+# Custom bash wrapper that automatically switches to the dynamic user
+if [ "\$(id -u)" = "0" ] && [ -n "$CONTAINER_USER" ]; then
+    # We're running as root, switch to the container user
+    exec gosu "$CONTAINER_USER" /bin/bash "\$@"
+else
+    # Already running as the correct user, use normal bash
+    exec /bin/bash "\$@"
+fi
+EOF
+chmod +x /usr/local/bin/bash
 
 # Set up environment variables for the user
 export HOME="$HOME_DIR"

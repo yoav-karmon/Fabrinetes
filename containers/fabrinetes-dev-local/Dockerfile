@@ -6,6 +6,10 @@ ENV DEBIAN_FRONTEND=noninteractive
 COPY packages.txt /tmp/packages.txt
 COPY python-packages.txt /tmp/python-packages.txt
 
+# Copy and set up entrypoint script
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
 # Install packages from package list
 RUN apt-get update && \
     xargs -a /tmp/packages.txt apt-get install -y && \
@@ -25,3 +29,6 @@ RUN locale-gen en_US.UTF-8 && update-locale LANG=en_US.UTF-8
 ENV LANG=en_US.UTF-8
 ENV LANGUAGE=en_US:en
 ENV LC_ALL=en_US.UTF-8
+
+# Set entrypoint to run the dynamic user setup script
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

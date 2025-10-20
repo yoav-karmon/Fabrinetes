@@ -10,9 +10,8 @@ mounts = [
 ]
 
 [config.image]
-name = "fabrinetes-local"
-tag = "latest"
-tarball_path = "fabrinetes-local:latest.tar.gz"
+name = "ykarmon/fabrinetes"
+tag = "v1.0"
 dockerfile_path = "Dockerfile"
 package_list_path = "packages.txt"
 
