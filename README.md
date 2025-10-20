@@ -31,9 +31,46 @@ git clone https://github.com/yoav-karmon/Fabrinetes.git
 cd Fabrinetes
 ```
 
-2. Use the setup script to build and run your first container:
+2. Create your own container configuration:
 ```bash
-./setup.sh -f containers/fabrinetes-dev-local/config.toml
+# Create your container directory
+mkdir -p containers/my-project
+
+# Copy template files
+cp containers/fabrinetes-dev-local/config.toml containers/my-project/
+cp containers/fabrinetes-dev-local/init_env.sh containers/my-project/
+```
+
+3. Configure your container setup in `containers/my-project/config.toml`:
+```toml
+[config.image]
+name = "ykarmon/fabrinetes"
+tag = "latest"
+
+[config.container]
+name = "my-project-run"  # Set your own container run name
+
+[config]
+mounts = [
+    "$HOME/.ssh:$HOME/.ssh",
+    "$HOME/repo:$HOME/repo",           # Mount your repo directory
+    "$HOME/.Xauthority:$HOME/.Xauthority:ro",
+    "init_env.sh:/etc/profile.d/init_env.sh"
+]
+```
+
+4. Configure HdlForge paths in `containers/my-project/init_env.sh`:
+```bash
+# Set REPO_TOP to point to your repository root
+export REPO_TOP="/home/ykarmon/repo/Fabrinetes"
+
+# Add your project source paths for HdlForge
+export PYTHONPATH="$REPO_TOP/source/project_setup:$PYTHONPATH"
+```
+
+5. Use the setup script with your configuration:
+```bash
+./setup.sh -f containers/my-project/config.toml
 ```
 
 The setup script will:
@@ -42,7 +79,7 @@ The setup script will:
 - Build and run the container automatically
 - Display progress and completion status
 
-3. Access your container:
+6. Access your container:
 
 **VS Code/Cursor Remote Container (Recommended)**
 1. Open VS Code or Cursor in the repository root
@@ -50,6 +87,40 @@ The setup script will:
 3. Use Command Palette: "Remote-Containers: Attach to Running Container"
 4. Select your running fabrinetes container
 5. Start developing with full IDE integration
+
+## Important: Container Configuration Requirements
+
+**For HdlForge to work properly, you must:**
+
+1. **Set correct REPO_TOP path** in `init_env.sh`:
+   ```bash
+   export REPO_TOP="/home/ykarmon/repo/Fabrinetes"  # Your actual repo path
+   ```
+
+2. **Mount your repository** in `config.toml`:
+   ```toml
+   mounts = [
+       "$HOME/repo:$HOME/repo",  # Mount your repo directory
+       # ... other mounts
+   ]
+   ```
+
+3. **Set unique container name** to avoid conflicts:
+   ```toml
+   [config.container]
+   name = "my-project-run"  # Your unique container name
+   ```
+
+4. **Configure PYTHONPATH** for HdlForge source access:
+   ```bash
+   export PYTHONPATH="$REPO_TOP/source/project_setup:$PYTHONPATH"
+   ```
+
+**Why this matters:**
+- HdlForge needs to find source files relative to REPO_TOP
+- Container name must be unique to avoid Docker conflicts
+- Mount points determine what directories are accessible inside container
+- PYTHONPATH enables HdlForge to import required modules
 
 ## Setup Script
 
