@@ -59,13 +59,13 @@ mounts = [
 ]
 ```
 
-4. Configure HdlForge paths in `containers/my-project/init_env.sh`:
+4. Configure global environment in `containers/my-project/init_env.sh`:
 ```bash
-# Set REPO_TOP to point to your repository root
-export REPO_TOP="/home/ykarmon/repo/Fabrinetes"
+# Global PATH setup for entire container (works across all repositories)
+export PATH="/opt/vivado/bin:$HOME/repo/Fabrinetes/source/project_setup:$HOME/.local/bin:$PATH"
 
-# Add your project source paths for HdlForge
-export PYTHONPATH="$REPO_TOP/source/project_setup:$PYTHONPATH"
+# License file path (adjust to your setup)
+export XILINXD_LICENSE_FILE="$HOME/repos/phy_project/Xilinx.lic"
 ```
 
 5. Use the setup script with your configuration:
@@ -88,16 +88,66 @@ The setup script will:
 4. Select your running fabrinetes container
 5. Start developing with full IDE integration
 
+## Path Management System
+
+Fabrinetes includes a sophisticated two-level path management system that automatically configures environment variables based on context:
+
+### Global Container Path Management
+
+**File**: `containers/my-project/init_env.sh`
+- Sets **system-wide tools** for the entire container
+- Includes Vivado, Fabrinetes project setup, local binaries
+- Works across **all repositories** in the container
+
+```bash
+# Global PATH setup for entire container
+export PATH="/opt/vivado/bin:$HOME/repo/Fabrinetes/source/project_setup:$HOME/.local/bin:$PATH"
+```
+
+### Per-Repository Path Management
+
+**File**: Container bashrc includes `update_repo_path()` function
+- **Automatic Detection**: Uses `git rev-parse --show-toplevel` to detect current Git repository
+- **Dynamic REPO_TOP**: Sets `REPO_TOP` environment variable to repository root
+- **Repository-Specific Paths**: Sources repository-specific path files:
+  - `tools/update_paths.sh` - Custom repository paths
+  - `tools/tool_box/tool_box.sh` - Additional repository tools
+- **Automatic Switching**: Updates paths when `cd`ing between different repositories
+
+### How It Works
+
+1. **Container starts** → `init_env.sh` sets global paths
+2. **User opens shell** → bashrc runs `update_repo_path()`
+3. **Function detects** current Git repository
+4. **Sets REPO_TOP** and sources repository-specific path files
+5. **When switching repos** → Function re-runs and updates paths
+
+### Repository-Specific Path Files
+
+Each repository can define its own path configuration:
+
+**`tools/update_paths.sh`** (optional):
+```bash
+# Add repository-specific tools to PATH
+export PATH="$REPO_TOP/tools/custom:$PATH"
+
+# Set repository-specific PYTHONPATH
+export PYTHONPATH="$REPO_TOP/source:$PYTHONPATH"
+```
+
+**`tools/tool_box/tool_box.sh`** (optional):
+```bash
+# Additional repository tools and configurations
+source "$REPO_TOP/tools/tool_box/setup.sh"
+```
+
+This creates a **seamless development environment** where global tools are always available, but repository-specific tools are automatically configured based on the current working directory.
+
 ## Important: Container Configuration Requirements
 
-**For HdlForge to work properly, you must:**
+**For proper container setup, you must:**
 
-1. **Set correct REPO_TOP path** in `init_env.sh`:
-   ```bash
-   export REPO_TOP="/home/ykarmon/repo/Fabrinetes"  # Your actual repo path
-   ```
-
-2. **Mount your repository** in `config.toml`:
+1. **Mount your repository** in `config.toml`:
    ```toml
    mounts = [
        "$HOME/repo:$HOME/repo",  # Mount your repo directory
@@ -105,22 +155,28 @@ The setup script will:
    ]
    ```
 
-3. **Set unique container name** to avoid conflicts:
+2. **Set unique container name** to avoid conflicts:
    ```toml
    [config.container]
    name = "my-project-run"  # Your unique container name
    ```
 
-4. **Configure PYTHONPATH** for HdlForge source access:
+3. **Configure global environment** in `init_env.sh`:
    ```bash
-   export PYTHONPATH="$REPO_TOP/source/project_setup:$PYTHONPATH"
+   # Global PATH setup for entire container
+   export PATH="/opt/vivado/bin:$HOME/repo/Fabrinetes/source/project_setup:$HOME/.local/bin:$PATH"
+   ```
+
+4. **Set license file path** (if using Vivado):
+   ```bash
+   export XILINXD_LICENSE_FILE="$HOME/repos/your_project/Xilinx.lic"
    ```
 
 **Why this matters:**
-- HdlForge needs to find source files relative to REPO_TOP
-- Container name must be unique to avoid Docker conflicts
 - Mount points determine what directories are accessible inside container
-- PYTHONPATH enables HdlForge to import required modules
+- Container name must be unique to avoid Docker conflicts
+- Global PATH setup enables system-wide tools (Vivado, Fabrinetes, local binaries)
+- License file path enables Vivado tools to function properly
 
 ## Setup Script
 
