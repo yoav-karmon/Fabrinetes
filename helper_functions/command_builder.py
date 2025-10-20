@@ -296,8 +296,9 @@ class CmdPartHardcoded(CmdPart):
 class CmdPartName(CmdPart):
     """Command part for container/image names"""
     
-    def __init__(self, container_member: str, comment: Optional[str] = None):
+    def __init__(self, container_member: str, comment: Optional[str] = None, check_image_exists: bool = False):
         super().__init__(container_member=container_member, comment=comment)
+        self.check_image_exists = check_image_exists
     
     def comment_str(self) -> str:
         if self.resolved_value:
@@ -315,7 +316,25 @@ class CmdPartName(CmdPart):
             if self.resolved_value is None:
                 self.error = f"Missing {self.container_member}"
                 return False
+            
+            # Check if image exists (for run command)
+            if self.check_image_exists and not self._check_image_exists(self.resolved_value):
+                self.error = f"Image '{self.resolved_value}' not found locally. Try: docker pull {self.resolved_value}"
+                return False
         return True
+    
+    def _check_image_exists(self, image_name):
+        """Check if Docker image exists"""
+        try:
+            import subprocess
+            result = subprocess.run(['docker', 'images', '--format', '{{.Repository}}:{{.Tag}}'], 
+                                   capture_output=True, text=True, timeout=10)
+            if result.returncode == 0:
+                images = [img.strip() for img in result.stdout.strip().split('\n') if img.strip()]
+                return image_name in images
+            return False
+        except Exception:
+            return False
 
 class CommandBuilder:
     """Builder class for Docker commands"""

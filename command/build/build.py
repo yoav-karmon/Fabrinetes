@@ -29,7 +29,7 @@ def build(args, container_info):
                                              "# Image name:tag (from config.image.name:tag)"))
     
     # Add dockerfile argument
-    builder.add_part("dockerfile", CmdPartFile("-f", "image_dockerfile", 
+    builder.add_part("dockerfile", CmdPartFile("-f", "image_dockerfile_resolved", 
                                               "# Dockerfile path (from config.image.dockerfile)"))
     
     # Add build context
