@@ -1,0 +1,43 @@
+{
+  "name": "Fabrinetes Dev Container (Local Build)",
+  "build": {
+    "dockerfile": "../containers/fabrinetes-dev-local/Dockerfile",
+    "context": "../containers/fabrinetes-dev-local"
+  },
+  "remoteUser": "yoav.karmon",
+  "workspaceFolder": "/home/yoav.karmon",
+  "containerEnv": {
+    "CONTAINER_USER": "yoav.karmon",
+    "CONTAINER_UID": "1898250003",
+    "CONTAINER_GID": "1898250003",
+    "CONTAINER_HOME": "/home/yoav.karmon",
+    "WORKDIR": "/DATA/repo/Fabrinetes/containers/fabrinetes-dev-local"
+  },
+  "mounts": [
+    "source=${env:HOME}/.ssh,target=/home/yoav.karmon/.ssh,type=bind",
+    "source=${env:HOME}/repo,target=/home/yoav.karmon/repo,type=bind",
+    "source=${env:HOME}/.Xauthority,target=/home/yoav.karmon/.Xauthority,type=bind,readonly",
+    "source=${localWorkspaceFolder}/containers/fabrinetes-dev-local/init_env.sh,target=/etc/profile.d/init_env.sh,type=bind",
+    "source=${localWorkspaceFolder}/containers/fabrinetes-dev-local/entrypoint.sh,target=/tmp/entrypoint.sh,type=bind"
+  ],
+  "runArgs": [
+    "--privileged",
+    "--network=host",
+    "-e", "CONTAINER_USER=yoav.karmon",
+    "-e", "CONTAINER_UID=1898250003", 
+    "-e", "CONTAINER_GID=1898250003",
+    "-e", "CONTAINER_HOME=/home/yoav.karmon",
+    "-e", "WORKDIR=/DATA/repo/Fabrinetes/containers/fabrinetes-dev-local",
+    "-e", "DISPLAY=${env:DISPLAY}",
+    "-v", "/tmp/.X11-unix:/tmp/.X11-unix:rw"
+  ],
+  "postCreateCommand": "bash /tmp/entrypoint.sh && echo 'Dev container ready!'",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-vscode.vscode-json"
+      ]
+    }
+  }
+}
