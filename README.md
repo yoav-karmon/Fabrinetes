@@ -137,6 +137,22 @@ export XILINXD_LICENSE_FILE="$HOME/repos/phy_project/Xilinx.lic"
 4. **Sets REPO_TOP** and sources repository-specific path files
 5. **When switching repos** → User runs `update_repo_path` to update paths
 
+**Interactive Output:**
+When `update_repo_path` runs in an interactive shell, it displays:
+- **REPO_TOP** path confirmation
+- **PATH** environment variable
+- **PYTHONPATH** environment variable
+- **Status messages** for sourced files
+
+**Example Output:**
+```bash
+$ update_repo_path
+[i] sourcing /home/ykarmon/repo/my-project/tools/update_paths.sh
+[v] REPO_TOP set to /home/ykarmon/repo/my-project
+PATH=/opt/vivado/bin:/home/ykarmon/repo/Fabrinetes/source/project_setup:/home/ykarmon/repo/my-project/tools/custom:/home/ykarmon/.local/bin:/usr/local/bin:/usr/bin:/bin
+PYTHONPATH=/home/ykarmon/repo/my-project/source:/home/ykarmon/repo/Fabrinetes/source/project_setup
+```
+
 ### Repository-Specific Path Files
 
 Each repository can define its own path configuration:
