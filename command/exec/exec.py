@@ -2,7 +2,7 @@
 
 import os
 import shlex
-from helper_functions.command_builder import CommandBuilder, CmdPartFlag, CmdPartArg, CmdPartName
+from command.helper_functions.command_builder import CommandBuilder, CmdPartFlag, CmdPartArg, CmdPartName
 from command.help.help import show_exec_help
 
 def exec_cmd(args, container_info):

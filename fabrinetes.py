@@ -13,7 +13,7 @@ except ImportError as e:
     sys.exit(1)
 
 # Import ContainerInfo and CommandConfig
-from helper_functions.config.name_generator import ContainerInfo, CommandConfig
+from command.helper_functions.config.name_generator import ContainerInfo, CommandConfig
 
 def main():
     """Main function - command dispatcher"""
@@ -26,7 +26,8 @@ def main():
     
     # Handle help command early - doesn't need config file
     if args.cmd == "help":
-        parser.print_help()
+        from command.help.help import show_global_help
+        show_global_help()
         return
     
     # Get command definition from centralized config
