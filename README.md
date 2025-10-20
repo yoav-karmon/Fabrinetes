@@ -127,7 +127,7 @@ export XILINXD_LICENSE_FILE="$HOME/repos/phy_project/Xilinx.lic"
 - **Repository-Specific Paths**: Sources repository-specific path files:
   - `tools/update_paths.sh` - Custom repository paths
   - `tools/tool_box/tool_box.sh` - Additional repository tools
-- **Automatic Switching**: Updates paths when `cd`ing between different repositories
+- **Manual Switching**: User runs `update_repo_path` when switching between different repositories
 
 ### How It Works
 
@@ -135,7 +135,7 @@ export XILINXD_LICENSE_FILE="$HOME/repos/phy_project/Xilinx.lic"
 2. **User opens shell** → bashrc runs `update_repo_path()`
 3. **Function detects** current Git repository
 4. **Sets REPO_TOP** and sources repository-specific path files
-5. **When switching repos** → Function re-runs and updates paths
+5. **When switching repos** → User runs `update_repo_path` to update paths
 
 ### Repository-Specific Path Files
 
