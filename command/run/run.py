@@ -3,8 +3,7 @@
 import os
 import pathlib
 from typing import Optional
-from helper_functions.command_builder import CommandBuilder, CmdPartEnv, CmdPartFlag, CmdPartMounts, CmdPartX11, CmdPartArg, CmdPartName, CmdPart
-from helper_functions.image_management import convert_to_docker_format
+from command.helper_functions.command_builder import CommandBuilder, CmdPartEnv, CmdPartFlag, CmdPartMounts, CmdPartX11, CmdPartArg, CmdPartName, CmdPart
 from command.help.help import show_run_help
 
 class CmdPartUser(CmdPart):
@@ -80,9 +79,11 @@ def run(args, container_info):
         builder.add_part("mounts", CmdPartMounts(container_info.mounts, 
                                                 comment="# Mount from config.mounts array"))
     
-    # Add user parameter (commented out for now - entrypoint handles user switching)
-    # builder.add_part("user", CmdPartUser(str(os.getuid()), 
-    #                                    comment="# Run container as specified user (from CONTAINER_UID env var)"))
+    # Note: We don't use --user flag here because the entrypoint script needs root privileges
+    # to create users. Instead, we rely on the entrypoint script to switch to the correct user
+    # for the main process, and docker exec commands will need to specify the user explicitly
+    # builder.add_part("user", CmdPartUser(f"{current_user}:{current_user}", 
+    #                                    comment="# Run container as specified user (affects docker exec commands)"))
     
     # Add container name
     builder.add_part("container_name", CmdPartArg("--name", "run_name", 
