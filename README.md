@@ -73,10 +73,10 @@ name = "my-project-run"  # Set your own container run name
 
 [config]
 mounts = [
-    "$HOME/.ssh:$HOME/.ssh",
-    "$HOME/repo:$HOME/repo",           # Mount your repo directory
-    "$HOME/.Xauthority:$HOME/.Xauthority:ro",
-    "init_env.sh:/etc/profile.d/init_env.sh"
+    "$HOME/.ssh:$HOME/.ssh",                    # SSH keys for Git access
+    "$HOME/repo:$HOME/repo",                    # Mount your repo directory
+    "$HOME/.Xauthority:$HOME/.Xauthority:ro",   # X11 authentication (read-only)
+    "init_env.sh:/etc/profile.d/init_env.sh"    # Global environment setup
 ]
 ```
 
