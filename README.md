@@ -43,11 +43,20 @@ The setup script will:
 - Display progress and completion status
 
 3. Access your container:
+
+**Option A: VS Code/Cursor Remote Container (Recommended)**
+1. Open VS Code or Cursor in the repository root
+2. Install "Remote - Containers" extension
+3. Use Command Palette: "Remote-Containers: Attach to Running Container"
+4. Select your running fabrinetes container
+5. Start developing with full IDE integration
+
+**Option B: Command Line Access**
 ```bash
 # Interactive shell
 ./fabrinetes.py --cmd exec --config-file containers/fabrinetes-dev-local/config.toml | bash
 
-# Run a simulation
+# Run specific commands
 ./fabrinetes.py --cmd exec --config-file containers/fabrinetes-dev-local/config.toml --exec-cmd "hdlforge Verilator --project router.hdlforge.toml --step sim --SimTargetName main" | bash
 ```
 
@@ -122,10 +131,13 @@ tool-specific setup and ensuring reproducible builds.
 ```bash
 # Use setup script for easy container setup
 ./setup.sh -f containers/fabrinetes-dev-local/config.toml
-
-# Access your running container
-./fabrinetes.py --cmd exec --config-file containers/fabrinetes-dev-local/config.toml | bash
 ```
+
+**Then attach VS Code/Cursor to the running container:**
+1. Open VS Code/Cursor in repository root
+2. Command Palette: "Remote-Containers: Attach to Running Container"
+3. Select your fabrinetes container
+4. Full IDE integration with debugging, IntelliSense, and extensions
 
 ### Manual CLI Mode (Advanced)
 ```bash
@@ -139,11 +151,22 @@ tool-specific setup and ensuring reproducible builds.
 ./fabrinetes.py --cmd exec --config-file containers.toml --exec-cmd "hdlforge test" | bash
 ```
 
-### Interactive VS Code Mode
-1. Open VS Code in the repository root
-2. Install "Remote - Containers" extension
-3. Use Command Palette: "Remote-Containers: Reopen in Container"
-4. Select your fabrinetes container configuration
+### Interactive VS Code/Cursor Mode
+**Attach to Running Container (Recommended)**
+1. Run setup script: `./setup.sh -f containers/fabrinetes-dev-local/config.toml`
+2. Open VS Code/Cursor in the repository root
+3. Install "Remote - Containers" extension
+4. Command Palette: "Remote-Containers: Attach to Running Container"
+5. Select your running fabrinetes container
+6. Enjoy full IDE integration with debugging, IntelliSense, and extensions
+
+**Benefits of VS Code/Cursor Attachment:**
+- Full IDE integration with debugging support
+- IntelliSense and code completion
+- Integrated terminal with proper environment
+- Extension support (Python, Verilog, etc.)
+- Git integration within container
+- File explorer with container filesystem
 
 ### HdlForge Simulation
 ```bash
