@@ -26,3 +26,4 @@ _*/
 # Ignore all log files
 *.log
 venv/
+cursor_send_box/
