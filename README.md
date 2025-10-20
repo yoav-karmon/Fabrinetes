@@ -13,6 +13,7 @@ cd Fabrinetes
 mkdir -p containers/my-project
 cp containers/fabrinetes-dev-local/config.toml containers/my-project/
 cp containers/fabrinetes-dev-local/init_env.sh containers/my-project/
+# Edit init_env.sh and config.toml for your setup
 
 # 3. Run container
 ./setup.sh -f containers/my-project/config.toml
