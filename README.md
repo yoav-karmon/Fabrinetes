@@ -44,21 +44,12 @@ The setup script will:
 
 3. Access your container:
 
-**Option A: VS Code/Cursor Remote Container (Recommended)**
+**VS Code/Cursor Remote Container (Recommended)**
 1. Open VS Code or Cursor in the repository root
 2. Install "Remote - Containers" extension
 3. Use Command Palette: "Remote-Containers: Attach to Running Container"
 4. Select your running fabrinetes container
 5. Start developing with full IDE integration
-
-**Option B: Command Line Access**
-```bash
-# Interactive shell
-./fabrinetes.py --cmd exec --config-file containers/fabrinetes-dev-local/config.toml | bash
-
-# Run specific commands
-./fabrinetes.py --cmd exec --config-file containers/fabrinetes-dev-local/config.toml --exec-cmd "hdlforge Verilator --project router.hdlforge.toml --step sim --SimTargetName main" | bash
-```
 
 ## Setup Script
 
