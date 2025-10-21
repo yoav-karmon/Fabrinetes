@@ -250,7 +250,6 @@ class CmdPartX11Support(CmdPart):
         """Return commented version with example values"""
         if self.enabled and self.x11_args:
             lines = []
-            lines.append("#     --net=host")
             lines.append("#     -e DISPLAY=:0")
             return "\n".join(lines)
         return ""
@@ -265,11 +264,25 @@ class CmdPartX11Support(CmdPart):
         if not self.enabled:
             return True
         
-        # Resolve actual DISPLAY value
+        # Only add DISPLAY environment variable (networking is handled separately)
         self.x11_args = [
-            "--net=host",
             f"-e DISPLAY={os.environ['DISPLAY']}"
         ]
+        return True
+
+class CmdPartHostNetworking(CmdPart):
+    """Command part for host networking (always enabled)"""
+    
+    def __init__(self, comment: Optional[str] = None):
+        super().__init__(comment=comment)
+    
+    def comment_str(self) -> str:
+        return "#     --net=host"
+    
+    def execution_str(self) -> str:
+        return "--net=host"
+    
+    def resolve(self, container_info) -> bool:
         return True
 
 class CmdPartHardcoded(CmdPart):

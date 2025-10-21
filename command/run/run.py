@@ -3,7 +3,7 @@
 import os
 import pathlib
 from typing import Optional
-from command.helper_functions.command_builder import CommandBuilder, CmdPartEnv, CmdPartFlag, CmdPartMounts, CmdPartX11Support, CmdPartArg, CmdPartName, CmdPart, CmdPartHardcoded
+from command.helper_functions.command_builder import CommandBuilder, CmdPartEnv, CmdPartFlag, CmdPartMounts, CmdPartX11Support, CmdPartArg, CmdPartName, CmdPart, CmdPartHardcoded, CmdPartHostNetworking
 from command.help.help import show_run_help
 
 class CmdPartUser(CmdPart):
@@ -66,10 +66,14 @@ def run(args, container_info):
     if rm:
         builder.add_part("rm", CmdPartFlag("--rm", comment="# Remove container when it exits (from --rm flag)"))
     
-    # Add X11 support (network + environment only, NOT mounts)
+    # Add host networking (always enabled for NIC access)
+    builder.add_part("host_networking", CmdPartHostNetworking(
+                     comment="# Host networking (always enabled for NIC access)"))
+    
+    # Add X11 support (environment only, NOT network - network is handled above)
     if container_info.x11_enabled:
         builder.add_part("x11_support", CmdPartX11Support(True, 
-                         comment="# X11 GUI support (network and display)"))
+                         comment="# X11 GUI support (display environment only)"))
 
     # Add USB support
     if usb:
