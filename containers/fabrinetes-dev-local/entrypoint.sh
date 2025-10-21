@@ -12,6 +12,14 @@ HOME_DIR=${CONTAINER_HOME:-/home/$USERNAME}
 
 echo "Setting up dynamic user: $USERNAME (UID:$USER_UID, GID:$USER_GID, HOME:$HOME_DIR)"
 
+# Check if CONTAINER_USER is root - if so, switch to root and skip rest of script
+if [ "$CONTAINER_USER" = "root" ]; then
+    echo "CONTAINER_USER is set to root - switching to root and skipping user setup"
+    echo "Verifying root access: $(whoami) (UID: $(id -u))"
+    echo "Root mode enabled - executing command as root"
+    exec "$@"
+fi
+
 # Create user and group dynamically (requires root privileges)
 if ! getent group "$USER_GID" > /dev/null; then
     echo "Creating group: $USERNAME (GID:$USER_GID)"
@@ -57,14 +65,51 @@ else
         chown "$USERNAME:$USERNAME" "$HOME_DIR" 2>/dev/null || true
         # Skip read-only files like .Xauthority - only change writable files
         find "$HOME_DIR" -maxdepth 1 -type f -writable -exec chown "$USERNAME:$USERNAME" {} \; 2>/dev/null || true
-        # Set up passwordless sudo for the user (requires root privileges)
-        echo "Setting up passwordless sudo for $USERNAME"
-        echo "$USERNAME ALL=(ALL) NOPASSWD:ALL" > "/etc/sudoers.d/$USERNAME"
-        chmod 0440 "/etc/sudoers.d/$USERNAME"
     else
         echo "Running as root, skipping user modification"
     fi
 fi
+
+# ========================================
+# SUDO CONFIGURATION SECTION
+# ========================================
+echo "=== SUDO CONFIGURATION SECTION ==="
+echo "Setting up passwordless sudo for user: $USERNAME"
+
+# Method 1: Create sudoers.d file (preferred method)
+echo "Creating sudoers.d file for $USERNAME"
+echo "$USERNAME ALL=(ALL) NOPASSWD:ALL" > "/etc/sudoers.d/$USERNAME"
+chmod 0440 "/etc/sudoers.d/$USERNAME"
+echo "✓ Sudoers.d file created: /etc/sudoers.d/$USERNAME"
+
+# Method 2: Add to sudo group as backup
+echo "Adding $USERNAME to sudo group"
+usermod -aG sudo "$USERNAME" 2>/dev/null || echo "⚠ Warning: Could not add to sudo group"
+echo "✓ Added $USERNAME to sudo group"
+
+# Method 3: Add to main sudoers file as additional backup
+echo "Adding $USERNAME to main sudoers file"
+echo "$USERNAME ALL=(ALL) NOPASSWD:ALL" >> "/etc/sudoers"
+echo "✓ Added to main sudoers file"
+
+# Verify sudoers file syntax
+echo "Verifying sudoers file syntax"
+if visudo -c -f "/etc/sudoers.d/$USERNAME" 2>/dev/null; then
+    echo "✓ Sudoers file syntax verified for $USERNAME"
+else
+    echo "⚠ Warning: sudoers file syntax check failed for $USERNAME"
+fi
+
+# Test sudo access
+echo "Testing sudo access for $USERNAME"
+if sudo -u "$USERNAME" sudo -n whoami 2>/dev/null; then
+    echo "✓ Passwordless sudo test PASSED for $USERNAME"
+else
+    echo "⚠ Warning: Passwordless sudo test FAILED for $USERNAME"
+fi
+
+echo "=== END SUDO CONFIGURATION SECTION ==="
+echo ""
 
 # Set hostname (requires root privileges)
 echo "Setting hostname to: Fabrinetes"
@@ -102,5 +147,12 @@ cd "$HOME_DIR"
 
 # Switch to the user and execute the command
 # Use exec to replace the current process with the user's command
+# Source environment variables for Cursor/VS Code compatibility
+if [ -f "/etc/profile.d/init_env.sh" ]; then
+    echo "Sourcing environment variables from /etc/profile.d/init_env.sh"
+    source /etc/profile.d/init_env.sh
+fi
+
+# Execute command with environment variables loaded
 exec gosu "$USERNAME" "$@"
 
