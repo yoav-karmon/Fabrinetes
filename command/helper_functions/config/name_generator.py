@@ -288,12 +288,17 @@ Available Commands:
         parser.add_argument('--usb', 
                            action='store_true',
                            help='Enable USB device access')
+        parser.add_argument('--host-net', 
+                           action='store_true',
+                           help='Enable host networking (required for NIC access)')
         parser.add_argument('--ask', 
                            action='store_true',
                            help='Ask before executing commands')
         parser.add_argument('--verbose', 
                            action='store_true',
                            help='Enable verbose output')
+        parser.add_argument('--shm-size', 
+                           help='Set shared memory size (e.g., 2g). Default: 2g for FPGA development')
         
         # Restore command arguments
         # Commit command arguments

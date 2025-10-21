@@ -6,7 +6,7 @@ The `run` task executes Docker containers with configuration from TOML files, pr
 ## Usage
 ```bash
 # Run container from config
-./fabrinetes run --file <config-file> [--rm] [--x11] [--usb] [--no-ask]
+./fabrinetes run --file <config-file> [--rm] [--usb] [--host-net] [--no-ask]
 
 # Show help
 ./fabrinetes run
@@ -15,8 +15,8 @@ The `run` task executes Docker containers with configuration from TOML files, pr
 ## Arguments
 - `--file`: Path to TOML config file (required)
 - `--rm`: Remove container when it stops (optional)
-- `--x11`: Enable X11 support (default: true)
 - `--usb`: Enable USB support (optional)
+- `--host-net`: Enable host networking (optional, required for NIC access)
 - `--no-ask`: Skip confirmation prompts (optional)
 
 ## Features

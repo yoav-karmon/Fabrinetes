@@ -302,6 +302,22 @@ class CmdPartHardcoded(CmdPart):
         # Hardcoded values don't need resolution
         return True
 
+class CmdPartShmSize(CmdPart):
+    """Command part for shared memory size parameter"""
+    
+    def __init__(self, size: str, comment: Optional[str] = None):
+        super().__init__(hardcoded=f"--shm-size={size}", comment=comment)
+        self.size = size
+    
+    def comment_str(self) -> str:
+        return f"#     {self.hardcoded}"
+    
+    def execution_str(self) -> str:
+        return self.hardcoded
+    
+    def resolve(self, container_info) -> bool:
+        return True
+
 class CmdPartName(CmdPart):
     """Command part for container/image names"""
     

@@ -118,18 +118,21 @@ def show_command_help(command_name, command_data):
 def show_run_help():
     """Show help for run command"""
     command_data = {
-        'syntax': './fabrinetes run --config-file <config-file> [--rm] [--usb] [--ask] [--verbose]',
+        'syntax': './fabrinetes run --config-file <config-file> [--rm] [--usb] [--host-net] [--ask] [--verbose] [--shm-size <size>]',
         'description': 'Run a Docker container with the specified configuration (container name auto-generated from config path)',
         'arguments': [
             ['--config-file', 'Path to the configuration file (REQUIRED)', 'Yes', 'containers/<path>/config.toml'],
             ['--rm', 'Automatically remove container when it exits', 'No', 'optional flag'],
             ['--usb', 'Enable USB device access', 'No', 'optional flag'],
+            ['--host-net', 'Enable host networking (required for NIC access)', 'No', 'optional flag'],
             ['--ask', 'Ask for confirmation before running', 'No', 'optional flag'],
-            ['--verbose', 'Show detailed output', 'No', 'optional flag']
+            ['--verbose', 'Show detailed output', 'No', 'optional flag'],
+            ['--shm-size', 'Set shared memory size (e.g., 2g). Default: 2g for FPGA development', 'No', '2g']
         ],
         'examples': [
             './fabrinetes run --config-file containers/fabrinetes-dev-testing/config.toml',
-            './fabrinetes run --config-file containers/fabrinetes-dev-testing/config.toml --rm'
+            './fabrinetes run --config-file containers/fabrinetes-dev-testing/config.toml --rm',
+            './fabrinetes run --config-file containers/fabrinetes-dev-testing/config.toml --shm-size 4g'
         ]
     }
     show_command_help('run', command_data)

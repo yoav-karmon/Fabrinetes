@@ -3,7 +3,7 @@
 import os
 import pathlib
 from typing import Optional
-from command.helper_functions.command_builder import CommandBuilder, CmdPartEnv, CmdPartFlag, CmdPartMounts, CmdPartX11Support, CmdPartArg, CmdPartName, CmdPart, CmdPartHardcoded, CmdPartHostNetworking
+from command.helper_functions.command_builder import CommandBuilder, CmdPartEnv, CmdPartFlag, CmdPartMounts, CmdPartX11Support, CmdPartArg, CmdPartName, CmdPart, CmdPartHardcoded, CmdPartHostNetworking, CmdPartShmSize
 from command.help.help import show_run_help
 
 class CmdPartUser(CmdPart):
@@ -30,8 +30,10 @@ def run(args, container_info):
     verbose = args.verbose
     # x11 = args.x11  # Removed - now using config-based X11
     usb = args.usb
+    host_net = args.host_net
     ask = args.ask
     help_flag = args.show_help
+    shm_size = getattr(args, 'shm_size', None)  # Get shm_size with default None
     
     # Check for help flag first
     if help_flag:
@@ -45,7 +47,7 @@ def run(args, container_info):
     
     # Create command builder
     builder = CommandBuilder("Run")
-    builder.set_base_command(["docker", "run", "-d"])
+    builder.set_base_command(["docker", "run", "-dit"])
     
     # Add WORKDIR environment variable
     builder.add_part("workdir", CmdPartEnv("WORKDIR", container_member="working_directory", 
@@ -66,9 +68,13 @@ def run(args, container_info):
     if rm:
         builder.add_part("rm", CmdPartFlag("--rm", comment="# Remove container when it exits (from --rm flag)"))
     
-    # Add host networking (always enabled for NIC access)
-    builder.add_part("host_networking", CmdPartHostNetworking(
-                     comment="# Host networking (always enabled for NIC access)"))
+    # Add host networking (optional - can be enabled via --host-net flag)
+    if host_net:
+        builder.add_part("host_networking", CmdPartHostNetworking(
+                         comment="# Host networking (enabled via --host-net flag)"))
+    
+    # Add privileged mode (always enabled for hardware access)
+    builder.add_part("privileged", CmdPartFlag("--privileged", comment="# Privileged mode (always enabled for hardware access)"))
     
     # Add X11 support (environment only, NOT network - network is handled above)
     if container_info.x11_enabled:
@@ -78,6 +84,12 @@ def run(args, container_info):
     # Add USB support
     if usb:
         builder.add_part("usb", CmdPartFlag("-v /dev/bus/usb:/dev/bus/usb", comment="# Mount USB devices (from --usb flag)"))
+    
+    # Add shared memory size (default 2g for FPGA development)
+    default_shm_size = "2g"
+    actual_shm_size = shm_size if shm_size else default_shm_size
+    builder.add_part("shm_size", CmdPartShmSize(actual_shm_size, 
+                     comment=f"# Shared memory size (default: {default_shm_size}, FPGA tools need large shm)"))
     
     # UNIFIED MOUNT HANDLING: Collect ALL mounts into single list
     all_mounts = []
@@ -119,7 +131,7 @@ def run(args, container_info):
                                               check_image_exists=True))
     
     # Add command
-    builder.add_part("command", CmdPartFlag("sleep infinity", comment="# Command to keep container running indefinitely"))
+    builder.add_part("command", CmdPartFlag("/bin/bash", comment="# Interactive bash shell"))
     
     # Build and execute command
     commented_str, execution_str, errors = builder.build_command(container_info)
