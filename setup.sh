@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Simple Docker Image Setup Script
+# Simple Fabrinetes Setup Script
 
 set -e
 
@@ -16,59 +16,8 @@ show_usage() {
     echo ""
     echo "Examples:"
     echo "  $0 -f containers/fabrinetes-dev-local/config.toml"
+    echo "  $0 -f config.toml"
     echo ""
-    echo "Note: Image name and tag are read from [config.image] section in the config file"
-}
-
-# Read image configuration from TOML file
-read_image_config() {
-    local config_file="$1"
-    
-    # Create a Python script to parse TOML using tomli
-    local python_script="
-import sys
-try:
-    import tomli
-except ImportError:
-    print('ERROR: tomli not found. Installing...', file=sys.stderr)
-    import subprocess
-    import os
-    try:
-        subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'tomli', '--user'], 
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        import tomli
-    except:
-        print('ERROR: Failed to install tomli. Please install manually: pip3 install tomli', file=sys.stderr)
-        sys.exit(1)
-
-try:
-    with open('$config_file', 'rb') as f:
-        config = tomli.load(f)
-    
-    image_name = config.get('config', {}).get('image', {}).get('name')
-    image_tag = config.get('config', {}).get('image', {}).get('tag')
-    
-    if not image_name or not image_tag:
-        print('ERROR: Could not read image configuration from config file', file=sys.stderr)
-        print('ERROR: Make sure [config.image] section exists with name and tag fields', file=sys.stderr)
-        sys.exit(1)
-    
-    print(f'{image_name}:{image_tag}')
-    
-except Exception as e:
-    print(f'ERROR: Failed to parse config file: {e}', file=sys.stderr)
-    sys.exit(1)
-"
-    
-    # Execute the Python script to get the image ID
-    IMAGE_ID=$(python3 -c "$python_script" 2>/dev/null)
-    
-    if [[ $? -ne 0 || -z "$IMAGE_ID" ]]; then
-        print_error "Failed to read image configuration from config file"
-        exit 1
-    fi
-    
-    print_info "Using image from config: $IMAGE_ID"
 }
 
 # Parse arguments
@@ -92,50 +41,45 @@ fi
 # Validate config file exists
 if [[ ! -f "$CONFIG_FILE" ]]; then
     print_error "Config file '$CONFIG_FILE' not found"
+    print_error "Current directory: $(pwd)"
+    print_error "Available files:"
+    ls -la *.toml 2>/dev/null || echo "  No .toml files found in current directory"
     exit 1
 fi
 
-# Read image configuration from config file
-print_info "Docker Image Setup"
-echo ""
-read_image_config "$CONFIG_FILE"
-echo ""
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Check if fabrinetes.py exists in the same directory as this script
+if [[ ! -f "$SCRIPT_DIR/fabrinetes.py" ]]; then
+    print_error "fabrinetes.py not found in $SCRIPT_DIR"
+    exit 1
+fi
 
 # Run fabrinetes with config file
-run_fabrinetes() {
-    print_info "Fabrinetes Container Runner"
-    print_info "Config file: $CONFIG_FILE"
-    
-    # Get the directory where this script is located
-    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    
-    # Check if fabrinetes.py exists in the same directory as this script
-    if [[ ! -f "$SCRIPT_DIR/fabrinetes.py" ]]; then
-        print_error "fabrinetes.py not found in $SCRIPT_DIR"
-        exit 1
-    fi
-    
-    # Run the command
-    print_info "Running: $SCRIPT_DIR/fabrinetes.py --config-file $CONFIG_FILE --cmd run | bash"
-    echo ""
-    print_info "=========================================="
-    echo "START OF FABRINETES OUTPUT"
-    print_info "=========================================="
-    
-    # Run fabrinetes command, but don't fail if image pull fails
-    if ! "$SCRIPT_DIR/fabrinetes.py" --config-file "$CONFIG_FILE" --cmd run | bash; then
-        print_warning "Fabrinetes command failed, but continuing..."
-        print_info "This might be due to image not found in cloud or other issues"
-    fi
-    
-    print_info "=========================================="
-    echo "END OF FABRINETES OUTPUT"
-    print_info "=========================================="
-    print_success "Fabrinetes command completed!"
-}
+print_info "Fabrinetes Container Runner"
+print_info "Config file: $CONFIG_FILE"
+print_info "Script directory: $SCRIPT_DIR"
+echo ""
 
-# Main execution
-# Run fabrinetes
-run_fabrinetes
+print_info "Running: $SCRIPT_DIR/fabrinetes.py --config-file $CONFIG_FILE --cmd run | bash"
+echo ""
+print_info "=========================================="
+echo "START OF FABRINETES OUTPUT"
+print_info "=========================================="
+echo ""
 
-print_success "Done!"
+# Run fabrinetes command and capture output
+echo "=== FABRINETES.PY OUTPUT ==="
+"$SCRIPT_DIR/fabrinetes.py" --config-file "$CONFIG_FILE" --cmd run
+echo "=== END FABRINETES.PY OUTPUT ==="
+echo ""
+echo "=== EXECUTING COMMANDS ==="
+"$SCRIPT_DIR/fabrinetes.py" --config-file "$CONFIG_FILE" --cmd run | bash
+echo "=== END EXECUTING COMMANDS ==="
+
+echo ""
+print_info "=========================================="
+echo "END OF FABRINETES OUTPUT"
+print_info "=========================================="
+print_success "Fabrinetes command completed!"
