@@ -6,6 +6,34 @@ import toml
 import argparse
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional, Callable
+from functools import lru_cache
+
+# Constants
+DEFAULT_X11_MOUNTS = [
+    "/tmp/.X11-unix:/tmp/.X11-unix",
+    "$HOME/.Xauthority:$HOME/.Xauthority:ro"
+]
+
+# Common error handling functions
+def _handle_config_error(error_msg: str, config_file: str) -> None:
+    """Common error handling for config operations"""
+    print(f"Error: {error_msg}: {config_file}")
+    sys.exit(1)
+
+def _validate_config_section(config_data: dict, section_name: str, config_file: str) -> None:
+    """Validate required config section exists"""
+    if section_name not in config_data:
+        _handle_config_error(f"Missing '[config.{section_name}]' section", config_file)
+
+def _load_toml_file(config_file: str) -> dict:
+    """Load and parse TOML file with error handling"""
+    try:
+        with open(config_file, 'r') as f:
+            return toml.load(f)
+    except FileNotFoundError:
+        _handle_config_error("Config file not found", config_file)
+    except Exception as e:
+        _handle_config_error(f"Failed to parse config file: {e}", config_file)
 
 @dataclass
 class ImageConfig:
@@ -24,10 +52,7 @@ class ContainerConfig:
 class X11Config:
     """X11 configuration section"""
     enable: bool = True
-    mounts: List[str] = field(default_factory=lambda: [
-        "/tmp/.X11-unix:/tmp/.X11-unix",
-        "$HOME/.Xauthority:$HOME/.Xauthority:ro"
-    ])
+    mounts: List[str] = field(default_factory=lambda: DEFAULT_X11_MOUNTS)
 
 @dataclass
 class ConfigSection:
@@ -49,6 +74,7 @@ class CommandConfig:
     """Centralized command configuration - single source of truth for all commands"""
     
     @classmethod
+    @lru_cache(maxsize=1)
     def get_all_commands(cls) -> Dict[str, CommandDefinition]:
         """Get all available commands - single source of truth"""
         from command.build.build import build
@@ -178,10 +204,7 @@ class ContainerInfo:
     def x11_mounts(self) -> List[str]:
         if not self.config_section.X11:
             # No X11 section - return defaults
-            return [
-                "/tmp/.X11-unix:/tmp/.X11-unix",
-                "$HOME/.Xauthority:$HOME/.Xauthority:ro"
-            ]
+            return DEFAULT_X11_MOUNTS
         
         if not self.config_section.X11.enable:
             # X11 disabled - return empty list
@@ -307,50 +330,33 @@ Available Commands:
         return cls.get_container_info(args.config_file)
     
     @classmethod
+    @lru_cache(maxsize=128)
     def get_container_info(cls, config_file: str) -> 'ContainerInfo':
         """
         Load container configuration from TOML file and create ContainerInfo dataclass.
         Uses dataclass parsing instead of raw dictionary access.
         """
-        import toml
-        import os
-        import sys
-        
         # Resolve config file path
         config_file_absolute = os.path.abspath(config_file)
         working_directory = os.path.dirname(config_file_absolute)
         
         # Load TOML file
-        try:
-            with open(config_file_absolute, 'r') as f:
-                toml_data = toml.load(f)
-        except FileNotFoundError:
-            print(f"Error: Config file not found: {config_file_absolute}")
-            sys.exit(1)
-        except Exception as e:
-            print(f"Error: Failed to parse config file {config_file_absolute}: {e}")
-            sys.exit(1)
+        toml_data = _load_toml_file(config_file_absolute)
         
         # Validate required sections exist
         if 'config' not in toml_data:
-            print(f"Error: Missing '[config]' section in: {config_file_absolute}")
-            print("The config file must contain a '[config]' section.")
-            sys.exit(1)
+            _handle_config_error("Missing '[config]' section", config_file_absolute)
         
         config_data = toml_data['config']
         
         # Parse configuration sections using dataclasses
         try:
             # Parse image config
-            if 'image' not in config_data:
-                print(f"Error: Missing '[config.image]' section in: {config_file_absolute}")
-                sys.exit(1)
+            _validate_config_section(config_data, 'image', config_file_absolute)
             image_config = ImageConfig(**config_data['image'])
             
             # Parse container config
-            if 'container' not in config_data:
-                print(f"Error: Missing '[config.container]' section in: {config_file_absolute}")
-                sys.exit(1)
+            _validate_config_section(config_data, 'container', config_file_absolute)
             container_config = ContainerConfig(**config_data['container'])
             
             # Parse main config section
@@ -364,8 +370,7 @@ Available Commands:
             config_section = ConfigSection(**config_section_data)
             
         except TypeError as e:
-            print(f"Error: Invalid configuration in {config_file_absolute}: {e}")
-            sys.exit(1)
+            _handle_config_error(f"Invalid configuration: {e}", config_file_absolute)
         
         # Create ContainerInfo with parsed dataclasses
         container_info = cls(
