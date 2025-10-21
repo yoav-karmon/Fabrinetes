@@ -265,8 +265,9 @@ class CmdPartX11Support(CmdPart):
             return True
         
         # Only add DISPLAY environment variable (networking is handled separately)
+        display = os.environ.get('DISPLAY', ':0')
         self.x11_args = [
-            f"-e DISPLAY={os.environ['DISPLAY']}"
+            f"-e DISPLAY={display}"
         ]
         return True
 
