@@ -52,11 +52,5 @@ def exec_cmd(args, container_info):
     # Build and execute command
     commented_str, execution_str, errors = builder.build_command(container_info)
     
-    if errors:
-        print("❌ Errors in command generation:")
-        for error in errors:
-            print(f"  - {error}")
-        return
-    
     print(commented_str)
     print(execution_str)

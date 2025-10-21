@@ -207,10 +207,12 @@ class CmdPartMounts(CmdPart):
                 self.error = "X11 is enabled but no mounts are configured"
                 return False
         
+        mount_errors = []
+        
         for mount in self.mounts:
             if ':' not in mount:
-                self.error = f"Invalid mount format '{mount}'"
-                return False
+                mount_errors.append(f"Invalid mount format '{mount}'")
+                continue
             
             host_path, container_path = mount.split(':', 1)
             
@@ -224,10 +226,15 @@ class CmdPartMounts(CmdPart):
             
             # Verify host path exists (only for non-environment variable paths)
             if not host_path.startswith('$') and not os.path.exists(resolved_host_path):
-                self.error = f"Mount host path does not exist: {host_path}"
-                return False
+                mount_errors.append(f"Mount host path does not exist: {host_path}")
+                continue
             
             self.resolved_mounts.append((resolved_host_path, resolved_container_path))
+        
+        # If there are mount errors, combine them into a single error message
+        if mount_errors:
+            self.error = '; '.join(mount_errors)
+            return False
         
         return True
 
