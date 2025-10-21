@@ -3,7 +3,7 @@
 import os
 import pathlib
 from typing import Optional
-from command.helper_functions.command_builder import CommandBuilder, CmdPartEnv, CmdPartFlag, CmdPartMounts, CmdPartX11, CmdPartArg, CmdPartName, CmdPart
+from command.helper_functions.command_builder import CommandBuilder, CmdPartEnv, CmdPartFlag, CmdPartMounts, CmdPartX11Support, CmdPartArg, CmdPartName, CmdPart, CmdPartHardcoded
 from command.help.help import show_run_help
 
 class CmdPartUser(CmdPart):
@@ -28,7 +28,7 @@ def run(args, container_info):
     # Extract arguments
     rm = args.rm
     verbose = args.verbose
-    x11 = args.x11
+    # x11 = args.x11  # Removed - now using config-based X11
     usb = args.usb
     ask = args.ask
     help_flag = args.show_help
@@ -66,18 +66,38 @@ def run(args, container_info):
     if rm:
         builder.add_part("rm", CmdPartFlag("--rm", comment="# Remove container when it exits (from --rm flag)"))
     
-    # Add X11 support
-    if x11:
-        builder.add_part("x11", CmdPartX11(True, comment="# Enable X11 GUI support"))
-    
+    # Add X11 support (network + environment only, NOT mounts)
+    if container_info.x11_enabled:
+        builder.add_part("x11_support", CmdPartX11Support(True, 
+                         comment="# X11 GUI support (network and display)"))
+
     # Add USB support
     if usb:
         builder.add_part("usb", CmdPartFlag("-v /dev/bus/usb:/dev/bus/usb", comment="# Mount USB devices (from --usb flag)"))
     
-    # Add mounts
+    # UNIFIED MOUNT HANDLING: Collect ALL mounts into single list
+    all_mounts = []
+    
+    # Add regular mounts
     if container_info.mounts:
-        builder.add_part("mounts", CmdPartMounts(container_info.mounts, 
-                                                comment="# Mount from config.mounts array"))
+        all_mounts.extend(container_info.mounts)
+    
+    # Add X11 mounts (if enabled)
+    if container_info.x11_enabled:
+        all_mounts.extend(container_info.x11_mounts)
+    
+    # Add USB mounts (if enabled)
+    if usb:
+        all_mounts.append("/dev/bus/usb:/dev/bus/usb")
+    
+    # Single unified mount handling - all mounts processed identically
+    if all_mounts:
+        builder.add_part("mounts", CmdPartMounts(all_mounts, 
+                         comment="# Volume mounts (regular + X11 + USB)"))
+    elif container_info.x11_enabled:
+        # X11 enabled but no mounts - this is an error
+        builder.add_part("mounts_error", CmdPartHardcoded("echo 'error: X11 is enabled but no mounts are configured'", 
+                         comment="# Volume mounts (regular + X11 + USB)"))
     
     # Note: We don't use --user flag here because the entrypoint script needs root privileges
     # to create users. Instead, we rely on the entrypoint script to switch to the correct user

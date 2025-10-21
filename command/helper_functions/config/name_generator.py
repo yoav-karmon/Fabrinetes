@@ -4,8 +4,36 @@ import os
 import sys
 import toml
 import argparse
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional, Callable
+
+@dataclass
+class ImageConfig:
+    """Image configuration section"""
+    name: str
+    tag: str
+    dockerfile_path: str = "Dockerfile"
+    package_list_path: str = "packages.txt"
+
+@dataclass
+class ContainerConfig:
+    """Container configuration section"""
+    name: str
+
+@dataclass
+class X11Config:
+    """X11 configuration section"""
+    enable: bool = True
+    mounts: List[str] = field(default_factory=lambda: [
+        "/tmp/.X11-unix:/tmp/.X11-unix",
+        "$HOME/.Xauthority:$HOME/.Xauthority:ro"
+    ])
+
+@dataclass
+class ConfigSection:
+    """Main config section"""
+    mounts: List[str] = field(default_factory=list)
+    X11: Optional[X11Config] = None
 
 @dataclass
 class CommandDefinition:
@@ -132,9 +160,35 @@ class ContainerInfo:
     config_file: str
     config_file_resolved: str
     
-    # Configuration
-    mounts: List[str]
-    x11_path: str
+    # Configuration objects
+    image_config: ImageConfig
+    container_config: ContainerConfig
+    config_section: ConfigSection
+    
+    # Convenience properties for backward compatibility
+    @property
+    def mounts(self) -> List[str]:
+        return self.config_section.mounts
+    
+    @property
+    def x11_enabled(self) -> bool:
+        return self.config_section.X11.enable if self.config_section.X11 else True
+    
+    @property
+    def x11_mounts(self) -> List[str]:
+        if not self.config_section.X11:
+            # No X11 section - return defaults
+            return [
+                "/tmp/.X11-unix:/tmp/.X11-unix",
+                "$HOME/.Xauthority:$HOME/.Xauthority:ro"
+            ]
+        
+        if not self.config_section.X11.enable:
+            # X11 disabled - return empty list
+            return []
+        
+        # X11 enabled - return configured mounts
+        return self.config_section.X11.mounts
     
     def resolve(self, path: str, check_exists: bool = True) -> str:
         """
@@ -205,9 +259,9 @@ Available Commands:
         parser.add_argument('--rm', 
                            action='store_true',
                            help='Remove container after exit')
-        parser.add_argument('--x11', 
-                           action='store_true',
-                           help='Enable X11 forwarding')
+        # parser.add_argument('--x11', 
+        #                    action='store_true',
+        #                    help='Enable X11 forwarding')  # Removed - now config-driven
         parser.add_argument('--usb', 
                            action='store_true',
                            help='Enable USB device access')
@@ -255,141 +309,100 @@ Available Commands:
     @classmethod
     def get_container_info(cls, config_file: str) -> 'ContainerInfo':
         """
-        Single function that returns all container naming and configuration information.
-        This is the SINGLE SOURCE OF TRUTH for all config data and working directory information.
-        
-        Args:
-            config_file: Path to the TOML configuration file
-            
-        Returns:
-            ContainerInfo dataclass with all naming, configuration data, and resolved paths
+        Load container configuration from TOML file and create ContainerInfo dataclass.
+        Uses dataclass parsing instead of raw dictionary access.
         """
-        # Resolve config file to absolute path
-        config_file_absolute = os.path.abspath(config_file)
+        import toml
+        import os
+        import sys
         
-        # Get working directory (where the config file is located)
+        # Resolve config file path
+        config_file_absolute = os.path.abspath(config_file)
         working_directory = os.path.dirname(config_file_absolute)
         
-        # Get tarball directory (where the script was invoked from - where tarballs are stored)
-        tarball_directory_base = os.getcwd()
-        
-        # Load config with error handling
+        # Load TOML file
         try:
-            config = toml.load(config_file_absolute)
+            with open(config_file_absolute, 'r') as f:
+                toml_data = toml.load(f)
         except FileNotFoundError:
             print(f"Error: Config file not found: {config_file_absolute}")
-            print("Please check the file path and try again.")
-            sys.exit(1)
-        except PermissionError:
-            print(f"Error: Permission denied reading config file: {config_file_absolute}")
-            print("Please check file permissions and try again.")
-            sys.exit(1)
-        except toml.TomlDecodeError as e:
-            print(f"Error: TOML file corruption or syntax error in: {config_file_absolute}")
-            print(f"Parse error: {e}")
-            print("Please check the TOML syntax and try again.")
-            print("Common issues:")
-            print("  - Missing quotes around strings")
-            print("  - Invalid table syntax")
-            print("  - Unclosed brackets or quotes")
-            print("  - Invalid characters")
             sys.exit(1)
         except Exception as e:
-            print(f"Error: Failed to load config file: {config_file_absolute}")
-            print(f"Unexpected error: {e}")
-            print("Please check the file and try again.")
+            print(f"Error: Failed to parse config file {config_file_absolute}: {e}")
             sys.exit(1)
         
-        # Validate config structure
-        if 'config' not in config:
+        # Validate required sections exist
+        if 'config' not in toml_data:
             print(f"Error: Missing '[config]' section in: {config_file_absolute}")
             print("The config file must contain a '[config]' section.")
             sys.exit(1)
         
-        container_config = config['config']
+        config_data = toml_data['config']
         
-        # Validate required sections
-        if 'image' not in container_config:
-            print(f"Error: Missing '[config.image]' section in: {config_file_absolute}")
-            print("The config file must contain a '[config.image]' section.")
+        # Parse configuration sections using dataclasses
+        try:
+            # Parse image config
+            if 'image' not in config_data:
+                print(f"Error: Missing '[config.image]' section in: {config_file_absolute}")
+                sys.exit(1)
+            image_config = ImageConfig(**config_data['image'])
+            
+            # Parse container config
+            if 'container' not in config_data:
+                print(f"Error: Missing '[config.container]' section in: {config_file_absolute}")
+                sys.exit(1)
+            container_config = ContainerConfig(**config_data['container'])
+            
+            # Parse main config section
+            config_section_data = {k: v for k, v in config_data.items() 
+                                 if k not in ['image', 'container']}
+            
+            # Handle X11 section if present
+            if 'X11' in config_section_data:
+                config_section_data['X11'] = X11Config(**config_section_data['X11'])
+            
+            config_section = ConfigSection(**config_section_data)
+            
+        except TypeError as e:
+            print(f"Error: Invalid configuration in {config_file_absolute}: {e}")
             sys.exit(1)
         
-        if 'container' not in container_config:
-            print(f"Error: Missing '[config.container]' section in: {config_file_absolute}")
-            print("The config file must contain a '[config.container]' section.")
-            sys.exit(1)
-        
-        # Validate required image fields
-        image_section = container_config['image']
-        required_image_fields = ['name', 'tag']
-        for field in required_image_fields:
-            if field not in image_section:
-                print(f"Error: Missing required field '[config.image.{field}]' in: {config_file_absolute}")
-                print(f"The config file must contain '{field}' in the '[config.image]' section.")
-                sys.exit(1)
-        
-        # Validate required container fields
-        container_section = container_config['container']
-        required_container_fields = ['name']
-        for field in required_container_fields:
-            if field not in container_section:
-                print(f"Error: Missing required field '[config.container.{field}]' in: {config_file_absolute}")
-                print(f"The config file must contain '{field}' in the '[config.container]' section.")
-                sys.exit(1)
-        
-        # Image information
-        image_name = image_section['name']
-        image_tag = image_section['tag']
-        image_full = f"{image_name}-{image_tag}"
-        image_docker = f"{image_name}:{image_tag}"
-        image_dockerfile = image_section.get('dockerfile_path', 'Dockerfile')
-        image_package_list = image_section.get('package_list_path', 'packages.txt')
-        
-        # Container information
-        container_name = container_section['name']
-        run_name = f"{container_name}.run"
-        
-        # Validate optional sections and set defaults
-        mounts = container_config.get('mounts', [])
-        x11_path = container_config.get('X11_path', '/tmp/.X11-unix:/tmp/.X11-unix')
-        
-        # Create temporary ContainerInfo to use resolve methods
-        temp_info = cls(
-            # Image
-            image_name=image_name,
-            image_tag=image_tag,
-            image_full=image_full,
-            image_docker=image_docker,
-            image_dockerfile=image_dockerfile,
+        # Create ContainerInfo with parsed dataclasses
+        container_info = cls(
+            # Image information
+            image_name=image_config.name,
+            image_tag=image_config.tag,
+            image_full=f"{image_config.name}-{image_config.tag}",
+            image_docker=f"{image_config.name}:{image_config.tag}",
+            image_dockerfile=image_config.dockerfile_path,
             image_dockerfile_resolved=None,  # Will be set below
-            image_package_list=image_package_list,
+            image_package_list=image_config.package_list_path,
             image_package_list_resolved=None,  # Will be set below
             
-            # Container
-            container_name=container_name,
-            run_name=run_name,
+            # Container information
+            container_name=container_config.name,
+            run_name=f"{container_config.name}.run",
             
             # Working directory and config paths
             working_directory=working_directory,
             config_file=config_file,
             config_file_resolved=config_file_absolute,
             
-            # Configuration
-            mounts=mounts,
-            x11_path=x11_path
+            # Configuration objects
+            image_config=image_config,
+            container_config=container_config,
+            config_section=config_section
         )
         
-        # Use resolve method to get dockerfile path (don't check existence for build files)
-        image_dockerfile_resolved = temp_info.resolve(image_dockerfile, check_exists=False)
-        
-        # Use resolve method to get package list path
-        image_package_list_resolved = temp_info.resolve(image_package_list)
+        # Use resolve method to get dockerfile path
+        image_dockerfile_resolved = container_info.resolve(image_config.dockerfile_path, check_exists=False)
+        image_package_list_resolved = container_info.resolve(image_config.package_list_path)
         
         # Update the resolved paths
-        temp_info.image_dockerfile_resolved = image_dockerfile_resolved
-        temp_info.image_package_list_resolved = image_package_list_resolved
+        container_info.image_dockerfile_resolved = image_dockerfile_resolved
+        container_info.image_package_list_resolved = image_package_list_resolved
         
-        return temp_info
+        return container_info
 
 # Legacy function for backward compatibility
 def get_container_info(config_file: str) -> ContainerInfo:

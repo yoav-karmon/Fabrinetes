@@ -118,19 +118,18 @@ def show_command_help(command_name, command_data):
 def show_run_help():
     """Show help for run command"""
     command_data = {
-        'syntax': './fabrinetes run --config-file <config-file> [--rm] [--x11] [--usb] [--ask] [--verbose]',
+        'syntax': './fabrinetes run --config-file <config-file> [--rm] [--usb] [--ask] [--verbose]',
         'description': 'Run a Docker container with the specified configuration (container name auto-generated from config path)',
         'arguments': [
             ['--config-file', 'Path to the configuration file (REQUIRED)', 'Yes', 'containers/<path>/config.toml'],
             ['--rm', 'Automatically remove container when it exits', 'No', 'optional flag'],
-            ['--x11', 'Enable X11 GUI support', 'No', 'optional flag'],
             ['--usb', 'Enable USB device access', 'No', 'optional flag'],
             ['--ask', 'Ask for confirmation before running', 'No', 'optional flag'],
             ['--verbose', 'Show detailed output', 'No', 'optional flag']
         ],
         'examples': [
             './fabrinetes run --config-file containers/fabrinetes-dev-testing/config.toml',
-            './fabrinetes run --config-file containers/fabrinetes-dev-testing/config.toml --rm --x11'
+            './fabrinetes run --config-file containers/fabrinetes-dev-testing/config.toml --rm'
         ]
     }
     show_command_help('run', command_data)
@@ -274,7 +273,7 @@ def show_global_help():
         },
         {
             'command': './fabrinetes run',
-            'args': '--config-file <config-file> [--rm] [--x11] [--usb] [--ask] [--verbose]',
+            'args': '--config-file <config-file> [--rm] [--usb] [--ask] [--verbose]',
             'description': 'Generate Docker run command',
             'allowed_values': 'config-file: containers/<path>/config.toml (REQUIRED)'
         },
@@ -317,7 +316,7 @@ def show_global_help():
     example_templates = [
         "./fabrinetes --config-file <config> [--cmd <command>]",
         "./fabrinetes build --config-file <config>",
-        "./fabrinetes run --config-file <config> [--rm|--x11|--usb|--ask|--verbose]",
+        "./fabrinetes run --config-file <config> [--rm|--usb|--ask|--verbose]",
         "./fabrinetes exec --config-file <config> [--exec-cmd <command>]",
         "./fabrinetes status --config-file <config>",
         "./fabrinetes test --config-file <config>"

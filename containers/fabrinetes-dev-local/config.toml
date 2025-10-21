@@ -1,12 +1,17 @@
 [config]
-# X11 and mount configuration
-X11_path = "/mnt/wslg/.X11-unix:/tmp/.X11-unix"
+# Mount configuration
 mounts = [
     "$HOME/.ssh:$HOME/.ssh",
     "$HOME/repo:$HOME/repo",
-    "$HOME/.Xauthority:$HOME/.Xauthority:ro",
     "init_env.sh:/etc/profile.d/init_env.sh",
     "../../hdlforge/bashrc-root:$HOME/.bashrc"
+]
+
+[config.X11]
+enable = true  # Enable X11 GUI support (defaults to true if not present)
+mounts = [
+    "/mnt/wslg/.X11-unix:/tmp/.X11-unix",  # X11 socket path
+    "$HOME/.Xauthority:$HOME/.Xauthority:ro"  # X11 authentication
 ]
 
 [config.image]

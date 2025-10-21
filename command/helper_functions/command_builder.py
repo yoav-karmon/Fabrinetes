@@ -199,6 +199,14 @@ class CmdPartMounts(CmdPart):
         return " ".join(parts)
     
     def resolve(self, container_info) -> bool:
+        # Check for empty mounts when X11 is enabled
+        if not self.mounts and container_info.x11_enabled:
+            # Check if this is an X11-only mount list (no regular mounts)
+            regular_mounts = container_info.mounts
+            if not regular_mounts:
+                self.error = "X11 is enabled but no mounts are configured"
+                return False
+        
         for mount in self.mounts:
             if ':' not in mount:
                 self.error = f"Invalid mount format '{mount}'"
@@ -223,8 +231,8 @@ class CmdPartMounts(CmdPart):
         
         return True
 
-class CmdPartX11(CmdPart):
-    """Command part for X11 support"""
+class CmdPartX11Support(CmdPart):
+    """Command part for X11 support (non-mount parts)"""
     
     def __init__(self, enabled: bool, comment: Optional[str] = None):
         super().__init__(comment=comment)
@@ -232,16 +240,16 @@ class CmdPartX11(CmdPart):
         self.x11_args = []
     
     def comment_str(self) -> str:
+        """Return commented version with example values"""
         if self.enabled and self.x11_args:
             lines = []
             lines.append("#     --net=host")
             lines.append("#     -e DISPLAY=:0")
-            lines.append("#     -v /tmp/.X11-unix:/tmp/.X11-unix")
-            lines.append("#     -v /home/user/.Xauthority:/home/user/.Xauthority:ro")
             return "\n".join(lines)
         return ""
     
     def execution_str(self) -> str:
+        """Return executable version with resolved values"""
         if self.enabled and self.x11_args:
             return " ".join(self.x11_args)
         return ""
@@ -250,31 +258,11 @@ class CmdPartX11(CmdPart):
         if not self.enabled:
             return True
         
-        # Get X11 path from dataclass
-        x11_path = container_info.x11_path
-        
-        if x11_path:
-            print(f"X11 support enabled at {x11_path}")
-            # Expand environment variables
-            expanded_x11_path = os.path.expandvars(x11_path)
-            x11_path_obj = pathlib.Path(expanded_x11_path)
-            
-            if not x11_path_obj.exists():
-                self.error = f"X11 socket {x11_path} does not exist"
-                return False
-        else:
-            # Default X11 socket path
-            x11_path_obj = pathlib.Path("/tmp/.X11-unix")
-            print(f"X11 support enabled at {x11_path_obj}")
-
-        # Add X11-related arguments
+        # Resolve actual DISPLAY value
         self.x11_args = [
             "--net=host",
-            f"-e DISPLAY={os.environ['DISPLAY']}",
-            f"-v {x11_path_obj}:/tmp/.X11-unix",
-            f"-v {os.environ['HOME']}/.Xauthority:/home/{os.getenv('USER', 'user')}/.Xauthority:ro"
+            f"-e DISPLAY={os.environ['DISPLAY']}"
         ]
-        
         return True
 
 class CmdPartHardcoded(CmdPart):
