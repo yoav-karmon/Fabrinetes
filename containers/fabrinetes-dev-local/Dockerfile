@@ -6,9 +6,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 COPY packages.txt /tmp/packages.txt
 COPY python-packages.txt /tmp/python-packages.txt
 
-# Copy and set up entrypoint script
-COPY entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
+# Entrypoint script will be mounted at runtime
 
 # Install packages from package list
 RUN apt-get update && \
