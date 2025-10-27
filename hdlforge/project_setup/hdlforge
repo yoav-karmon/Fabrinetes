@@ -2,8 +2,25 @@
 
 # Check if any arguments are provided
 if [ $# -lt 1 ]; then
-    echo "Usage: hdlforge <command> --project <project_file> [options]"
-    echo "Example: hdlforge Verilator --project addr_32bit.hdlforge.toml --step sim --SimTargetName basic_test"
+    # Look for existing project files in current directory
+    hdlforge_files=$(ls *.hdlforge.toml 2>/dev/null)
+    
+    if [ -n "$hdlforge_files" ] && [ $(echo "$hdlforge_files" | wc -l) -eq 1 ]; then
+        # Exactly one file found - use it in the example
+        example_file=$(echo "$hdlforge_files" | head -1)
+        echo "Usage: hdlforge <command> [--project <project_file>] [options]"
+        echo ""
+        echo "Examples:"
+        echo "  1. hdlforge Verilator --step sim --SimTargetName basic_test"
+        echo "  2. hdlforge vivado --step syn --run-flow default"
+        echo ""
+        echo "hdlforge auto-detected *.hdlforge.toml in the current directory: $example_file"
+    else
+        echo "Usage: hdlforge <command> [--project <project_file>] [options]"
+        echo "Example: hdlforge Verilator --project addr_32bit.hdlforge.toml --step sim --SimTargetName basic_test"
+        echo ""
+        echo "Note: --project is optional. If omitted, hdlforge will auto-detect *.hdlforge.toml files in the current directory."
+    fi
     exit 1
 fi
 
@@ -31,31 +48,34 @@ else
         fi
     done
     
-    if [ -z "$PROJECT_FILE" ]; then
-        echo "❌ --project argument is required"
-        echo "Usage: hdlforge <command> --project <project_file> [options]"
-        echo "Example: hdlforge Verilator --project addr_32bit.hdlforge.toml --step sim --SimTargetName basic_test"
-        exit 1
-    fi
+    # Note: --project is now optional; Python layer will handle auto-detection
     
-    # Resolve project file path (handle both relative and absolute paths)
-    if [[ "$PROJECT_FILE" == /* ]]; then
-        # Absolute path
-        PROJECT_FILE_PATH="$PROJECT_FILE"
+    # Only process project file if it was provided
+    if [ -n "$PROJECT_FILE" ]; then
+        # Resolve project file path (handle both relative and absolute paths)
+        if [[ "$PROJECT_FILE" == /* ]]; then
+            # Absolute path
+            PROJECT_FILE_PATH="$PROJECT_FILE"
+        else
+            # Relative path - resolve relative to current directory
+            PROJECT_FILE_PATH="$(realpath "$PROJECT_FILE")"
+        fi
+        
+        # Check if project file exists
+        if [ ! -f "$PROJECT_FILE_PATH" ]; then
+            echo "❌ Project file not found: $PROJECT_FILE_PATH"
+            exit 1
+        fi
+        
+        # Get the directory containing the project file
+        PROJECT_DIR="$(dirname "$PROJECT_FILE_PATH")"
+        PROJECT_FILENAME="$(basename "$PROJECT_FILE_PATH")"
     else
-        # Relative path - resolve relative to current directory
-        PROJECT_FILE_PATH="$(realpath "$PROJECT_FILE")"
+        # No project file specified - will be auto-detected by Python
+        # Set PROJECT_DIR to current directory
+        PROJECT_DIR="$(pwd)"
+        PROJECT_FILENAME=""
     fi
-    
-    # Check if project file exists
-    if [ ! -f "$PROJECT_FILE_PATH" ]; then
-        echo "❌ Project file not found: $PROJECT_FILE_PATH"
-        exit 1
-    fi
-    
-    # Get the directory containing the project file
-    PROJECT_DIR="$(dirname "$PROJECT_FILE_PATH")"
-    PROJECT_FILENAME="$(basename "$PROJECT_FILE_PATH")"
 fi
 
 # Change to project directory (only if PROJECT_DIR is set)

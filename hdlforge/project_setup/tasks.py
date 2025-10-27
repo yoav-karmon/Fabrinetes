@@ -21,6 +21,9 @@ from invoke import run, Context
 from typing import List, Dict, Any,Tuple
 import warnings
 
+# Import project detector module
+from project_detector import detect_project_file, handle_project_detection_errors, get_project_files
+
 
 
 def generate_vivado_tcl(
@@ -143,8 +146,8 @@ def print_task_args(local_vars: dict, REPO_TOP: str, allowed_values: dict[str, L
     # Get the calling function name automatically
     caller_name = inspect.stack()[1].function  
 
-    # Remove Invoke context (c)
-    args = {k: v for k, v in local_vars.items() if k != "c"}
+    # Remove Invoke context (c), internal variables (_path, _full), and empty project argument
+    args = {k: v for k, v in local_vars.items() if k != "c" and k != "project" and not k.endswith("_path") and not k.endswith("_full")}
     max_key_len = max(len(k) for k in args.keys()) if args else 0
     border = "=" * (max_key_len + 30)
 
@@ -153,18 +156,36 @@ def print_task_args(local_vars: dict, REPO_TOP: str, allowed_values: dict[str, L
     print(border)
     print("file executed: ", Path(__file__).resolve())
     table=[["key","value","allowed"]]
-    for key, value in args.items():
-        if( key in allowed_values):
-            table.append([key.ljust(max_key_len), value, f"(allowed: {', '.join(allowed_values[key])})"])
-        elif(not isinstance(value, dict) and not isinstance(value, list)):
-            if REPO_TOP+"/" in str(value):
-                value = str(value).replace(REPO_TOP+"/", "$REPO_TOP/")
-            table.append([key.ljust(max_key_len), value, ""])
-        elif(isinstance(value,dict)):
-            print_str=str(value)
-            if(len(print_str) > 40):
-                print_str=print_str[0:37]+"..."
-            table.append([key.ljust(max_key_len), print_str, ""])
+    
+    # Sort keys to put project_toml_file first
+    sorted_keys = sorted(args.keys(), key=lambda x: (x != "project_toml_file", x != "project_file_path", x))
+    
+    for key in sorted_keys:
+        try:
+            value = args[key]
+            if( key in allowed_values):
+                table.append([key.ljust(max_key_len), value, f"(allowed: {', '.join(allowed_values[key])})"])
+            elif(not isinstance(value, dict) and not isinstance(value, list)):
+                # Convert Path objects to strings
+                if isinstance(value, Path):
+                    value = str(value)
+                # Skip if value can't be converted to string
+                try:
+                    str_value = str(value)
+                    if REPO_TOP+"/" in str_value:
+                        str_value = str_value.replace(REPO_TOP+"/", "$REPO_TOP/")
+                    table.append([key.ljust(max_key_len), str_value, ""])
+                except:
+                    # Skip variables that can't be converted to string
+                    pass
+            elif(isinstance(value,dict)):
+                print_str=str(value)
+                if(len(print_str) > 40):
+                    print_str=print_str[0:37]+"..."
+                table.append([key.ljust(max_key_len), print_str, ""])
+        except Exception as e:
+            # Skip problematic variables silently
+            continue
     print(tabulate(table, headers="firstrow", tablefmt="fancy_grid",colalign=("left", "left", "center")))
         
     print(border)
@@ -194,26 +215,46 @@ def load_project_data(ProjectFilePath):
         return working_path, project_data
 
 def get_project_file_path(project_file_arg:Union[str,None]) ->  Path:
-    ROOT_FOLDER= Path(os.environ["ROOT_FOLDER"] )  
-    hdlforge_files = list(ROOT_FOLDER.glob("*.hdlforge.toml"))
+    """
+    Get the project file path, either from the argument or by auto-detection.
     
-    if(project_file_arg==None):
-        print("Available project files in current directory:")
-        for i, file in enumerate(hdlforge_files):
-            print(f"  [{i+1}] {file.name}")
-        print("")
-        print("Please specify the project file using --project <project_file.hdlforge.toml>")
-        print("Example: hdlforge Verilator --project phy10gbaser.hdlforge.toml --step build --SimTargetName main")
-        exit(1)
+    Args:
+        project_file_arg: Optional project file name or None for auto-detection
+        
+    Returns:
+        Path to the project file
+        
+    Exits:
+        If no project file is found, multiple are found, or specified file doesn't exist
+    """
+    ROOT_FOLDER = Path(os.environ["ROOT_FOLDER"])
+    
+    if project_file_arg is None:
+        # Auto-detection mode
+        detected_file = detect_project_file(ROOT_FOLDER)
+        
+        if detected_file is None:
+            # Detection failed - get all files and show error
+            hdlforge_files = get_project_files(ROOT_FOLDER)
+            handle_project_detection_errors(hdlforge_files)
+        
+        print(f"ℹ️  Auto-detected project file: {detected_file.name}")
+        return detected_file
     else:
-        # Look for the project file in the current directory
+        # Explicit project file specified
         project_file_path = ROOT_FOLDER / project_file_arg
+        
         if not project_file_path.exists():
-            print(f"Project file not found: {project_file_path}")
-            print("Available project files in current directory:")
-            for i, file in enumerate(hdlforge_files):
-                print(f"  [{i+1}] {file.name}")
+            print(f"❌ Project file not found: {project_file_path}")
+            hdlforge_files = get_project_files(ROOT_FOLDER)
+            if hdlforge_files:
+                print("Available project files in current directory:")
+                for file in hdlforge_files:
+                    print(f"  {file.name}")
+            print("Or specify with: --project addr_32bit.hdlforge.toml")
             exit(1)
+        
+        print(f"ℹ️  Using project file: {project_file_path.name}")
         return project_file_path
     
    
@@ -382,6 +423,12 @@ def validate_repository_environment(captured_vars: dict, invoked_dir: str):
 def vivado(c,project,verbose=False,step:List[str]=[],clean=False,run_flow=None):
     # Capture environment variables set by update_repo_path
     capture_environment_variables(c)
+    
+    # Handle None or empty step
+    if step is None:
+        step = []
+    elif isinstance(step, str):
+        step = [step]
 
     ALLOWED_STEPS = {"step":["new","list_runs","reset_run", "syn", "impl", "bit"]}
     TOOL_NAME = "vivado"
@@ -389,8 +436,10 @@ def vivado(c,project,verbose=False,step:List[str]=[],clean=False,run_flow=None):
     REPO_TOP = Path(os.environ["REPO_TOP"]) 
 
 
-    project_toml_file              = get_project_file_path(project)
-    WORKING_PATH,PROJECT_DATA_DICT = load_project_data(project_toml_file)
+    project_toml_file_path       = get_project_file_path(project)
+    # Store just the filename for display (replace original Path object)
+    project_toml_file            = project_toml_file_path.name
+    WORKING_PATH,PROJECT_DATA_DICT = load_project_data(project_toml_file_path)
     VIVADO_SETTING_DICT             = PROJECT_DATA_DICT["vivado_settings"]
 
    
@@ -497,7 +546,6 @@ def verify_sim_target(SimTargetName, verilator_settings)    :
         sim_targets_dict[target['name']] = target
     
     if SimTargetName is None:
-        print(f"Available SimTargetNames: {', '.join(sim_targets_dict.keys())}")
         exit(f"[!x!]  SimTargetName must be specified. Use --SimTargetName <target_name>")
     elif(SimTargetName not in sim_targets_dict):
         print(f"Available SimTargetNames: {', '.join(sim_targets_dict.keys())}")
@@ -526,13 +574,23 @@ def Verilator(c,project,step=None,clean=False,SimTargetName=None,flags=None,extr
     
     REPO_TOP = Path(os.environ["REPO_TOP"])  # Fail fast if REPO_TOP is not set
     
-    project_file_path = get_project_file_path(project)
-    working_path,project_data = load_project_data(project_file_path)
+    project_file_path_full = get_project_file_path(project)
+    # Store just the filename for display (replace original Path object)
+    project_file_path = project_file_path_full.name
+    working_path,project_data = load_project_data(project_file_path_full)
+    
+    # Extract available SimTargetNames for display
+    verilator_settings = project_data["verilator_settings"]
+    available_sim_targets = [target['name'] for target in verilator_settings['sim_targets']]
+    ALLOWED_STEPS["SimTargetName"] = available_sim_targets
     
     print_task_args(locals(),str(REPO_TOP),ALLOWED_STEPS)
-      
     
-    verilator_settings  = project_data["verilator_settings"]
+    # Check if SimTargetName is specified before proceeding
+    if SimTargetName is None:
+        print(f"\n[!x!]  SimTargetName must be specified. Use --SimTargetName <target_name>")
+        return
+    
     build_dir           = Path(working_path ) / verilator_settings["build_dir"]
     SOURCES_DICT_LIST = get_file_list_for_tool(tool_name, project_data)
       
@@ -709,7 +767,7 @@ if __name__ == "__main__":
     
     # Verilator subcommand
     verilator_parser = subparsers.add_parser('Verilator')
-    verilator_parser.add_argument('--project', required=True)
+    verilator_parser.add_argument('--project', required=False)
     verilator_parser.add_argument('--step', action='append')
     verilator_parser.add_argument('--SimTargetName')
     verilator_parser.add_argument('--clean', action='store_true')
@@ -718,7 +776,7 @@ if __name__ == "__main__":
     
     # Vivado subcommand
     vivado_parser = subparsers.add_parser('vivado')
-    vivado_parser.add_argument('--project', required=True)
+    vivado_parser.add_argument('--project', required=False)
     vivado_parser.add_argument('--step', action='append')
     vivado_parser.add_argument('--verbose', action='store_true')
     vivado_parser.add_argument('--clean', action='store_true')
