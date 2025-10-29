@@ -1,53 +1,406 @@
 # ~/.bashrc: executed by bash(1) for non-login shells.
-source /etc/profile.d/init_env.sh
+# Function to print only in interactive shells
 
-# Define function to configure REPO_TOP and PYTHONPATH
-update_repo_path() {
-    # Require Bash
-    if [ -z "$BASH_VERSION" ]; then
-        echo "[X] This function requires Bash." >&2
+print_if_interactive() {
+    if [[ $is_interactive_shell -eq 1 ]] || [[ $- == *i* ]]; then
+        echo "$@"
+    fi
+}
+# Function to configure REPO_TOP
+
+
+# Helper function to remove duplicates from path variables
+_remove_duplicates_from_path() {
+    local varname="$1"
+    local path_var
+    eval "path_var=\$$varname"
+    
+    if [ -z "$path_var" ]; then
+        return 0
+    fi
+    
+    declare -A seen
+    local cleaned_path=""
+    IFS=':' read -ra ADDR <<< "$path_var"
+    
+    for entry in "${ADDR[@]}"; do
+        if [ -z "$entry" ]; then
+            continue
+        fi
+        if [ -z "${seen[$entry]}" ]; then
+            if [ -z "$cleaned_path" ]; then
+                cleaned_path="$entry"
+            else
+                cleaned_path="$cleaned_path:$entry"
+            fi
+            seen["$entry"]=1
+        fi
+    done
+    
+    export "$varname"="$cleaned_path"
+}
+
+# Helper function to remove an entry from a path variable if it exists
+_remove_from_path() {
+    local varname="$1"
+    local path_to_remove="$2"
+    local path_var
+    eval "path_var=\$$varname"
+    
+    if [ -z "$path_var" ]; then
+        return 0
+    fi
+    
+    declare -A entries
+    local cleaned_path=""
+    IFS=':' read -ra ADDR <<< "$path_var"
+    
+    for entry in "${ADDR[@]}"; do
+        if [ -z "$entry" ]; then
+            continue
+        fi
+        # Skip the entry if it matches the one to remove
+        if [ "$entry" != "$path_to_remove" ]; then
+            if [ -z "$cleaned_path" ]; then
+                cleaned_path="$entry"
+            else
+                cleaned_path="$cleaned_path:$entry"
+            fi
+        fi
+    done
+    
+    export "$varname"="$cleaned_path"
+}
+
+# Parse and execute init_repo_env.sh file
+process_update_paths_file() {
+    local paths_file="$1"
+    
+    if [ ! -f "$paths_file" ]; then
         return 1
     fi
+    
+    # Read the file line by line
+    while IFS= read -r line || [ -n "$line" ]; do
+        # Skip empty lines and comments
+        line=$(echo "$line" | sed 's/#.*//' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        [ -z "$line" ] && continue
+        
+        # Parse add_to_pythonpath lines
+        if echo "$line" | grep -qE '^add_to_pythonpath\s+"?([^"]+)"?'; then
+            local path=$(echo "$line" | sed -E 's/^add_to_pythonpath\s+"?([^"]+)"?/\1/')
+            # Expand $REPO_TOP if present in the path
+            path=$(eval echo "$path")
+            # Remove from PYTHONPATH if it already exists, then add it
+            _remove_from_path "PYTHONPATH" "$path"
+            add_to_pythonpath "$path"
+        # Parse add_to_path lines
+        elif echo "$line" | grep -qE '^add_to_path\s+"?([^"]+)"?'; then
+            local path=$(echo "$line" | sed -E 's/^add_to_path\s+"?([^"]+)"?/\1/')
+            # Expand $REPO_TOP if present in the path
+            path=$(eval echo "$path")
+            # Remove from PATH if it already exists, then add it
+            _remove_from_path "PATH" "$path"
+            add_to_path "$path"
+        fi
+    done < "$paths_file"
+    
+    return 0
+}
 
+#Function to restore environment to original ORIG_ENV state
+restore_original_env() {
+    # Check if ORIG_ENV exists
+    if [ -z "${ORIG_ENV_INIT+x}" ]; then
+        return 1
+    fi
+    
+    # Get current environment
+    declare -A current_env
+    while IFS='=' read -r key value; do
+        [[ -n "$key" ]] && current_env["$key"]="$value"
+    done < <(env)
+    
+    # Variables to skip (shell/system variables that shouldn't be restored)
+    declare -A skip_vars
+    skip_vars["_"]=1
+    skip_vars["SHLVL"]=1
+    skip_vars["PWD"]=1
+    skip_vars["OLDPWD"]=1
+    skip_vars["BASH_ARGC"]=1
+    skip_vars["BASH_ARGV"]=1
+    skip_vars["BASH_SOURCE"]=1
+    skip_vars["FUNCNAME"]=1
+    skip_vars["LINENO"]=1
+    skip_vars["BASH_LINENO"]=1
+    skip_vars["BASH_REMATCH"]=1
+    
+    # Find variables that were added (in current but not in ORIG_ENV) and unset them
+    for key in "${!current_env[@]}"; do
+        if [[ -z "${skip_vars[$key]+x}" ]] && [[ -z "${ORIG_ENV[$key]+x}" ]]; then
+            unset "$key"
+        fi
+    done
+    
+    # Find variables that were removed or changed
+    # And restore them to original values
+    for key in "${!ORIG_ENV[@]}"; do
+        if [[ -n "${skip_vars[$key]+x}" ]]; then
+            continue
+        fi
+        
+        local orig_value="${ORIG_ENV[$key]}"
+        local current_value="${current_env[$key]}"
+        
+        # Restore to original value if different
+        if [[ "$orig_value" != "$current_value" ]]; then
+            export "$key"="$orig_value"
+        fi
+    done
+    
+    # Handle variables that exist in ORIG_ENV but were unset in current
+    for key in "${!ORIG_ENV[@]}"; do
+        if [[ -n "${skip_vars[$key]+x}" ]]; then
+            continue
+        fi
+        if [[ -z "${current_env[$key]+x}" ]]; then
+            local orig_value="${ORIG_ENV[$key]}"
+            export "$key"="$orig_value"
+        fi
+    done
+    
+    # Remove duplicates from PATH and PYTHONPATH after restoration
+    _remove_duplicates_from_path "PATH"
+    _remove_duplicates_from_path "PYTHONPATH"
+    
+    return 0
+}
+
+# Helper function to compare and print multi-entry variables (like PATH)
+# Usage: _compare_path_var "VARIABLE_NAME" "original_value" "current_value"
+_compare_path_var() {
+    local varname="$1"
+    local orig_value="$2"
+    local current_value="$3"
+    
+    if [[ -z "$orig_value" ]] && [[ -z "$current_value" ]]; then
+        return 0
+    fi
+    
+    declare -A orig_entries
+    declare -A current_entries
+    
+    # Parse original entries
+    if [[ -n "$orig_value" ]]; then
+        IFS=':' read -ra ADDR <<< "$orig_value"
+        for entry in "${ADDR[@]}"; do
+            [[ -n "$entry" ]] && orig_entries["$entry"]=1
+        done
+    fi
+    
+    # Parse current entries
+    if [[ -n "$current_value" ]]; then
+        IFS=':' read -ra ADDR <<< "$current_value"
+        for entry in "${ADDR[@]}"; do
+            [[ -n "$entry" ]] && current_entries["$entry"]=1
+        done
+    fi
+    
+    # Print removed entries
+    for entry in "${!orig_entries[@]}"; do
+        if [[ -z "${current_entries[$entry]+x}" ]]; then
+            echo "  [-] $varname: $entry"
+        fi
+    done
+    
+    # Print added entries
+    for entry in "${!current_entries[@]}"; do
+        if [[ -z "${orig_entries[$entry]+x}" ]]; then
+            echo "  [+] $varname: $entry"
+        fi
+    done
+}
+
+# Function to compare current environment with ORIG_ENV and print differences
+compare_env_changes() {
+    # Check if ORIG_ENV exists
+    if [ -z "${ORIG_ENV_INIT+x}" ]; then
+        echo "[!] ORIG_ENV not initialized. Cannot compare."
+        return 1
+    fi
+    
     # Detect if shell is interactive
     [[ $- == *i* ]] && is_interactive_shell=1 || is_interactive_shell=0
+    
+    # Get current environment
+    declare -A current_env
+    while IFS='=' read -r key value; do
+        [[ -n "$key" ]] && current_env["$key"]="$value"
+    done < <(env)
+    
+    # Variables to skip (shell/system variables that change frequently)
+    declare -A skip_vars
+    skip_vars["_"]=1
+    skip_vars["SHLVL"]=1
+    skip_vars["PWD"]=1
+    skip_vars["OLDPWD"]=1
+    skip_vars["BASH_ARGC"]=1
+    skip_vars["BASH_ARGV"]=1
+    skip_vars["BASH_SOURCE"]=1
+    skip_vars["FUNCNAME"]=1
+    skip_vars["LINENO"]=1
+    skip_vars["BASH_LINENO"]=1
+    skip_vars["BASH_REMATCH"]=1
+    # Session/IDE-specific variables that shouldn't be tracked
+    skip_vars["LS_COLORS"]=1
+    skip_vars["DISPLAY"]=1
+    skip_vars["DBUS_SESSION_BUS_ADDRESS"]=1
+    # Skip all VSCODE_* variables
+    skip_vars["VSCODE_GIT_ASKPASS_EXTRA_ARGS"]=1
+    skip_vars["VSCODE_INJECTION"]=1
+    skip_vars["VSCODE_IPC_HOOK"]=1
+    skip_vars["VSCODE_NONCE"]=1
+    # Skip all XDG_* variables
+    skip_vars["XDG_SESSION_ID"]=1
+    skip_vars["XDG_RUNTIME_DIR"]=1
+    skip_vars["XDG_DATA_DIRS"]=1
+    skip_vars["XDG_CONFIG_DIRS"]=1
+    
+    local has_changes=0
+    
+    # Known multi-entry variables (colon-separated)
+    declare -A multi_entry_vars
+    multi_entry_vars["PATH"]=1
+    multi_entry_vars["PYTHONPATH"]=1
+    multi_entry_vars["LD_LIBRARY_PATH"]=1
+    multi_entry_vars["MANPATH"]=1
+    multi_entry_vars["PKG_CONFIG_PATH"]=1
+    multi_entry_vars["CPATH"]=1
+    multi_entry_vars["LIBRARY_PATH"]=1
+    
+    [[ $is_interactive_shell -eq 1 ]] && echo "=== Environment Changes ==="
+    
+    # Find variables that were added (in current but not in ORIG_ENV)
+    for key in "${!current_env[@]}"; do
+        if [[ -z "${skip_vars[$key]+x}" ]] && [[ -z "${ORIG_ENV[$key]+x}" ]]; then
+            # Skip VSCODE_* and XDG_* variables (using parameter expansion)
+            if [[ "${key#VSCODE_}" != "$key" ]] || [[ "${key#XDG_}" != "$key" ]]; then
+                continue
+            fi
+            local value="${current_env[$key]}"
+            # Check if it's a multi-entry variable by checking for colons
+            if [[ -n "${multi_entry_vars[$key]+x}" ]] || [[ "$value" == *:* ]]; then
+                # Use helper function for multi-entry variables
+                _compare_path_var "$key" "" "$value"
+            else
+                echo "  [+] $key=$value"
+            fi
+            has_changes=1
+        fi
+    done
+    
+    # Find variables that were removed or changed
+    for key in "${!ORIG_ENV[@]}"; do
+        if [[ -n "${skip_vars[$key]+x}" ]]; then
+            continue
+        fi
+        # Skip VSCODE_* and XDG_* variables (using parameter expansion)
+        if [[ "${key#VSCODE_}" != "$key" ]] || [[ "${key#XDG_}" != "$key" ]]; then
+            continue
+        fi
+        
+        local orig_value="${ORIG_ENV[$key]}"
+        local current_value="${current_env[$key]}"
+        
+        # Handle multi-entry variables
+        if [[ -n "${multi_entry_vars[$key]+x}" ]] || [[ "$orig_value" == *:* ]]; then
+            if [[ "$orig_value" != "$current_value" ]]; then
+                _compare_path_var "$key" "$orig_value" "$current_value"
+                has_changes=1
+            fi
+        else
+            # Single-value variable
+            if [[ -z "$current_value" ]]; then
+                # Variable was removed
+                echo "  [-] $key=$orig_value"
+                has_changes=1
+            elif [[ "$orig_value" != "$current_value" ]]; then
+                # Variable was changed
+                echo "  [-] $key=$orig_value"
+                echo "  [+] $key=$current_value"
+                has_changes=1
+            fi
+        fi
+    done
+    
+    # Handle variables that exist in ORIG_ENV but were unset in current
+    for key in "${!ORIG_ENV[@]}"; do
+        if [[ -n "${skip_vars[$key]+x}" ]]; then
+            continue
+        fi
+        # Skip VSCODE_* and XDG_* variables (using parameter expansion)
+        if [[ "${key#VSCODE_}" != "$key" ]] || [[ "${key#XDG_}" != "$key" ]]; then
+            continue
+        fi
+        if [[ -z "${current_env[$key]+x}" ]]; then
+            local orig_value="${ORIG_ENV[$key]}"
+            # Check if it's a multi-entry variable
+            if [[ -n "${multi_entry_vars[$key]+x}" ]] || [[ "$orig_value" == *:* ]]; then
+                _compare_path_var "$key" "$orig_value" ""
+            else
+                echo "  [-] $key=$orig_value"
+            fi
+            has_changes=1
+        fi
+    done
+    
+    if [[ $has_changes -eq 0 ]]; then
+        [[ $is_interactive_shell -eq 1 ]] && echo "[i] No environment changes detected."
+    fi
+    
+    return 0
+}
 
+update_repo_path() {
+    restore_original_env
 
     local repo_root
     repo_root=$(git rev-parse --show-toplevel 2>/dev/null)
-    
     if [[ -z "$repo_root" ]]; then
-        [[ $is_interactive_shell -eq 1 ]] && echo "[!]  Not inside a Git repository."
-        return 1
+        unset REPO_TOP
+    else
+        export REPO_TOP="$repo_root"
     fi
-    export REPO_TOP="$repo_root"
-    
-    if [[ -f "$REPO_TOP/tools/update_paths.sh" ]]; then
-        source "$REPO_TOP/tools/update_paths.sh"
-        [[ $is_interactive_shell -eq 1 ]] && echo "[i] sourcing $REPO_TOP/tools/update_paths.sh"
-    elif [[ $is_interactive_shell -eq 1 ]]; then
-        echo "[i]  Missing $REPO_TOP/tools/update_paths.sh"
+        # Auto-process update_paths.sh if REPO_TOP is set and file exists
+    if [ -n "$REPO_TOP" ] && [ -f "$REPO_TOP/init_repo_env.sh" ]; then
+        process_update_paths_file "$REPO_TOP/init_repo_env.sh"
     fi
-
-    # Source tool_box.sh if it exists
-    if [[ -f "$REPO_TOP/tools/tool_box/tool_box.sh" ]]; then
-        source "$REPO_TOP/tools/tool_box/tool_box.sh"
-    elif [[ $is_interactive_shell -eq 1 ]]; then
-        echo "[!]  Missing $REPO_TOP/tools/tool_box/tool_box.sh"
-    fi
-
-    [[ $is_interactive_shell -eq 1 ]] && echo "[v] REPO_TOP set to $REPO_TOP"
+    compare_env_changes
 }
 
-update_repo_path
-export BROWSER=/opt/firefox/firefox
 
-# Git prompt helper (optional)
-parse_git_branch() {
-    git rev-parse --git-dir > /dev/null 2>&1 || return
-    branch="$(git symbolic-ref --short HEAD 2>/dev/null || git describe --tags --exact-match 2>/dev/null)"
-    [ -n "$branch" ] && echo "($branch)"
+# Initialize ORIG_ENV (original environment snapshot)
+# Save all environment variables on first run
+init_orig_env() {
+    if [ -z "${ORIG_ENV_INIT+x}" ]; then
+        declare -gA ORIG_ENV
+        while IFS='=' read -r key value; do
+            [[ -n "$key" ]] && ORIG_ENV["$key"]="$value"
+        done < <(env)
+        ORIG_ENV_INIT=1
+        print_if_interactive "  [!] ORIG_ENV INITIALIZED"
+        # # Print ORIG_ENV line by line at startup
+        # for key in "${!ORIG_ENV[@]}"; do
+        #     echo "$key=${ORIG_ENV[$key]}"
+        # done
+    fi
 }
+
+print_if_interactive "=== begin .bashrc ==="
+
+
+
+
 
 # don't put duplicate lines or lines starting with space in the history.
 # See bash(1) for more options
@@ -97,13 +450,7 @@ if [ -n "$force_color_prompt" ]; then
     fi
 fi
 
-# Configure prompt
-# Minimal git-aware prompt that works with Conda
-parse_git_branch() {
-  git rev-parse --git-dir > /dev/null 2>&1 || return
-  branch="$(git symbolic-ref --short HEAD 2>/dev/null || git describe --tags --exact-match 2>/dev/null)"
-  [ -n "$branch" ] && echo "($branch)"
-}
+
 
 
 # enable color support of ls and also add handy aliases
@@ -149,4 +496,23 @@ if ! shopt -oq posix; then
     . /etc/bash_completion
   fi
 fi
-PS1='\[\033[1;35m\]\u@Fabrinetes\[\033[0m\]:\[\033[1;33m\]\w\[\033[0m\] \[\033[1;36m\]$(parse_git_branch)\[\033[0m\]\$ '
+# Configure prompt
+# Minimal git-aware prompt that works with Conda
+parse_git_branch() {
+  git rev-parse --git-dir > /dev/null 2>&1 || return
+  branch="$(git symbolic-ref --short HEAD 2>/dev/null || git describe --tags --exact-match 2>/dev/null)"
+  [ -n "$branch" ] && echo "($branch)"
+}
+
+PS1='\[\033[1;35m\]\u@office-fpgadev-01\[\033[0m\]:\[\033[1;33m\]\w\[\033[0m\] \[\033[1;36m\]$(parse_git_branch)\[\033[0m\]\$ '
+export DISPLAY=localhost:10.0
+
+# Print all environment variables when interactive
+
+source /etc/profile.d/init_env.sh
+# Initialize ORIG_ENV
+init_orig_env
+
+update_repo_path
+
+print_if_interactive "=== end .bashrc ==="

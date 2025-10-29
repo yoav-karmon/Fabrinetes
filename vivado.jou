@@ -1,0 +1,24 @@
+#-----------------------------------------------------------
+# Vivado v2025.1 (64-bit)
+# SW Build 6140274 on Wed May 21 22:58:25 MDT 2025
+# IP Build 6138677 on Thu May 22 03:10:11 MDT 2025
+# SharedData Build 6139179 on Tue May 20 17:58:58 MDT 2025
+# Start of session at: Mon Oct 27 19:09:19 2025
+# Process ID         : 1508479
+# Current directory  : /DATA/repo/Fabrinetes
+# Command line       : vivado
+# Log file           : /DATA/repo/Fabrinetes/vivado.log
+# Journal file       : /DATA/repo/Fabrinetes/vivado.jou
+# Running On         : 363fpgadev-01.eh.local
+# Platform           : Ubuntu
+# Operating System   : Ubuntu 24.04.3 LTS
+# Processor Detail   : Intel(R) Xeon(R) Gold 6230R CPU @ 2.10GHz
+# CPU Frequency      : 1000.230 MHz
+# CPU Physical cores : 52
+# CPU Logical cores  : 52
+# Host memory        : 1081790 MB
+# Swap memory        : 8589 MB
+# Total Virtual      : 1090380 MB
+# Available Virtual  : 1083924 MB
+#-----------------------------------------------------------
+start_gui

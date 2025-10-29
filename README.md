@@ -102,158 +102,37 @@ The setup script will:
 
 ## Path Management System
 
-Fabrinetes includes a sophisticated two-level path management system that automatically configures environment variables based on context:
+Fabrinetes includes a sophisticated **two-level path management system** that automatically configures environment variables based on context. For comprehensive documentation, see [Container Path Management](doc/container-path-management.md).
 
-### Global Container Path Management
+### Quick Overview
 
-**File**: `containers/my-project/init_env.sh`
-- Sets **system-wide paths** for the entire container
-- Works across **all repositories** in the container
+**Global Container Level**: System-wide paths that work across all repositories (configured in `init_env.sh`)
+**Repository Level**: Dynamic paths that change based on the current Git repository (managed by `update_repo_path()` function)
 
-**Adding Tools to PATH:**
-To add tools to your container, you typically need to:
-1. **Mount the tool** in your `config.toml`
-2. **Add the mounted path** to `init_env.sh`
+### Key Features
 
-**Example - Adding Vivado:**
-```toml
-# In config.toml - mount Vivado installation
-mounts = [
-    "$HOME/AMD/Vivado/2021.2:/opt/vivado",  # Mount Vivado to /opt/vivado
-    # ... other mounts
-]
-```
-
-```bash
-# In init_env.sh - add Vivado to PATH
-export PATH="/opt/vivado/bin:$PATH"  # Add Vivado tools to system PATH
-```
-
-**Example Configuration in `containers/my-project/init_env.sh`:**
-```bash
-# Global PATH setup for entire container (works across all repositories)
-export PATH="/opt/vivado/bin:$HOME/repo/Fabrinetes/source/project_setup:$HOME/.local/bin:$PATH"
-
-# License file path (adjust to your setup)
-export XILINXD_LICENSE_FILE="$HOME/repos/phy_project/Xilinx.lic"
-```
-
-**Note**: This is an example configuration. You need to create your own `init_env.sh` based on your specific tools and setup.
-
-### Per-Repository Path Management
-
-**File**: Container bashrc includes `update_repo_path()` function
 - **Automatic Detection**: Uses `git rev-parse --show-toplevel` to detect current Git repository
 - **Dynamic REPO_TOP**: Sets `REPO_TOP` environment variable to repository root
-- **Repository-Specific Paths**: Sources repository-specific path files:
-  - `tools/update_paths.sh` - Custom repository paths
-  - `tools/tool_box/tool_box.sh` - Additional repository tools
+- **Repository-Specific Paths**: Sources repository-specific path files (`tools/update_paths.sh`, `tools/tool_box/tool_box.sh`)
+- **Path Clearing**: Automatically clears old repository paths before adding new ones
+- **Environment Display**: Shows updated environment variables with `print_key_env_vars()`
 - **Manual Switching**: User runs `update_repo_path` when switching between different repositories
 
-### How It Works
-
-1. **Container starts** → `init_env.sh` sets global paths
-2. **User opens shell** → bashrc runs `update_repo_path()`
-3. **Function detects** current Git repository
-4. **Sets REPO_TOP** and sources repository-specific path files
-5. **When switching repos** → User runs `update_repo_path` to update paths
-
-**Interactive Output:**
-When `update_repo_path` runs in an interactive shell, it displays:
-- **REPO_TOP** path confirmation
-- **PATH** environment variable
-- **PYTHONPATH** environment variable
-- **Status messages** for sourced files
-
-**Example Output:**
-```bash
-$ update_repo_path
-[i] sourcing /home/ykarmon/repo/my-project/tools/update_paths.sh
-[v] REPO_TOP set to /home/ykarmon/repo/my-project
-PATH=/opt/vivado/bin:/home/ykarmon/repo/Fabrinetes/source/project_setup:/home/ykarmon/repo/my-project/tools/custom:/home/ykarmon/.local/bin:/usr/local/bin:/usr/bin:/bin
-PYTHONPATH=/home/ykarmon/repo/my-project/source:/home/ykarmon/repo/Fabrinetes/source/project_setup
-```
-
-### Repository-Specific Path Files
-
-Each repository can define its own path configuration:
-
-**`tools/update_paths.sh`** (optional):
-```bash
-# Add repository-specific tools to PATH
-export PATH="$REPO_TOP/tools/custom:$PATH"
-
-# Set repository-specific PYTHONPATH
-export PYTHONPATH="$REPO_TOP/source:$PYTHONPATH"
-```
-
-**`tools/tool_box/tool_box.sh`** (optional):
-```bash
-# Additional repository tools and configurations
-source "$REPO_TOP/tools/tool_box/setup.sh"
-```
-
-This creates a **seamless development environment** where global tools are always available, but repository-specific tools are automatically configured based on the current working directory.
-
-### Using REPO_TOP in Custom Tools
-
-You can use the `REPO_TOP` environment variable in your own functions and tools to verify you're in the correct repository:
-
-**Example - Custom Tool Verification:**
-```bash
-#!/bin/bash
-# Custom tool that requires specific repository
-
-if [ -z "$REPO_TOP" ]; then
-    echo "❌ REPO_TOP not set. Run 'update_repo_path' first."
-    exit 1
-fi
-
-# Verify we're in the expected repository
-expected_repo="my-project"
-current_repo=$(basename "$REPO_TOP")
-
-if [ "$current_repo" != "$expected_repo" ]; then
-    echo "❌ Wrong repository. Expected: $expected_repo, Current: $current_repo"
-    echo "   Please run: cd /path/to/$expected_repo && update_repo_path"
-    exit 1
-fi
-
-echo "✅ Running in correct repository: $current_repo"
-# Your tool logic here...
-```
-
-**HdlForge Integration:**
-HdlForge uses `REPO_TOP` to:
-- Verify it's running in a Git repository
-- Set project-specific paths and configurations
-- Ensure tools work with the correct project structure
-- Provide clear error messages when repository context is wrong
-
-**Adding HdlForge to PATH:**
-To make HdlForge easier to use, add it to your PATH in `init_env.sh`:
+### Usage
 
 ```bash
-# Add HdlForge to PATH for easier access
-export PATH="$HOME/repo/Fabrinetes/hdlforge/project_setup:$PATH"
+# Update paths for current repository
+update_repo_path
+
+# Display current environment
+print_key_env_vars
+
+# Switch repositories and update paths
+cd /path/to/other/repo
+update_repo_path
 ```
 
-**Usage Examples:**
-```bash
-# After adding to PATH, you can run HdlForge from anywhere:
-$ hdlforge --list
-$ hdlforge Verilator --project router.hdlforge.toml --step sim
-$ hdlforge GHDL --project cpu.hdlforge.toml --step compile
-
-# Without PATH setup, you'd need to use full path:
-$ $HOME/repo/Fabrinetes/hdlforge/project_setup/hdlforge --list
-```
-
-**Benefits:**
-- **Shorter commands** - no need for full paths
-- **Works from any directory** - HdlForge finds project files automatically
-- **Consistent interface** - same command regardless of location
-- **Better integration** - works seamlessly with `update_repo_path`
+For detailed information about configuration, troubleshooting, and advanced usage, see the [Container Path Management](doc/container-path-management.md) documentation.
 
 ## Important: Container Configuration Requirements
 
@@ -501,6 +380,8 @@ mounts = [
 
 ## Documentation
 
+- [Documentation Index](doc/DOCUMENTATION_INDEX.md) - Complete index of all documentation files
+- [Container Path Management](doc/container-path-management.md) - Comprehensive guide to the two-level path management system
 - [Testing Guide](doc/testing_guide.md) - Comprehensive testing procedures
 - [Repository Structure](doc/repository_explanation.md) - Project organization
 - [HDLForge Migration](doc/HDLForge_v2_Migration_Guide.md) - v2.0 migration guide
