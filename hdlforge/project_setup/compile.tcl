@@ -19,6 +19,8 @@ puts "====================================="
 puts "(i) Open project"
 set project_file "${path_xpr}"
 open_project $project_file
+# Remove board_part to avoid board definition warnings
+set_property board_part {} [current_project]
 puts "================== stage = synthesis =================="
 
 if { $stage == "syn" | $stage == "all" | $stage == "impl" } {

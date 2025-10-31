@@ -23,6 +23,8 @@ if {![file exists $project_path]} {
 
 # Open project
 open_project $project_path
+# Remove board_part to avoid board definition warnings
+set_property board_part {} [current_project]
 
 # Command dispatcher
 switch -- $cmd {
