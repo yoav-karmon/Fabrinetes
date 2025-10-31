@@ -148,7 +148,9 @@ def print_task_args(local_vars: dict, REPO_TOP: str, allowed_values: dict[str, L
     caller_name = inspect.stack()[1].function  
 
     # Remove Invoke context (c), internal variables (_path, _full), and empty project argument
-    args = {k: v for k, v in local_vars.items() if k != "c" and k != "project" and not k.endswith("_path") and not k.endswith("_full")}
+    # Also exclude internal metadata variables like ALLOWED_STEPS, TOOL_NAME, SCRIPT_DIR
+    excluded_keys = {"c", "project", "ALLOWED_STEPS", "TOOL_NAME", "SCRIPT_DIR"}
+    args = {k: v for k, v in local_vars.items() if k not in excluded_keys and not k.endswith("_path") and not k.endswith("_full")}
     max_key_len = max(len(k) for k in args.keys()) if args else 0
     border = "=" * (max_key_len + 30)
 
@@ -161,11 +163,25 @@ def print_task_args(local_vars: dict, REPO_TOP: str, allowed_values: dict[str, L
     # Sort keys to put project_toml_file first
     sorted_keys = sorted(args.keys(), key=lambda x: (x != "project_toml_file", x != "project_file_path", x))
     
+    # Maximum width for value column to keep table readable
+    MAX_VALUE_WIDTH = 80
+    
+    def truncate_value(val: str, max_width: int = MAX_VALUE_WIDTH) -> str:
+        """Truncate long values with ellipsis"""
+        if len(val) <= max_width:
+            return val
+        return val[:max_width-3] + "..."
+    
     for key in sorted_keys:
         try:
             value = args[key]
             if( key in allowed_values):
-                table.append([key.ljust(max_key_len), value, f"(allowed: {', '.join(allowed_values[key])})"])
+                # Format value for display, truncate if needed
+                display_value = str(value) if value is not None else ""
+                if isinstance(value, list):
+                    display_value = f"[{', '.join(map(str, value))}]"
+                display_value = truncate_value(display_value)
+                table.append([key.ljust(max_key_len), display_value, f"(allowed: {', '.join(allowed_values[key])})"])
             elif(not isinstance(value, dict) and not isinstance(value, list)):
                 # Convert Path objects to strings
                 if isinstance(value, Path):
@@ -175,14 +191,26 @@ def print_task_args(local_vars: dict, REPO_TOP: str, allowed_values: dict[str, L
                     str_value = str(value)
                     if REPO_TOP+"/" in str_value:
                         str_value = str_value.replace(REPO_TOP+"/", "$REPO_TOP/")
+                    str_value = truncate_value(str_value)
                     table.append([key.ljust(max_key_len), str_value, ""])
                 except:
                     # Skip variables that can't be converted to string
                     pass
+            elif(isinstance(value, list)):
+                # Format list nicely
+                list_str = f"[{', '.join(map(str, value))}]"
+                list_str = truncate_value(list_str)
+                table.append([key.ljust(max_key_len), list_str, ""])
             elif(isinstance(value,dict)):
-                print_str=str(value)
-                if(len(print_str) > 40):
-                    print_str=print_str[0:37]+"..."
+                # Format dict nicely, especially for dicts containing lists
+                formatted_parts = []
+                for k, v in value.items():
+                    if isinstance(v, list):
+                        formatted_parts.append(f"{k}: [{', '.join(map(str, v))}]")
+                    else:
+                        formatted_parts.append(f"{k}: {v}")
+                print_str = ", ".join(formatted_parts)
+                print_str = truncate_value(print_str)
                 table.append([key.ljust(max_key_len), print_str, ""])
         except Exception as e:
             # Skip problematic variables silently
