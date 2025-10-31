@@ -10,7 +10,32 @@ puts "=========== TCL Arguments ==========="
 puts "Project file:     $path_xpr"
 puts "Parameters:       $param_string"
 puts "Defines:          $define_string"
+puts "Ignore warnings:  $ignore_warning_codes"
+puts "Ignore errors:    $ignore_error_codes"
 puts "====================================="
+
+# Process ignore warning codes BEFORE opening project
+# Warning codes may contain spaces (e.g., "Board 49-26"), so we need to preserve them
+if { $ignore_warning_codes ne "" } {
+    puts "(i) Suppressing warning codes: $ignore_warning_codes"
+    # The argument is passed as a single string, so we use it as-is for the message ID
+    # If multiple codes are needed, they should be comma-separated in the config
+    # For now, treat the entire string as one code (handles "Board 49-26" format)
+    set_msg_config -suppress -id "$ignore_warning_codes" -quiet
+    puts "  - Suppressing: $ignore_warning_codes"
+}
+
+# Process ignore error codes
+if { $ignore_error_codes ne "" } {
+    puts "(i) Suppressing error codes: $ignore_error_codes"
+    foreach error_code [split $ignore_error_codes " "] {
+        if { $error_code ne "" } {
+            # Convert errors to warnings (we can't fully suppress errors)
+            set_msg_config -severity {WARNING} -id "$error_code" -quiet
+            puts "  - Converting to warning: $error_code"
+        }
+    }
+}
 
 puts "(i) Open project"
 set project_file "${path_xpr}"

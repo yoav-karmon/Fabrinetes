@@ -469,9 +469,10 @@ def vivado(c,project,verbose=False,step:List[str]=[],clean=False,run_flow=None):
     elif isinstance(step, str):
         step = [step]
 
-    ALLOWED_STEPS = {"step":["new","list_runs","reset_run", "syn", "impl", "bit"]}
+    ALLOWED_STEPS = {"step":["new","list_runs","reset_run", "syn", "impl", "bit", "lint"]}
     TOOL_NAME = "vivado"
-    SCRIPT_DIR                  = Path("/opt/project_setup")
+    # Get script directory from environment or use the directory where this script is located
+    SCRIPT_DIR = Path(os.environ.get("HDLFORGE", str(Path(__file__).parent)))
     REPO_TOP = Path(os.environ["REPO_TOP"]) 
 
 
@@ -545,6 +546,27 @@ def vivado(c,project,verbose=False,step:List[str]=[],clean=False,run_flow=None):
                 print(f"[i] Listing Vivado runs for project: {PROJECT_NAME}")
                 with c.cd(str(VIVADO_BUILD_DIR)):
                     c.run(f"vivado -mode batch -source {SCRIPT_DIR}/project_tool.tcl -notrace -tclargs  list_all_runs  {PROJECT_NAME}.xpr",pty=True,echo=True)
+                
+            case "lint":
+                print(f"[i] Running Vivado lint for project: {PROJECT_NAME}",flush=True)
+                if run_flow is None:
+                    runs_flow=VIVADO_SETTING_DICT["runs_flow"]
+                    print("[i] Available run_flow options:")
+                    for key, value in VIVADO_SETTING_DICT["runs_flow"].items():
+                        print(f"--run-flow {key} ~  {key}: {value}")
+                    print("[!x!] Please specify a valid run_flow argument using --run-flow <option>")
+                    exit(1)
+                runs_flow=VIVADO_SETTING_DICT["runs_flow"][run_flow]
+                paramaters = runs_flow.get("paramaters", [])
+                defines = runs_flow.get("defines", [])
+                paramaters_str = " ".join(paramaters) if paramaters else ""
+                defines_str = " ".join(defines) if defines else ""
+                ignore_error_codes = " ".join(VIVADO_SETTING_DICT.get("lint_ignore_error_codes", []))
+                ignore_warning_codes = " ".join(VIVADO_SETTING_DICT.get("lint_ignore_warning_codes", []))
+                with c.cd(str(VIVADO_BUILD_DIR)):
+                    cmd = f"vivado -mode batch -source {SCRIPT_DIR}/lint.tcl -notrace -tclargs {PROJECT_NAME}.xpr '{paramaters_str}' '{defines_str}' '{ignore_error_codes}' '{ignore_warning_codes}'"
+                    print(f"\n[i] Running Vivado lint TCL script with command: {cmd}\n",flush=True)
+                    c.run(cmd,pty=True,echo=True)
                 
             case "reset_run":
                 pass
