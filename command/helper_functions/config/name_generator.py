@@ -2,6 +2,7 @@
 
 import os
 import sys
+import json
 import toml
 import argparse
 from dataclasses import dataclass, field
@@ -25,15 +26,27 @@ def _validate_config_section(config_data: dict, section_name: str, config_file: 
     if section_name not in config_data:
         _handle_config_error(f"Missing '[config.{section_name}]' section", config_file)
 
-def _load_toml_file(config_file: str) -> dict:
-    """Load and parse TOML file with error handling"""
+def _load_config_file(config_file: str) -> dict:
+    """Load and parse config file (JSON or TOML) with error handling"""
     try:
+        file_ext = os.path.splitext(config_file)[1].lower()
         with open(config_file, 'r') as f:
-            return toml.load(f)
+            if file_ext == '.json':
+                return json.load(f)
+            elif file_ext == '.toml':
+                return toml.load(f)
+            else:
+                _handle_config_error(f"Unsupported config file format: {file_ext}. Supported formats: .json, .toml", config_file)
     except FileNotFoundError:
         _handle_config_error("Config file not found", config_file)
+    except json.JSONDecodeError as e:
+        _handle_config_error(f"Failed to parse JSON config file: {e}", config_file)
     except Exception as e:
         _handle_config_error(f"Failed to parse config file: {e}", config_file)
+
+def _load_toml_file(config_file: str) -> dict:
+    """Legacy function - use _load_config_file() instead"""
+    return _load_config_file(config_file)
 
 @dataclass
 class ImageConfig:
@@ -273,7 +286,7 @@ Available Commands:
                            choices=command_names,
                            help='Command to execute')
         parser.add_argument('--config-file', 
-                           help='Path to config.toml file')
+                           help='Path to config.json or config.toml file')
         parser.add_argument('--show-help', 
                            action='store_true',
                            help='Show help for the specific command')
@@ -325,11 +338,12 @@ Available Commands:
         """Create ContainerInfo from parsed arguments"""
         if not args.config_file:
             print("Error: --config-file is required")
-            print("Usage: ./fabrinetes --cmd <command> --config-file <config.toml>")
+            print("Usage: ./fabrinetes --cmd <command> --config-file <config.json|config.toml>")
             print("")
             print("Example config file locations:")
+            print("  containers/my-project/config.json")
             print("  containers/my-project/config.toml")
-            print("  /path/to/your/config.toml")
+            print("  /path/to/your/config.json")
             sys.exit(1)
         
         return cls.get_container_info(args.config_file)
@@ -345,14 +359,14 @@ Available Commands:
         config_file_absolute = os.path.abspath(config_file)
         working_directory = os.path.dirname(config_file_absolute)
         
-        # Load TOML file
-        toml_data = _load_toml_file(config_file_absolute)
+        # Load config file (JSON or TOML)
+        config_data_dict = _load_config_file(config_file_absolute)
         
         # Validate required sections exist
-        if 'config' not in toml_data:
+        if 'config' not in config_data_dict:
             _handle_config_error("Missing '[config]' section", config_file_absolute)
         
-        config_data = toml_data['config']
+        config_data = config_data_dict['config']
         
         # Parse configuration sections using dataclasses
         try:

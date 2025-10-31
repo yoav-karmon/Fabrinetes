@@ -4,6 +4,7 @@ import os
 import sys
 from pathlib import Path
 import inspect
+import json
 import tomllib
 import tomli_w
 import cocotb
@@ -206,13 +207,23 @@ def load_project_data(ProjectFilePath):
     if( not ProjectFilePath.exists()):
         exit(f"Project file not found: {ProjectFilePath}")    
 
-    with open(ProjectFilePath, "rb") as f:
-        project_data=tomllib.load(f)
-        project_data:dict
-        working_path= project_data["settings"]["project_path"]
-        working_path = os.path.expandvars(working_path) 
-        working_path =  Path(working_path).resolve()
-        return working_path, project_data
+    # Detect file format by extension
+    file_ext = ProjectFilePath.suffix.lower()
+    
+    if file_ext == '.json':
+        with open(ProjectFilePath, 'r', encoding='utf-8') as f:
+            project_data = json.load(f)
+    elif file_ext == '.toml':
+        with open(ProjectFilePath, "rb") as f:
+            project_data = tomllib.load(f)
+    else:
+        exit(f"Unsupported project file format: {file_ext}. Supported formats: .json, .toml")
+    
+    project_data:dict
+    working_path= project_data["settings"]["project_path"]
+    working_path = os.path.expandvars(working_path) 
+    working_path =  Path(working_path).resolve()
+    return working_path, project_data
 
 def get_project_file_path(project_file_arg:Union[str,None]) ->  Path:
     """
@@ -251,7 +262,7 @@ def get_project_file_path(project_file_arg:Union[str,None]) ->  Path:
                 print("Available project files in current directory:")
                 for file in hdlforge_files:
                     print(f"  {file.name}")
-            print("Or specify with: --project addr_32bit.hdlforge.toml")
+            print("Or specify with: --project addr_32bit.hdlforge.json (or .toml)")
             exit(1)
         
         print(f"ℹ️  Using project file: {project_file_path.name}")
@@ -744,7 +755,7 @@ def help(c):
     print("  hdlforge --list                   # List all available tasks")
     print()
     print("PROJECT CONFIGURATION:")
-    print("  Projects are configured using *.hdlforge.toml files in your working directory.")
+    print("  Projects are configured using *.hdlforge.json (or *.hdlforge.toml) files in your working directory.")
     print("  The tool automatically detects project files or you can specify them explicitly.")
     print()
     print("DOCUMENTATION:")

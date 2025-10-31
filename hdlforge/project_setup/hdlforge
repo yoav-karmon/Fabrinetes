@@ -2,8 +2,11 @@
 
 # Check if any arguments are provided
 if [ $# -lt 1 ]; then
-    # Look for existing project files in current directory
-    hdlforge_files=$(ls *.hdlforge.toml 2>/dev/null)
+    # Look for existing project files in current directory (JSON first, then TOML)
+    hdlforge_json_files=$(ls *.hdlforge.json 2>/dev/null)
+    hdlforge_toml_files=$(ls *.hdlforge.toml 2>/dev/null)
+    hdlforge_files="$hdlforge_json_files"$'\n'"$hdlforge_toml_files"
+    hdlforge_files=$(echo "$hdlforge_files" | grep -v '^$' | head -1)
     
     if [ -n "$hdlforge_files" ] && [ $(echo "$hdlforge_files" | wc -l) -eq 1 ]; then
         # Exactly one file found - use it in the example
@@ -14,12 +17,12 @@ if [ $# -lt 1 ]; then
         echo "  1. hdlforge Verilator --step sim --SimTargetName basic_test"
         echo "  2. hdlforge vivado --step syn --run-flow default"
         echo ""
-        echo "hdlforge auto-detected *.hdlforge.toml in the current directory: $example_file"
+        echo "hdlforge auto-detected project file in the current directory: $example_file"
     else
         echo "Usage: hdlforge <command> [--project <project_file>] [options]"
-        echo "Example: hdlforge Verilator --project addr_32bit.hdlforge.toml --step sim --SimTargetName basic_test"
+        echo "Example: hdlforge Verilator --project addr_32bit.hdlforge.json --step sim --SimTargetName basic_test"
         echo ""
-        echo "Note: --project is optional. If omitted, hdlforge will auto-detect *.hdlforge.toml files in the current directory."
+        echo "Note: --project is optional. If omitted, hdlforge will auto-detect *.hdlforge.json or *.hdlforge.toml files in the current directory."
     fi
     exit 1
 fi
