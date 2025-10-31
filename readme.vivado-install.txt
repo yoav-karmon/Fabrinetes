@@ -1,0 +1,34 @@
+
+#### Vivado ML Enterprise Install Configuration ####
+Edition=Vivado ML Enterprise
+
+Product=Vivado
+
+# Path where AMD FPGAs & Adaptive SoCs software will be installed.
+Destination=/home/ykarmon/Xilinx
+
+# Choose the Products/Devices the you would like to install.
+Modules=Virtex UltraScale+ FPGAs:1
+
+# Choose the post install scripts you'd like to run as part of the finalization step. Please note that some of these scripts may require user interaction during runtime.
+InstallOptions=Acquire or Manage a License Key:0
+
+## Shortcuts and File associations ##
+# Choose whether Start menu/Application menu shortcuts will be created or not.
+CreateProgramGroupShortcuts=0
+
+# Choose the name of the Start menu/Application menu shortcut. This setting will be ignored if you choose NOT to create shortcuts.
+ProgramGroupFolder=Xilinx Design Tools
+
+# Choose whether shortcuts will be created for All users or just the Current user. Shortcuts can be created for all users only if you run the installer as administrator.
+CreateShortcutsForAllUsers=0
+
+# Choose whether shortcuts will be created on the desktop or not.
+CreateDesktopShortcuts=0
+
+# Choose whether file associations will be created or not.
+CreateFileAssociation=0
+
+./xsetup   -b AuthTokenGen
+
+./xsetup --agree 3rdPartyEULA,XilinxEULA --batch Install  -c /home/ykarmon/.Xilinx/install_config.txt
