@@ -11,23 +11,27 @@ from typing import Optional, List
 import sys
 
 
-def detect_project_file(current_dir: Path) -> Optional[Path]:
+def detect_project_file(current_dir: Path, json_only=False) -> Optional[Path]:
     """
     Detect a single *.hdlforge.json or *.hdlforge.toml file in the specified directory.
     Prefers JSON files over TOML files if both exist.
     
     Args:
         current_dir: Directory to search for project files
+        json_only: If True, only search for JSON files (for Vivado)
         
     Returns:
         Path to the project file if exactly one is found, None otherwise
     """
     # Look for JSON files first (preferred format)
     hdlforge_json_files = list(current_dir.glob("*.hdlforge.json"))
-    hdlforge_toml_files = list(current_dir.glob("*.hdlforge.toml"))
     
-    # Combine lists, JSON files first
-    hdlforge_files = hdlforge_json_files + hdlforge_toml_files
+    if json_only:
+        hdlforge_files = hdlforge_json_files
+    else:
+        hdlforge_toml_files = list(current_dir.glob("*.hdlforge.toml"))
+        # Combine lists, JSON files first
+        hdlforge_files = hdlforge_json_files + hdlforge_toml_files
     
     if len(hdlforge_files) == 1:
         return hdlforge_files[0]
@@ -35,7 +39,7 @@ def detect_project_file(current_dir: Path) -> Optional[Path]:
     return None
 
 
-def handle_project_detection_errors(hdlforge_files: List[Path]) -> None:
+def handle_project_detection_errors(hdlforge_files: List[Path], json_only=False) -> None:
     """
     Handle errors when project file detection fails.
     
@@ -43,10 +47,15 @@ def handle_project_detection_errors(hdlforge_files: List[Path]) -> None:
     
     Args:
         hdlforge_files: List of *.hdlforge.json or *.hdlforge.toml files found
+        json_only: If True, error messages mention only JSON files (for Vivado)
     """
     if len(hdlforge_files) == 0:
-        print("❌ No .hdlforge.json or .hdlforge.toml files found in current directory")
-        print("Please create a project file or navigate to a project directory")
+        if json_only:
+            print("❌ No .hdlforge.json files found in current directory")
+            print("Vivado only supports JSON format. Please create a .hdlforge.json file or navigate to a project directory")
+        else:
+            print("❌ No .hdlforge.json or .hdlforge.toml files found in current directory")
+            print("Please create a project file or navigate to a project directory")
         print("Or specify the project file explicitly: --project addr_32bit.hdlforge.json")
         sys.exit(1)
     
@@ -59,18 +68,21 @@ def handle_project_detection_errors(hdlforge_files: List[Path]) -> None:
         sys.exit(1)
 
 
-def get_project_files(current_dir: Path) -> List[Path]:
+def get_project_files(current_dir: Path, json_only=False) -> List[Path]:
     """
     Get all *.hdlforge.json and *.hdlforge.toml files in the specified directory.
     JSON files are returned first, then TOML files.
     
     Args:
         current_dir: Directory to search for project files
+        json_only: If True, only return JSON files (for Vivado)
         
     Returns:
         List of Path objects for all *.hdlforge.json and *.hdlforge.toml files found
     """
     json_files = list(current_dir.glob("*.hdlforge.json"))
+    if json_only:
+        return json_files
     toml_files = list(current_dir.glob("*.hdlforge.toml"))
     return json_files + toml_files
 
