@@ -68,10 +68,14 @@ def run(args, container_info):
     if rm:
         builder.add_part("rm", CmdPartFlag("--rm", comment="# Remove container when it exits (from --rm flag)"))
     
-    # Add host networking (optional - can be enabled via --host-net flag)
-    if host_net:
-        builder.add_part("host_networking", CmdPartHostNetworking(
-                         comment="# Host networking (enabled via --host-net flag)"))
+    # Add host networking (enabled via --host-net flag OR automatically when X11 is enabled)
+    if host_net or container_info.x11_enabled:
+        comment = "# Host networking (required for X11 GUI support with docker attach)"
+        if host_net and container_info.x11_enabled:
+            comment = "# Host networking (enabled via --host-net flag AND X11 GUI support)"
+        elif host_net:
+            comment = "# Host networking (enabled via --host-net flag)"
+        builder.add_part("host_networking", CmdPartHostNetworking(comment=comment))
     
     # Add privileged mode (always enabled for hardware access)
     builder.add_part("privileged", CmdPartFlag("--privileged", comment="# Privileged mode (always enabled for hardware access)"))
