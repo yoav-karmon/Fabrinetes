@@ -21,9 +21,22 @@ from invoke import run, Context
 
 from typing import List, Dict, Any,Tuple
 import warnings
+from enum import Enum
 
 # Import project detector module
 from project_detector import detect_project_file, handle_project_detection_errors, get_project_files
+
+
+class VivadoStep(str, Enum):
+    """Enum for Vivado step names"""
+    NEW = "new"
+    LIST_RUNS = "list_runs"
+    RESET_RUN = "reset_run"
+    SYN = "syn"
+    IMPL = "impl"
+    BIT = "bit"
+    LINT = "lint"
+    ALL = "all"
 
 
 
@@ -469,7 +482,7 @@ def vivado(c,project,verbose=False,step:List[str]=[],clean=False,run_flow=None):
     elif isinstance(step, str):
         step = [step]
 
-    ALLOWED_STEPS = {"step":["new","list_runs","reset_run", "syn", "impl", "bit", "lint"]}
+    ALLOWED_STEPS = {"step":[step.value for step in VivadoStep]}
     TOOL_NAME = "vivado"
     # Get script directory from environment or use the directory where this script is located
     SCRIPT_DIR = Path(os.environ.get("HDLFORGE", str(Path(__file__).parent)))
@@ -525,29 +538,57 @@ def vivado(c,project,verbose=False,step:List[str]=[],clean=False,run_flow=None):
             print(f"\n[i] Running Vivado compile TCL script with command: {cmd}\n",flush=True)
             c.run(cmd,pty=True,echo=True)
 
+    # Convert step strings to enum values
+    def to_vivado_step(step_str: str) -> VivadoStep:
+        """Convert string step name to VivadoStep enum"""
+        try:
+            return VivadoStep(step_str)
+        except ValueError:
+            print(f"[!x!] Invalid step name: {step_str}")
+            print(f"[i] Allowed steps: {', '.join([step.value for step in VivadoStep])}")
+            exit(1)
+    
     for s in step:
-        match (s):
-            case "new":
+        step_enum = to_vivado_step(s)
+        match (step_enum):
+            case VivadoStep.NEW:
                 c.run(f"mkdir -p {VIVADO_BUILD_DIR}")
                 cleaning(VIVADO_BUILD_DIR,True)
                 print(f"[i] Creating new Vivado project: {PROJECT_NAME}")
 
-                generate_vivado_tcl(
-                    output_path=VIVADO_GEN_PRJ_TCL_PATH,
-                    project_name=PROJECT_NAME,
-                    part=PART,
-                    top_module=TOP_MODULE,
-                    sources_dict_list=SOURCES_DICT_LIST)
+                # Check if vivado_project_settings.tcl already exists
+                if VIVADO_GEN_PRJ_TCL_PATH.exists():
+                    print(f"[i] Found existing script: {VIVADO_GEN_PRJ_TCL_PATH}")
+                    response = input(f"Regenerate the script or reuse existing? (r)egenerate/(u)se existing [u]: ").strip().lower()
+                    if response == 'r' or response == 'regenerate':
+                        print(f"[i] Regenerating script: {VIVADO_GEN_PRJ_TCL_PATH}")
+                        generate_vivado_tcl(
+                            output_path=VIVADO_GEN_PRJ_TCL_PATH,
+                            project_name=PROJECT_NAME,
+                            part=PART,
+                            top_module=TOP_MODULE,
+                            sources_dict_list=SOURCES_DICT_LIST)
+                    else:
+                        print(f"[i] Reusing existing script: {VIVADO_GEN_PRJ_TCL_PATH}")
+                else:
+                    # File doesn't exist, generate it
+                    generate_vivado_tcl(
+                        output_path=VIVADO_GEN_PRJ_TCL_PATH,
+                        project_name=PROJECT_NAME,
+                        part=PART,
+                        top_module=TOP_MODULE,
+                        sources_dict_list=SOURCES_DICT_LIST)
+                
                 print(f"[i] Creating Vivado project : {VIVADO_GEN_PRJ_TCL_PATH}")
                 with c.cd(str(VIVADO_BUILD_DIR)):
                     c.run(f"vivado -mode batch -source {VIVADO_GEN_PRJ_TCL_PATH} -notrace")
 
-            case "list_runs":
+            case VivadoStep.LIST_RUNS:
                 print(f"[i] Listing Vivado runs for project: {PROJECT_NAME}")
                 with c.cd(str(VIVADO_BUILD_DIR)):
                     c.run(f"vivado -mode batch -source {SCRIPT_DIR}/project_tool.tcl -notrace -tclargs  list_all_runs  {PROJECT_NAME}.xpr",pty=True,echo=True)
                 
-            case "lint":
+            case VivadoStep.LINT:
                 print(f"[i] Running Vivado lint for project: {PROJECT_NAME}",flush=True)
                 if run_flow is None:
                     runs_flow=VIVADO_SETTING_DICT["runs_flow"]
@@ -568,9 +609,9 @@ def vivado(c,project,verbose=False,step:List[str]=[],clean=False,run_flow=None):
                     print(f"\n[i] Running Vivado lint TCL script with command: {cmd}\n",flush=True)
                     c.run(cmd,pty=True,echo=True)
                 
-            case "reset_run":
+            case VivadoStep.RESET_RUN:
                 pass
-            case "syn" | "impl" | "bit" | "all":
+            case VivadoStep.SYN | VivadoStep.IMPL | VivadoStep.BIT:
                 print(f"[i] Running Vivado synthesis for project: {PROJECT_NAME}",flush=True)
                 if run_flow is None:
                     runs_flow=VIVADO_SETTING_DICT["runs_flow"]
@@ -588,9 +629,7 @@ def vivado(c,project,verbose=False,step:List[str]=[],clean=False,run_flow=None):
                 defines= " ".join(defines)
                 call_compile_tcl(f"{s}" ,f"{syth_name}" ,f"{impl_name_list[0]}" ,f"'{paramaters}'" ,f"'{defines}'" )
           
-            case "bit":
-                pass
-            case "all":
+            case VivadoStep.ALL:
                 print(f"[i] Running Vivado synthesis, implementation and bitstream generation for project: {PROJECT_NAME}")
                 with c.cd(str(VIVADO_BUILD_DIR)):
                     c.run(f"vivado -mode batch -source {SCRIPT_DIR}/compile.tcl -notrace -tclargs  {PROJECT_NAME}.xpr all",pty=True,echo=True)
