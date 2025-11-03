@@ -142,17 +142,12 @@ echo "Working directory: $HOME_DIR"
 # Ensure the main process runs as the user
 echo "Ensuring main process runs as user: $USERNAME"
 
-# Change to user's home directory first
-cd "$HOME_DIR"
-
 # Switch to the user and execute the command
 # Use exec to replace the current process with the user's command
-# Source environment variables for Cursor/VS Code compatibility
-if [ -f "/etc/profile.d/init_env.sh" ]; then
-    echo "Sourcing environment variables from /etc/profile.d/init_env.sh"
-    source /etc/profile.d/init_env.sh
-fi
-
-# Execute command with environment variables loaded
+# Note: init_env.sh will be sourced automatically by bashrc-root when bash starts
+# Note: The user's shell (bash) will start in their home directory by default
+echo "entrypoint.sh: switching to user: $USERNAME and executing command: $@"
+echo "entrypoint.sh: completed successfully"
+echo ""
 exec gosu "$USERNAME" "$@"
 
