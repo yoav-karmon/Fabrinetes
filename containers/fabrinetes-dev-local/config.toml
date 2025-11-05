@@ -11,7 +11,7 @@ mounts = [
 enable = true  # Enable X11 GUI support (defaults to true if not present)
 mounts = [
     "/mnt/wslg/.X11-unix:/tmp/.X11-unix",  # X11 socket path
-    "$HOME/.Xauthority:$HOME/.Xauthority:ro"  # X11 authentication
+    "$HOME/.Xauthority:$HOME/.Xauthority"  # X11 authentication
 ]
 
 [config.image]
