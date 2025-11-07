@@ -1,0 +1,26 @@
+[config]
+# Mount configuration
+mounts = [
+    "bashrc-func:/etc/bashrc-func",
+    "init_env.sh:/etc/profile.d/init_env.sh",
+    "bashrc-root:$HOME/.bashrc",
+    "entrypoint.sh:/usr/local/bin/entrypoint.sh",
+    "$HOME/.ssh:$HOME/.ssh",
+    "/DATA/repo:$HOME/repo",
+    "/DATA/amd/:/DATA/amd"
+]
+
+
+[config.X11]
+enable = true  # Enable X11 GUI support (defaults to true if not present)
+mounts = [
+    "/tmp/.X11-unix:/tmp/.X11-unix",  # X11 socket path
+    "$HOME/.Xauthority:$HOME/.Xauthority"  # X11 authentication
+]
+
+[config.image]
+name = "edgehogtrading/fpga"
+tag = "v2.0"
+
+[config.container]
+name = "fpga_vivado_dev"
