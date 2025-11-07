@@ -190,6 +190,7 @@ class ComprehensiveTestSuite:
         # Create dummy files that might be referenced
         (config_dir / "Dockerfile").write_text("FROM ubuntu:latest")
         (config_dir / "init_env.sh").write_text("#!/bin/bash")
+        (config_dir / "packages.txt").write_text("curl\ngit\n")  # Add packages.txt for build command
         
         return config_path
     
@@ -268,6 +269,7 @@ class ComprehensiveTestSuite:
         
         all_passed = True
         details = []
+        all_outputs = []
         
         with tempfile.TemporaryDirectory() as tmpdir:
             config_dir = Path(tmpdir)
@@ -275,6 +277,7 @@ class ComprehensiveTestSuite:
             
             for command, extra_args in COMMANDS_TO_TEST:
                 output, exit_code = self.run_fabrinetes_command(config_path, command, extra_args)
+                all_outputs.append(f"--- {command} command output ---\n{output}\n")
                 
                 # Different commands have different output patterns
                 if command == "help":
@@ -290,10 +293,11 @@ class ComprehensiveTestSuite:
                         details.append(f"✗ {command} command: Failed to generate")
                         all_passed = False
                 elif command == "build":
-                    if "Docker Build (Image) Command:" in output:
+                    # Build command now outputs step-by-step commands, not "Docker Build Command:"
+                    if "Step 0:" in output or "Step 1:" in output or "docker pull" in output or "docker commit" in output:
                         details.append(f"✓ {command} command: Generated successfully")
                     else:
-                        details.append(f"✗ {command} command: Failed to generate")
+                        details.append(f"✗ {command} command: Failed to generate (output: {output[:100]}...)")
                         all_passed = False
                 else:
                     if f"Docker {command.title()} Command:" in output:
@@ -302,7 +306,7 @@ class ComprehensiveTestSuite:
                         details.append(f"✗ {command} command: Failed to generate")
                         all_passed = False
         
-        print(output)
+        print("\n".join(all_outputs))
         print("-" * 40)
         
         return TestResult(

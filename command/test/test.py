@@ -55,8 +55,10 @@ def test(args, container_info):
                     self.x11 = False
                     self.no_x11 = False
                     self.usb = False
+                    self.host_net = False  # Add missing host_net attribute
                     self.ask = False
                     self.verbose = False
+                    self.shm_size = None  # Add missing shm_size attribute
                     self.image = False
                     self.tag = None
                     self.message = None
