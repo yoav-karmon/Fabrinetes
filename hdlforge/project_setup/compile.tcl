@@ -2,16 +2,19 @@
 set path_xpr      [lindex $argv 0]
 set stage         [lindex $argv 1]
 set synth_run     [lindex $argv 2]
-set impl_run      [lindex $argv 3]
+set impl_runs_str [lindex $argv 3]
 set param_string  [lindex $argv 4]
 set define_string [lindex $argv 5]
+
+# Parse implementation runs (space-separated list)
+set impl_runs [split $impl_runs_str " "]
 
 puts "(i) print all arguments"
 puts "=========== TCL Arguments ==========="
 puts "Project file:     $path_xpr"
 puts "Stage:            $stage"
 puts "Synthesis run:    $synth_run"
-puts "Implementation run: $impl_run"
+puts "Implementation runs: $impl_runs"
 puts "Parameters:       $param_string"
 puts "Defines:          $define_string"
 puts "====================================="
@@ -89,28 +92,38 @@ puts "================== stage = Implementation ============"
 
 
 if { $stage == "impl" | $stage == "all" } {
-    # Implementation
-    set run_obj [get_runs $impl_run]
-    set progress     [get_property PROGRESS [get_runs $impl_run]]
-    set need_refresh [get_property NEEDS_REFRESH [get_runs $impl_run]]
-    set status       [get_property STATUS [get_runs $impl_run]]
-    set status_lower [string tolower $status]
+    # Implementation - run all enabled implementation runs
+    foreach impl_run $impl_runs {
+        if { $impl_run ne "" } {
+            set run_obj [get_runs $impl_run]
+            set progress     [get_property PROGRESS [get_runs $impl_run]]
+            set need_refresh [get_property NEEDS_REFRESH [get_runs $impl_run]]
+            set status       [get_property STATUS [get_runs $impl_run]]
+            set status_lower [string tolower $status]
 
-    puts "$impl_run: $status (PROGRESS: $progress), needs_refresh: $need_refresh"
+            puts "$impl_run: $status (PROGRESS: $progress), needs_refresh: $need_refresh"
 
-    if { $need_refresh == 1 || [string match "*complete*" $status_lower] == 0 } {
-        puts "Resetting and launching implementation run: $impl_run"
-        reset_runs $impl_run
-        launch_runs $impl_run -to_step write_bitstream -jobs 4
-        wait_on_run $run_obj
-    } else {
-        puts "Skipping $impl_run (STATUS: $status)"
+            if { $need_refresh == 1 || [string match "*complete*" $status_lower] == 0 } {
+                puts "Resetting and launching implementation run: $impl_run"
+                reset_runs $impl_run
+                launch_runs $impl_run -to_step write_bitstream -jobs 4
+                wait_on_run $run_obj
+            } else {
+                puts "Skipping $impl_run (STATUS: $status)"
+            }
+        }
     }
 
 } elseif { $stage == "bit" } {
-    puts "Writing bitstream for: $impl_run"
-    write_bitstream -force $run_obj
-    wait_on_run $run_obj
+    # Bitstream - run for all enabled implementation runs
+    foreach impl_run $impl_runs {
+        if { $impl_run ne "" } {
+            set run_obj [get_runs $impl_run]
+            puts "Writing bitstream for: $impl_run"
+            write_bitstream -force $run_obj
+            wait_on_run $run_obj
+        }
+    }
 } else {
     puts "(!) Skipping implementation / bit stage"
 }
@@ -122,8 +135,12 @@ puts "(i) Final status report"
 puts "==================== Final run statuses ===================="
 puts "$synth_run status"
 report_property  [get_runs $synth_run]
-puts "$impl_run: status"
-report_property  [get_runs $impl_run]
+foreach impl_run $impl_runs {
+    if { $impl_run ne "" } {
+        puts "$impl_run: status"
+        report_property  [get_runs $impl_run]
+    }
+}
 puts "============================================================"
 
 puts "(i) tcl script completed."

@@ -4,9 +4,6 @@ import os
 import sys
 from pathlib import Path
 import inspect
-import json
-import tomllib
-import tomli_w
 import cocotb
 from cocotb.clock import Clock
 from cocotb.triggers import RisingEdge
@@ -21,10 +18,11 @@ from invoke import run, Context
 
 from typing import List, Dict, Any,Tuple
 import warnings
+import re
 from enum import Enum
 
-# Import project detector module
-from project_detector import detect_project_file, handle_project_detection_errors, get_project_files
+# Import project loader (single source of truth for project data)
+from project_loader import ProjectLoader
 
 
 class VivadoStep(str, Enum):
@@ -37,6 +35,10 @@ class VivadoStep(str, Enum):
     BIT = "bit"
     LINT = "lint"
     ALL = "all"
+    GEN = "gen"
+    WRITE_TCL = "write_tcl"
+    COMMIT = "commit"
+    CMD_GEN = "cmd-gen"
 
 
 
@@ -173,8 +175,8 @@ def print_task_args(local_vars: dict, REPO_TOP: str, allowed_values: dict[str, L
     print("file executed: ", Path(__file__).resolve())
     table=[["key","value","allowed"]]
     
-    # Sort keys to put project_toml_file first
-    sorted_keys = sorted(args.keys(), key=lambda x: (x != "project_toml_file", x != "project_file_path", x))
+    # Sort keys alphabetically
+    sorted_keys = sorted(args.keys())
     
     # Maximum width for value column to keep table readable
     MAX_VALUE_WIDTH = 80
@@ -243,115 +245,6 @@ def print_boxed(message: str, border_char: str = "=", padding: int = 2):
         print(f"{border_char}{' ' * padding}{line.ljust(max_len)}{' ' * padding}{border_char}")
     print(border)
 
-        
-def load_project_data(ProjectFilePath): 
-    if( not ProjectFilePath.exists()):
-        exit(f"Project file not found: {ProjectFilePath}")    
-
-    # Detect file format by extension
-    file_ext = ProjectFilePath.suffix.lower()
-    
-    if file_ext == '.json':
-        with open(ProjectFilePath, 'r', encoding='utf-8') as f:
-            project_data = json.load(f)
-    elif file_ext == '.toml':
-        with open(ProjectFilePath, "rb") as f:
-            project_data = tomllib.load(f)
-    else:
-        exit(f"Unsupported project file format: {file_ext}. Supported formats: .json, .toml")
-    
-    project_data:dict
-    working_path= project_data["settings"]["project_path"]
-    working_path = os.path.expandvars(working_path) 
-    working_path =  Path(working_path).resolve()
-    return working_path, project_data
-
-def get_project_file_path(project_file_arg:Union[str,None]) ->  Path:
-    """
-    Get the project file path, either from the argument or by auto-detection.
-    
-    Args:
-        project_file_arg: Optional project file name or None for auto-detection
-        
-    Returns:
-        Path to the project file
-        
-    Exits:
-        If no project file is found, multiple are found, or specified file doesn't exist
-    """
-    ROOT_FOLDER = Path(os.environ["ROOT_FOLDER"])
-    
-    if project_file_arg is None:
-        # Auto-detection mode
-        detected_file = detect_project_file(ROOT_FOLDER)
-        
-        if detected_file is None:
-            # Detection failed - get all files and show error
-            hdlforge_files = get_project_files(ROOT_FOLDER)
-            handle_project_detection_errors(hdlforge_files)
-        
-        print(f"ℹ️  Auto-detected project file: {detected_file.name}")
-        return detected_file
-    else:
-        # Explicit project file specified
-        project_file_path = ROOT_FOLDER / project_file_arg
-        
-        if not project_file_path.exists():
-            print(f"❌ Project file not found: {project_file_path}")
-            hdlforge_files = get_project_files(ROOT_FOLDER)
-            if hdlforge_files:
-                print("Available project files in current directory:")
-                for file in hdlforge_files:
-                    print(f"  {file.name}")
-            print("Or specify with: --project addr_32bit.hdlforge.json (or .toml)")
-            exit(1)
-        
-        print(f"ℹ️  Using project file: {project_file_path.name}")
-        return project_file_path
-    
-   
-def get_file_list_for_tool(tool_name: str, project_data: dict,verbose: bool=False) -> List[dict]:
-   
-   
-    project_path_raw = Path(project_data["settings"]["project_path"])
-    project_path_expanded = os.path.expandvars(project_path_raw)
-    project_path_abs = Path(project_path_expanded).resolve()
-
-
-    all_source_files        =  project_data["sources"]["files"].copy()
-    tool_source_files= []
-    file_order=1
-    for file_dict in all_source_files:
-        if(tool_name in file_dict and file_dict[tool_name] is True):
-            relative_to_project_path = file_dict.get("relative_to_project_path", False)
-            if(not isinstance(file_dict["file"] ,list)):
-                _file= file_dict["file"]
-                file_dict["file"] = []  # Initialize as a list
-                file_dict["file"].append(_file)
-
-            for idx in range(len(file_dict["file"])):
-                file_path = file_dict["file"][idx]
-                if(relative_to_project_path):
-                    file_path = project_path_abs / Path(file_path)
-                else:
-                    file_path = Path(file_path)
-                if verbose: print(f"[i] source file #{file_order}: {str(file_path)} for tool: {tool_name}")
-                _file_dict = file_dict.copy()  # Create a shallow copy of the dictionary
-                _file_dict["file"] = str(file_path)
-                tool_source_files.append(_file_dict)
-                file_order += 1
-           
-    return tool_source_files
-
-
-
-def verify_project_file_path(_working_path: Path, REPO_TOP: Path):
-    PROJECT_FILES=Path(_working_path)
-    if not str(PROJECT_FILES.resolve()).startswith(str(REPO_TOP.resolve())):
-        print(f"[!x!]  PROJECT_FILES path '{PROJECT_FILES}' is not under REPO_TOP '{REPO_TOP}'")
-        print(f"Please run: update_repo_path")
-        exit(1)
-    return PROJECT_FILES
 
 def capture_environment_variables(c: invoke.Context):
     """Capture environment variables set by update_repo_path function and validate repository environment"""
@@ -472,7 +365,7 @@ def validate_repository_environment(captured_vars: dict, invoked_dir: str):
     print(f"   Git repository: ✓")
     print(f"   Directory structure: ✓")
 
-def vivado(c,project,verbose=False,step:List[str]=[],clean=False,run_flow=None):
+def vivado(c,project,verbose=False,step:List[str]=[],clean=False,run_flow=None,force=False,run_name=None,cmd=None,arg=None):
     # Capture environment variables set by update_repo_path
     capture_environment_variables(c)
     
@@ -488,20 +381,9 @@ def vivado(c,project,verbose=False,step:List[str]=[],clean=False,run_flow=None):
     SCRIPT_DIR = Path(os.environ.get("HDLFORGE", str(Path(__file__).parent)))
     REPO_TOP = Path(os.environ["REPO_TOP"]) 
 
-
-    project_toml_file_path       = get_project_file_path(project)
-    # Store just the filename for display (replace original Path object)
-    project_toml_file            = project_toml_file_path.name
-    WORKING_PATH,PROJECT_DATA_DICT = load_project_data(project_toml_file_path)
-    VIVADO_SETTING_DICT             = PROJECT_DATA_DICT["vivado_settings"]
-
-   
-    VIVADO_BUILD_DIR        = WORKING_PATH / VIVADO_SETTING_DICT["build_dir"]
-    SOURCES_DICT_LIST       = get_file_list_for_tool(TOOL_NAME, PROJECT_DATA_DICT,verbose)
-    VIVADO_GEN_PRJ_TCL_PATH = WORKING_PATH / VIVADO_SETTING_DICT["project_tcl"]
-    PROJECT_NAME            = VIVADO_SETTING_DICT["project_name"].strip()  # strip spaces just in case
-    TOP_MODULE              = VIVADO_SETTING_DICT["top_module"]
-    PART                    = VIVADO_SETTING_DICT["part"]
+    # Load project using ProjectLoader (single source of truth)
+    project_loader = ProjectLoader(project)
+    project_loader.verify_repo_path()
 
     ##remove REPO_TOP  from sources list
 
@@ -523,18 +405,35 @@ def vivado(c,project,verbose=False,step:List[str]=[],clean=False,run_flow=None):
             c.run(f"mkdir -p {BUILD_DIR}")
     
     if(clean):
-        cleaning(VIVADO_BUILD_DIR,True)
+        cleaning(project_loader.vivado_build_dir,True)
 
-    def call_compile_tcl(step,syth_name,impl_name,paramaters,defines ):
-        with c.cd(str(VIVADO_BUILD_DIR)):
+    def call_compile_tcl(step,syth_name,impl_list,paramaters,defines ):
+        # Filter enabled implementations
+        enabled_impls = []
+        for impl_item in impl_list:
+            if isinstance(impl_item, dict):
+                if impl_item.get('enabled', True):  # Default to enabled if not specified
+                    enabled_impls.append(impl_item['name'])
+            else:
+                # Old format - just a string, treat as enabled
+                enabled_impls.append(impl_item)
+        
+        if not enabled_impls:
+            print("[!] No enabled implementation runs found. Skipping.")
+            return
+        
+        # Join enabled impl names with space for TCL script
+        impl_names_str = " ".join(enabled_impls)
+        
+        with c.cd(str(project_loader.vivado_build_dir)):
             table=[["Step", step]]
             table.append(["Synth", syth_name])
-            table.append(["Impl", impl_name])
+            table.append(["Impl", impl_names_str])
             table.append(["Parameters", paramaters])
             table.append(["Defines", defines])
             print(tabulate(table, headers="firstrow", tablefmt="grid"))
 
-            cmd= f"vivado -mode batch -source {SCRIPT_DIR}/compile.tcl -notrace -tclargs  {PROJECT_NAME}.xpr {step} {syth_name} {impl_name} '{paramaters}' '{defines}'"
+            cmd= f"vivado -mode batch -source {SCRIPT_DIR}/compile.tcl -notrace -tclargs  {project_loader.vivado_project_xpr_relative} {step} {syth_name} '{impl_names_str}' '{paramaters}' '{defines}'"
             print(f"\n[i] Running Vivado compile TCL script with command: {cmd}\n",flush=True)
             c.run(cmd,pty=True,echo=True)
 
@@ -552,87 +451,607 @@ def vivado(c,project,verbose=False,step:List[str]=[],clean=False,run_flow=None):
         step_enum = to_vivado_step(s)
         match (step_enum):
             case VivadoStep.NEW:
-                c.run(f"mkdir -p {VIVADO_BUILD_DIR}")
-                cleaning(VIVADO_BUILD_DIR,True)
-                print(f"[i] Creating new Vivado project: {PROJECT_NAME}")
+                c.run(f"mkdir -p {project_loader.vivado_build_dir}")
+                cleaning(project_loader.vivado_build_dir,True)
+                print(f"[i] Creating new Vivado project: {project_loader.vivado_project_name}")
 
                 # Check if vivado_project_settings.tcl already exists
-                if VIVADO_GEN_PRJ_TCL_PATH.exists():
-                    print(f"[i] Found existing script: {VIVADO_GEN_PRJ_TCL_PATH}")
+                if project_loader.vivado_project_tcl.exists():
+                    print(f"[i] Found existing script: {project_loader.vivado_project_tcl}")
                     response = input(f"Regenerate the script or reuse existing? (r)egenerate/(u)se existing [u]: ").strip().lower()
                     if response == 'r' or response == 'regenerate':
-                        print(f"[i] Regenerating script: {VIVADO_GEN_PRJ_TCL_PATH}")
+                        print(f"[i] Regenerating script: {project_loader.vivado_project_tcl}")
                         generate_vivado_tcl(
-                            output_path=VIVADO_GEN_PRJ_TCL_PATH,
-                            project_name=PROJECT_NAME,
-                            part=PART,
-                            top_module=TOP_MODULE,
-                            sources_dict_list=SOURCES_DICT_LIST)
+                            output_path=project_loader.vivado_project_tcl,
+                            project_name=project_loader.vivado_project_name,
+                            part=project_loader.vivado_part,
+                            top_module=project_loader.vivado_top_module,
+                            sources_dict_list=project_loader.get_vivado_sources(verbose))
                     else:
-                        print(f"[i] Reusing existing script: {VIVADO_GEN_PRJ_TCL_PATH}")
+                        print(f"[i] Reusing existing script: {project_loader.vivado_project_tcl}")
                 else:
                     # File doesn't exist, generate it
                     generate_vivado_tcl(
-                        output_path=VIVADO_GEN_PRJ_TCL_PATH,
-                        project_name=PROJECT_NAME,
-                        part=PART,
-                        top_module=TOP_MODULE,
-                        sources_dict_list=SOURCES_DICT_LIST)
+                        output_path=project_loader.vivado_project_tcl,
+                        project_name=project_loader.vivado_project_name,
+                        part=project_loader.vivado_part,
+                        top_module=project_loader.vivado_top_module,
+                        sources_dict_list=project_loader.get_vivado_sources(verbose))
                 
-                print(f"[i] Creating Vivado project : {VIVADO_GEN_PRJ_TCL_PATH}")
-                with c.cd(str(VIVADO_BUILD_DIR)):
-                    c.run(f"vivado -mode batch -source {VIVADO_GEN_PRJ_TCL_PATH} -notrace")
+                print(f"[i] Creating Vivado project : {project_loader.vivado_project_tcl}")
+                with c.cd(str(project_loader.vivado_build_dir)):
+                    c.run(f"vivado -mode batch -source {project_loader.vivado_project_tcl} -notrace")
 
             case VivadoStep.LIST_RUNS:
-                print(f"[i] Listing Vivado runs for project: {PROJECT_NAME}")
-                with c.cd(str(VIVADO_BUILD_DIR)):
-                    c.run(f"vivado -mode batch -source {SCRIPT_DIR}/project_tool.tcl -notrace -tclargs  list_all_runs  {PROJECT_NAME}.xpr",pty=True,echo=True)
+                print(f"[i] Listing Vivado runs for project: {project_loader.vivado_project_name}")
+                
+                # Run list_all_runs command and capture output
+                with c.cd(str(project_loader.vivado_build_dir)):
+                    result = c.run(f"vivado -mode batch -source {SCRIPT_DIR}/project_tool.tcl -notrace -tclargs  list_all_runs  {project_loader.vivado_project_xpr_relative}",pty=True,echo=True)
+                
+                # Parse output and create hierarchical structure
+                all_runs_dict = {}  # Dictionary to store all runs with their properties
+                synth_runs = []
+                impl_runs = []
+                output_lines = result.stdout.split('\n') if hasattr(result, 'stdout') else []
+                
+                # Parse all runs and store in dictionary
+                for line in output_lines:
+                    line_stripped = line.strip()
+                    if line_stripped and '\t' in line_stripped:
+                        # Parse format: run_name\tSynth=1 Impl=0 Status=... Parent=... Defines=... Parameters=...
+                        parts = line_stripped.split('\t')
+                        if len(parts) >= 2:
+                            run_name = parts[0].strip()
+                            # Parse properties: "Synth=1 Impl=0 Status=... Parent=... Defines=... Parameters=..."
+                            props_str = parts[1].strip()
+                            props = {}
+                            # Handle properties that may have spaces in values (like Defines and Parameters)
+                            # Split by key=value pattern, but handle values that might contain spaces
+                            # Match pattern: Key=Value (where value can contain spaces until next Key=)
+                            prop_pattern = r'(\w+)=([^\s]+(?:\s+[^\s=]+)*?)(?=\s+\w+=|$)'
+                            for match in re.finditer(prop_pattern, props_str):
+                                key = match.group(1)
+                                value = match.group(2).strip()
+                                props[key] = value
+                            
+                            run_type = "Unknown"
+                            synth_val = props.get('Synth', '').strip()
+                            impl_val = props.get('Impl', '').strip()
+                            parent = props.get('Parent', '').strip()
+                            status = props.get('Status', 'Unknown')
+                            defines = props.get('Defines', '').strip()
+                            parameters = props.get('Parameters', '').strip()
+                            
+                            # Handle both numeric (1/0) and boolean (true/false) values
+                            if synth_val in ('1', 'true', 'True'):
+                                run_type = "Synthesis"
+                            elif impl_val in ('1', 'true', 'True'):
+                                run_type = "Implementation"
+                            
+                            # Store in dictionary
+                            all_runs_dict[run_name] = {
+                                'type': run_type,
+                                'status': status,
+                                'parent': parent,
+                                'synth_val': synth_val,
+                                'impl_val': impl_val,
+                                'defines': defines,
+                                'parameters': parameters
+                            }
+                
+                # Build hierarchical structure from dictionary
+                for run_name, run_data in all_runs_dict.items():
+                    if run_data['type'] == "Synthesis":
+                        synth_runs.append({
+                            'name': run_name,
+                            'type': run_data['type'],
+                            'status': run_data['status'],
+                            'defines': run_data['defines'],
+                            'parameters': run_data['parameters'],
+                            'impl_runs': []
+                        })
+                    elif run_data['type'] == "Implementation":
+                        impl_runs.append({
+                            'name': run_name,
+                            'type': run_data['type'],
+                            'status': run_data['status'],
+                            'parent': run_data['parent']
+                        })
+                
+                # Group implementation runs under their synthesis parents
+                for impl in impl_runs:
+                    parent_name = impl['parent']
+                    for synth in synth_runs:
+                        if synth['name'] == parent_name:
+                            synth['impl_runs'].append(impl)
+                            break
+                
+                # Display single hierarchical table
+                if synth_runs or impl_runs:
+                    print("\n" + "=" * 80)
+                    print("[i] Run Summary:")
+                    print("=" * 80)
+                    table = [["Run Name", "Type", "Status", "Defines", "Parameters"]]
+                    for synth in synth_runs:
+                        # Add synthesis run with defines and parameters
+                        defines_str = synth['defines'] if synth['defines'] else "(none)"
+                        params_str = synth['parameters'] if synth['parameters'] else "(none)"
+                        table.append([synth['name'], synth['type'], synth['status'], defines_str, params_str])
+                        # Add all implementation runs that have Parent=synth['name']
+                        for impl in synth['impl_runs']:
+                            table.append([f"  └─ {impl['name']}", impl['type'], impl['status'], "", ""])
+                    # Add any orphaned implementation runs (shouldn't happen, but just in case)
+                    for impl in impl_runs:
+                        if not any(impl['name'] in [i['name'] for i in s['impl_runs']] for s in synth_runs):
+                            table.append([impl['name'], impl['type'], impl['status'], "", ""])
+                    print(tabulate(table, headers="firstrow", tablefmt="fancy_grid"))
+                    print("=" * 80 + "\n")
+                else:
+                    print("\n[i] No runs found in the output.\n")
                 
             case VivadoStep.LINT:
-                print(f"[i] Running Vivado lint for project: {PROJECT_NAME}",flush=True)
+                print(f"[i] Running Vivado lint for project: {project_loader.vivado_project_name}",flush=True)
                 if run_flow is None:
-                    runs_flow=VIVADO_SETTING_DICT["runs_flow"]
                     print("[i] Available run_flow options:")
-                    for key, value in VIVADO_SETTING_DICT["runs_flow"].items():
+                    for key, value in project_loader.vivado_runs_flow.items():
                         print(f"--run-flow {key} ~  {key}: {value}")
                     print("[!x!] Please specify a valid run_flow argument using --run-flow <option>")
                     exit(1)
-                runs_flow=VIVADO_SETTING_DICT["runs_flow"][run_flow]
+                runs_flow = project_loader.vivado_runs_flow[run_flow]
                 paramaters = runs_flow.get("paramaters", [])
                 defines = runs_flow.get("defines", [])
                 paramaters_str = " ".join(paramaters) if paramaters else ""
                 defines_str = " ".join(defines) if defines else ""
-                ignore_error_codes = " ".join(VIVADO_SETTING_DICT.get("lint_ignore_error_codes", []))
-                ignore_warning_codes = " ".join(VIVADO_SETTING_DICT.get("lint_ignore_warning_codes", []))
-                with c.cd(str(VIVADO_BUILD_DIR)):
-                    cmd = f"vivado -mode batch -source {SCRIPT_DIR}/lint.tcl -notrace -tclargs {PROJECT_NAME}.xpr '{paramaters_str}' '{defines_str}' '{ignore_error_codes}' '{ignore_warning_codes}'"
+                ignore_error_codes = " ".join(project_loader.vivado_lint_ignore_error_codes)
+                ignore_warning_codes = " ".join(project_loader.vivado_lint_ignore_warning_codes)
+                with c.cd(str(project_loader.vivado_build_dir)):
+                    cmd = f"vivado -mode batch -source {SCRIPT_DIR}/lint.tcl -notrace -tclargs {project_loader.vivado_project_xpr_relative} '{paramaters_str}' '{defines_str}' '{ignore_error_codes}' '{ignore_warning_codes}'"
                     print(f"\n[i] Running Vivado lint TCL script with command: {cmd}\n",flush=True)
                     c.run(cmd,pty=True,echo=True)
                 
             case VivadoStep.RESET_RUN:
-                pass
+                if run_name is None:
+                    print(f"[!x!] Run name must be specified for reset_run")
+                    print(f"[i] Usage: hdlforge vivado --step reset_run --run-name <run_name>")
+                    print(f"[i] Available runs:")
+                    # List all runs first to show what's available
+                    with c.cd(str(project_loader.vivado_build_dir)):
+                        c.run(f"vivado -mode batch -source {SCRIPT_DIR}/project_tool.tcl -notrace -tclargs  list_all_runs  {project_loader.vivado_project_xpr_relative}",pty=True,echo=True)
+                    exit(1)
+                
+                print(f"[i] Resetting Vivado run: {run_name} in project: {project_loader.vivado_project_name}")
+                with c.cd(str(project_loader.vivado_build_dir)):
+                    c.run(f"vivado -mode batch -source {SCRIPT_DIR}/project_tool.tcl -notrace -tclargs  reset_run  {project_loader.vivado_project_xpr_relative} {run_name}",pty=True,echo=True)
             case VivadoStep.SYN | VivadoStep.IMPL | VivadoStep.BIT:
-                print(f"[i] Running Vivado synthesis for project: {PROJECT_NAME}",flush=True)
+                print(f"[i] Running Vivado synthesis for project: {project_loader.vivado_project_name}",flush=True)
                 if run_flow is None:
-                    runs_flow=VIVADO_SETTING_DICT["runs_flow"]
                     print("[i] Available run_flow options:")
-                    for key, value in VIVADO_SETTING_DICT["runs_flow"].items():
+                    for key, value in project_loader.vivado_runs_flow.items():
                         print(f"--run-flow {key} ~  {key}: {value}")
                     print("[!x!] Please specify a valid run_flow argument using --run-flow <option>")
                     exit(1)
-                runs_flow=VIVADO_SETTING_DICT["runs_flow"][run_flow]
+                runs_flow = project_loader.vivado_runs_flow[run_flow]
                 syth_name=runs_flow["synth"]
                 impl_name_list=runs_flow["impl"]
                 paramaters = runs_flow.get("paramaters", [])
                 defines = runs_flow.get("defines", [])
                 paramaters= " ".join(paramaters)
                 defines= " ".join(defines)
-                call_compile_tcl(f"{s}" ,f"{syth_name}" ,f"{impl_name_list[0]}" ,f"'{paramaters}'" ,f"'{defines}'" )
+                call_compile_tcl(f"{s}" ,f"{syth_name}" ,impl_name_list ,f"'{paramaters}'" ,f"'{defines}'" )
           
             case VivadoStep.ALL:
-                print(f"[i] Running Vivado synthesis, implementation and bitstream generation for project: {PROJECT_NAME}")
-                with c.cd(str(VIVADO_BUILD_DIR)):
-                    c.run(f"vivado -mode batch -source {SCRIPT_DIR}/compile.tcl -notrace -tclargs  {PROJECT_NAME}.xpr all",pty=True,echo=True)
+                print(f"[i] Running Vivado synthesis, implementation and bitstream generation for project: {project_loader.vivado_project_name}")
+                with c.cd(str(project_loader.vivado_build_dir)):
+                    c.run(f"vivado -mode batch -source {SCRIPT_DIR}/compile.tcl -notrace -tclargs  {project_loader.vivado_project_xpr_relative} all",pty=True,echo=True)
+            
+            case VivadoStep.GEN:
+                print(f"[i] Generating Vivado project from TCL: {project_loader.vivado_project_name}")
+                
+                # Check if TCL file exists
+                if not project_loader.vivado_project_tcl.exists():
+                    print(f"[!x!] Project TCL file not found: {project_loader.vivado_project_tcl}")
+                    print(f"[i] Please create the TCL file first or use --step new to generate it")
+                    exit(1)
+                
+                # Set origin_dir to "." since we'll run from within _vivado directory
+                # This allows source paths like "$origin_dir/../sources/..." to resolve correctly
+                origin_dir = "."
+                
+                # Show command details
+                print("=" * 80)
+                print("[i] Command Details:")
+                print(f"    TCL File:     {project_loader.vivado_project_tcl}")
+                print(f"    Working Dir:  {project_loader.vivado_build_dir}")
+                print(f"    Origin Dir:   {origin_dir}")
+                print(f"    Project Name: {project_loader.vivado_project_name}")
+                print(f"    Output:       {project_loader.vivado_project_xpr_path}")
+                print("=" * 80)
+                
+                # Warn if project already exists
+                if project_loader.vivado_project_xpr_path.exists():
+                    print(f"⚠️  WARNING: Project already exists: {project_loader.vivado_project_xpr_path}")
+                    print(f"    This operation will overwrite the existing project!")
+                    if not force:
+                        response = input(f"Continue? (y/n) [n]: ").strip().lower()
+                        if response != 'y' and response != 'yes':
+                            print("Operation cancelled.")
+                            return
+                    else:
+                        print("[i] Force flag set, proceeding with overwrite...")
+                
+                # Show the exact command
+                # Note: We run from _vivado directory with origin_dir="."
+                cmd = f"vivado -mode batch -source {project_loader.vivado_project_tcl} -notrace -tclargs --origin_dir {origin_dir} --project_name {project_loader.vivado_project_name}"
+                print(f"\n[i] Executing command:")
+                print(f"    cd {project_loader.vivado_build_dir}")
+                print(f"    {cmd}\n")
+                
+                # Ask for final confirmation
+                if not force:
+                    response = input(f"Execute this command? (y/n) [y]: ").strip().lower()
+                    if response == 'n' or response == 'no':
+                        print("Operation cancelled.")
+                        return
+                
+                # Create build directory if it doesn't exist
+                c.run(f"mkdir -p {project_loader.vivado_build_dir}")
+                
+                # Execute the command from within _vivado directory
+                with c.cd(str(project_loader.vivado_build_dir)):
+                    c.run(cmd, pty=True, echo=True)
+                
+                print(f"[+] Project generated successfully: {project_loader.vivado_project_xpr_path}")
+            
+            case VivadoStep.WRITE_TCL:
+                print(f"[i] Exporting Vivado project to TCL: {project_loader.vivado_project_name}")
+                
+                # Check if project exists
+                if not project_loader.vivado_project_xpr_path.exists():
+                    print(f"[!x!] Project file not found: {project_loader.vivado_project_xpr_path}")
+                    print(f"[i] Please create the project first using --step new or --step gen")
+                    exit(1)
+                
+                # Show command details
+                print("=" * 80)
+                print("[i] Command Details:")
+                print(f"    Project:      {project_loader.vivado_project_xpr_path}")
+                print(f"    Output TCL:   {project_loader.vivado_project_tcl}")
+                print(f"    Options:      -all_properties -no_copy_sources -use_bd_files -dump_project_info")
+                print("=" * 80)
+                
+                # Warn if TCL file already exists
+                if project_loader.vivado_project_tcl.exists():
+                    print(f"⚠️  WARNING: TCL file already exists: {project_loader.vivado_project_tcl}")
+                    print(f"    This operation will overwrite the existing file!")
+                    if not force:
+                        response = input(f"Continue? (y/n) [n]: ").strip().lower()
+                        if response != 'y' and response != 'yes':
+                            print("Operation cancelled.")
+                            return
+                    else:
+                        print("[i] Force flag set, proceeding with overwrite...")
+                
+                # Calculate relative path from _vivado directory to the output TCL file
+                # Since TCL file is in project root and we run from _vivado, we need to go up one level
+                try:
+                    output_tcl_relative = project_loader.vivado_project_tcl.relative_to(project_loader.vivado_build_dir)
+                except ValueError:
+                    # TCL file is not under _vivado, calculate path from working_path
+                    output_tcl_relative = project_loader.vivado_project_tcl.relative_to(project_loader.working_path)
+                    # Since we run from _vivado, we need to go up to project root
+                    output_tcl_relative = Path("..") / output_tcl_relative
+                
+                # Show the command
+                cmd = f"vivado -mode batch -source {SCRIPT_DIR}/write_project_tcl.tcl -notrace -tclargs {project_loader.vivado_project_xpr_relative} {output_tcl_relative}"
+                print(f"\n[i] Executing command:")
+                print(f"    {cmd}\n")
+                
+                # Ask for final confirmation
+                if not force:
+                    response = input(f"Execute this command? (y/n) [y]: ").strip().lower()
+                    if response == 'n' or response == 'no':
+                        print("Operation cancelled.")
+                        return
+                
+                # Execute the command
+                with c.cd(str(project_loader.vivado_build_dir)):
+                    c.run(cmd, pty=True, echo=True)
+                
+                print(f"[+] Project TCL exported successfully: {project_loader.vivado_project_tcl}")
+            
+            case VivadoStep.COMMIT:
+                print(f"[i] Updating HDLForge project file with runs from Vivado project: {project_loader.vivado_project_name}")
+                
+                # Check if project exists
+                if not project_loader.vivado_project_xpr_path.exists():
+                    print(f"[!x!] Project file not found: {project_loader.vivado_project_xpr_path}")
+                    print(f"[i] Please create the project first using --step new or --step gen")
+                    exit(1)
+                
+                # Run list_all_runs command and capture output
+                with c.cd(str(project_loader.vivado_build_dir)):
+                    result = c.run(f"vivado -mode batch -source {SCRIPT_DIR}/project_tool.tcl -notrace -tclargs  list_all_runs  {project_loader.vivado_project_xpr_relative}",pty=True,echo=True)
+                
+                # Parse output to get all runs
+                all_runs_dict = {}
+                synth_runs = []
+                impl_runs = []
+                output_lines = result.stdout.split('\n') if hasattr(result, 'stdout') else []
+                
+                # Parse all runs and store in dictionary
+                for line in output_lines:
+                    line_stripped = line.strip()
+                    if line_stripped and '\t' in line_stripped:
+                        # Parse format: run_name\tSynth=1 Impl=0 Status=... Parent=...
+                        parts = line_stripped.split('\t')
+                        if len(parts) >= 2:
+                            run_name = parts[0].strip()
+                            # Parse properties
+                            props_str = parts[1].strip()
+                            props = {}
+                            prop_pattern = r'(\w+)=([^\s]+(?:\s+[^\s=]+)*?)(?=\s+\w+=|$)'
+                            for match in re.finditer(prop_pattern, props_str):
+                                key = match.group(1)
+                                value = match.group(2).strip()
+                                props[key] = value
+                            
+                            run_type = "Unknown"
+                            synth_val = props.get('Synth', '').strip()
+                            impl_val = props.get('Impl', '').strip()
+                            parent = props.get('Parent', '').strip()
+                            status = props.get('Status', 'Unknown')
+                            
+                            # Handle both numeric (1/0) and boolean (true/false) values
+                            if synth_val in ('1', 'true', 'True'):
+                                run_type = "Synthesis"
+                                synth_runs.append({
+                                    'name': run_name
+                                })
+                            elif impl_val in ('1', 'true', 'True'):
+                                run_type = "Implementation"
+                                impl_runs.append({
+                                    'name': run_name,
+                                    'parent': parent
+                                })
+                
+                # Get current runs_flow from project_loader
+                current_runs_flow = project_loader.vivado_runs_flow.copy()
+                
+                # Create sets of existing synth and impl run names for quick lookup
+                existing_synth_names = {synth['name'] for synth in synth_runs}
+                existing_impl_names = {impl['name'] for impl in impl_runs}
+                
+                # Build new runs_flow structure - only include runs that exist in Vivado
+                new_runs_flow = {}
+                
+                for synth in synth_runs:
+                    # Create flow name: synth_run_name + "flow" (e.g., "synth_main" -> "synth_mainflow")
+                    flow_name = f"{synth['name']}flow"
+                    
+                    # Preserve defines and parameters from existing flow if it exists
+                    existing_defines = []
+                    existing_parameters = []
+                    if flow_name in current_runs_flow:
+                        existing_flow_data = current_runs_flow[flow_name]
+                        existing_defines = existing_flow_data.get('defines', [])
+                        existing_parameters = existing_flow_data.get('paramaters', [])
+                    
+                    # Find all implementation runs that belong to this synthesis run
+                    impl_list = []
+                    for impl in impl_runs:
+                        if impl['parent'] == synth['name']:
+                            # Only include impl runs that still exist
+                            if impl['name'] in existing_impl_names:
+                                # Check if this impl run already exists in current runs_flow
+                                impl_dict = None
+                                # Search through current flows to find if this impl exists
+                                for existing_flow_name, existing_flow_data in current_runs_flow.items():
+                                    existing_impl = existing_flow_data.get('impl', [])
+                                    # Check if impl is a list
+                                    if isinstance(existing_impl, list):
+                                        for existing_impl_item in existing_impl:
+                                            if isinstance(existing_impl_item, dict):
+                                                if existing_impl_item.get('name') == impl['name']:
+                                                    # Found existing entry - preserve it as-is (including enabled/disabled)
+                                                    impl_dict = existing_impl_item.copy()
+                                                    break
+                                            elif existing_impl_item == impl['name']:
+                                                # Old format (just string) - convert to dict with enabled
+                                                impl_dict = {'name': impl['name'], 'enabled': True}
+                                                break
+                                    elif isinstance(existing_impl, dict):
+                                        # Single dict
+                                        if existing_impl.get('name') == impl['name']:
+                                            impl_dict = existing_impl.copy()
+                                            break
+                                    elif existing_impl == impl['name']:
+                                        # Single string
+                                        impl_dict = {'name': impl['name'], 'enabled': True}
+                                    
+                                    if impl_dict:
+                                        break
+                                
+                                # If not found, create new with enabled=True
+                                # If found but doesn't have 'enabled', add it as True
+                                # If found and has 'enabled', keep it as-is (don't edit)
+                                if impl_dict is None:
+                                    impl_dict = {'name': impl['name'], 'enabled': True}
+                                elif 'enabled' not in impl_dict:
+                                    impl_dict['enabled'] = True
+                                
+                                impl_list.append(impl_dict)
+                    
+                    # Create the flow entry - only if synth run still exists
+                    # Preserve defines and parameters from existing flow, or use empty lists
+                    if synth['name'] in existing_synth_names:
+                        new_runs_flow[flow_name] = {
+                            'synth': synth['name'],
+                            'paramaters': existing_parameters if existing_parameters else [],
+                            'defines': existing_defines if existing_defines else [],
+                            'impl': impl_list
+                        }
+                
+                # Compare new and current runs_flow to detect changes
+                import json
+                changes_detected = False
+                removed_flows = []
+                added_flows = []
+                modified_flows = []
+                
+                # Check for removed flows
+                for existing_flow_name, existing_flow_data in current_runs_flow.items():
+                    existing_synth = existing_flow_data.get('synth', '')
+                    if existing_synth not in existing_synth_names:
+                        removed_flows.append(existing_flow_name)
+                        changes_detected = True
+                
+                # Check for added or modified flows
+                for new_flow_name, new_flow_data in new_runs_flow.items():
+                    if new_flow_name not in current_runs_flow:
+                        added_flows.append(new_flow_name)
+                        changes_detected = True
+                    else:
+                        # Compare flow data
+                        current_flow_data = current_runs_flow[new_flow_name]
+                        # Compare synth, defines, parameters, and impl list
+                        if (current_flow_data.get('synth') != new_flow_data.get('synth') or
+                            current_flow_data.get('defines') != new_flow_data.get('defines') or
+                            current_flow_data.get('paramaters') != new_flow_data.get('paramaters')):
+                            modified_flows.append(new_flow_name)
+                            changes_detected = True
+                        else:
+                            # Compare impl lists (order and content)
+                            current_impl = current_flow_data.get('impl', [])
+                            new_impl = new_flow_data.get('impl', [])
+                            # Normalize impl lists for comparison
+                            def normalize_impl(impl_list):
+                                result = []
+                                for item in impl_list:
+                                    if isinstance(item, dict):
+                                        result.append((item.get('name'), item.get('enabled', True)))
+                                    else:
+                                        result.append((item, True))
+                                return sorted(result)
+                            
+                            if normalize_impl(current_impl) != normalize_impl(new_impl):
+                                modified_flows.append(new_flow_name)
+                                changes_detected = True
+                
+                # First, write the TCL script (before updating runs_flow)
+                print(f"\n[i] Exporting Vivado project to TCL: {project_loader.vivado_project_name}")
+                
+                # Calculate relative path from _vivado directory to the output TCL file
+                # Since TCL file is in project root and we run from _vivado, we need to go up one level
+                try:
+                    output_tcl_relative = project_loader.vivado_project_tcl.relative_to(project_loader.vivado_build_dir)
+                except ValueError:
+                    # TCL file is not under _vivado, calculate path from working_path
+                    output_tcl_relative = project_loader.vivado_project_tcl.relative_to(project_loader.working_path)
+                    # Since we run from _vivado, we need to go up to project root
+                    output_tcl_relative = Path("..") / output_tcl_relative
+                
+                # Execute the command using the reusable script
+                cmd = f"vivado -mode batch -source {SCRIPT_DIR}/write_project_tcl.tcl -notrace -tclargs {project_loader.vivado_project_xpr_relative} {output_tcl_relative}"
+                print(f"[i] Executing: {cmd}")
+                
+                with c.cd(str(project_loader.vivado_build_dir)):
+                    c.run(cmd, pty=True, echo=True)
+                
+                print(f"[+] Project TCL exported successfully: {project_loader.vivado_project_tcl}")
+                
+                # Then, update the runs_flow in JSON (if there are changes)
+                if not changes_detected:
+                    print("\n[i] No changes detected. Project file is already up to date with Vivado project runs.")
+                else:
+                    # Show what will be changed
+                    if removed_flows:
+                        print("\n" + "=" * 80)
+                        print("[i] Flows that will be removed (synthesis runs no longer exist in Vivado):")
+                        print("=" * 80)
+                        for flow_name in removed_flows:
+                            print(f"  - {flow_name}")
+                        print("=" * 80 + "\n")
+                    
+                    if added_flows:
+                        print("\n" + "=" * 80)
+                        print("[i] Flows that will be added:")
+                        print("=" * 80)
+                        for flow_name in added_flows:
+                            print(f"  + {flow_name}")
+                        print("=" * 80 + "\n")
+                    
+                    if modified_flows:
+                        print("\n" + "=" * 80)
+                        print("[i] Flows that will be modified:")
+                        print("=" * 80)
+                        for flow_name in modified_flows:
+                            print(f"  ~ {flow_name}")
+                        print("=" * 80 + "\n")
+                    
+                    # Show what will be updated
+                    print("\n" + "=" * 80)
+                    print("[i] Updated runs_flow:")
+                    print("=" * 80)
+                    print(json.dumps(new_runs_flow, indent=2))
+                    print("=" * 80 + "\n")
+                    
+                    # Ask for confirmation only if there are changes
+                    if not force:
+                        response = input(f"Update project file with these runs_flow settings? (y/n) [y]: ").strip().lower()
+                        if response == 'n' or response == 'no':
+                            print("Operation cancelled.")
+                            return
+                    
+                    # Update the project data
+                    project_loader.update_vivado_runs_flow(new_runs_flow)
+                    project_loader.save_project_data()
+                    
+                    print(f"[+] Successfully updated runs_flow in {project_loader.project_file_path.name}")
+            
+            case VivadoStep.CMD_GEN:
+                # Generate TCL command for piping to vivado
+                if cmd is None:
+                    print("[!x!] --cmd argument is required for cmd-gen", file=sys.stderr)
+                    exit(1)
+                
+                if not project_loader.vivado_project_xpr_path.exists():
+                    print(f"[!x!] Project file not found: {project_loader.vivado_project_xpr_path}", file=sys.stderr)
+                    exit(1)
+                
+                # Calculate relative path from _vivado directory to project
+                project_xpr_relative = project_loader.vivado_project_xpr_relative
+                
+                # Generate TCL command
+                tcl_lines = [
+                    f"open_project {project_xpr_relative}",
+                    f"set_property board_part {{}} [current_project]"
+                ]
+                
+                # Build the command based on cmd type
+                if cmd == "add_files":
+                    if arg is None:
+                        print("[!x!] --arg is required for add_files command (file path)", file=sys.stderr)
+                        exit(1)
+                    # Determine fileset based on file extension or use default
+                    fileset = "sources_1"
+                    if arg.endswith(('.vhd', '.vhdl')):
+                        fileset = "sources_1"
+                    elif arg.endswith(('.v', '.sv')):
+                        fileset = "sources_1"
+                    tcl_lines.append(f"{cmd} -fileset {fileset} {arg}")
+                else:
+                    # Generic command - just append cmd and arg
+                    if arg:
+                        tcl_lines.append(f"{cmd} {arg}")
+                    else:
+                        tcl_lines.append(cmd)
+                
+                tcl_lines.append("close_project")
+                
+                # Print to stdout (can be piped)
+                print("\n".join(tcl_lines))
+            
             case _:
                 pass
 
@@ -674,14 +1093,17 @@ def Verilator(c,project,step=None,clean=False,SimTargetName=None,flags=None,extr
     
     REPO_TOP = Path(os.environ["REPO_TOP"])  # Fail fast if REPO_TOP is not set
     
-    project_file_path_full = get_project_file_path(project)
-    # Store just the filename for display (replace original Path object)
-    project_file_path = project_file_path_full.name
-    working_path,project_data = load_project_data(project_file_path_full)
+    # Load project using ProjectLoader (single source of truth)
+    project_loader = ProjectLoader(project)
+    project_loader.verify_repo_path()
+    
+    # Get project information from ProjectLoader (all values computed in __init__)
+    working_path = project_loader._working_path
+    project_data = project_loader._project_data
+    verilator_settings = project_loader.verilator_settings
     
     # Extract available SimTargetNames for display
-    verilator_settings = project_data["verilator_settings"]
-    available_sim_targets = [target['name'] for target in verilator_settings['sim_targets']]
+    available_sim_targets = [target['name'] for target in project_loader.verilator_sim_targets]
     ALLOWED_STEPS["SimTargetName"] = available_sim_targets
     
     print_task_args(locals(),str(REPO_TOP),ALLOWED_STEPS)
@@ -691,12 +1113,16 @@ def Verilator(c,project,step=None,clean=False,SimTargetName=None,flags=None,extr
         print(f"\n[!x!]  SimTargetName must be specified. Use --SimTargetName <target_name>")
         return
     
-    build_dir           = Path(working_path ) / verilator_settings["build_dir"]
-    SOURCES_DICT_LIST = get_file_list_for_tool(tool_name, project_data)
+    build_dir = project_loader.verilator_build_dir
+    SOURCES_DICT_LIST = project_loader.get_verilator_sources()
       
     
     # Verify the parameters and get the target data
-    SimTarget = verify_sim_target(SimTargetName, verilator_settings)    
+    SimTarget = project_loader.get_sim_target(SimTargetName)
+    if SimTarget is None:
+        print(f"\n[!x!]  SimTargetName '{SimTargetName}' not found in verilator_settings['sim_targets']")
+        print(f"Available SimTargetNames: {', '.join(available_sim_targets)}")
+        exit(1)    
     
     top_module                = SimTarget["top_module"]
     build_args                = SimTarget.get("build_args", [])
@@ -789,7 +1215,17 @@ def Verilator(c,project,step=None,clean=False,SimTargetName=None,flags=None,extr
                     print(f"Error: {e}",flush=True)
 
 def projects(c,set_project=None):
-    projects=get_project_file_path(None)
+    """List available projects in the current directory."""
+    # Use ProjectLoader to detect project files
+    try:
+        project_loader = ProjectLoader(None)
+        print(f"Found project: {project_loader.project_file_path.name}")
+        print(f"  Path: {project_loader.project_file_path}")
+        print(f"  Project Name: {project_loader.project_name}")
+        print(f"  Working Path: {project_loader.working_path}")
+    except SystemExit:
+        # ProjectLoader will handle error messages
+        pass
 
 
 def help(c):
@@ -881,6 +1317,10 @@ if __name__ == "__main__":
     vivado_parser.add_argument('--verbose', action='store_true')
     vivado_parser.add_argument('--clean', action='store_true')
     vivado_parser.add_argument('--run-flow')
+    vivado_parser.add_argument('-f', '--force', action='store_true', help='Skip confirmation prompts')
+    vivado_parser.add_argument('--run-name', help='Run name for reset_run command')
+    vivado_parser.add_argument('--cmd', help='TCL command name for cmd-gen (e.g., add_files)')
+    vivado_parser.add_argument('--arg', help='Arguments for the TCL command (e.g., file path)')
     
     # Other subcommands
     subparsers.add_parser('projects')
@@ -894,7 +1334,7 @@ if __name__ == "__main__":
     if args.command == 'Verilator':
         Verilator(c, args.project, args.step, args.clean, args.SimTargetName, args.flags, args.extra_env)
     elif args.command == 'vivado':
-        vivado(c, args.project, args.verbose, args.step, args.clean, args.run_flow)
+        vivado(c, args.project, args.verbose, args.step, args.clean, args.run_flow, args.force, args.run_name, args.cmd, args.arg)
     elif args.command == 'projects':
         projects(c, getattr(args, 'set_project', None))
     elif args.command == 'help':

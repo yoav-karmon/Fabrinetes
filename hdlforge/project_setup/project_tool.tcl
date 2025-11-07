@@ -1,10 +1,9 @@
 # Usage:
-# vivado -mode batch -source project_tool.tcl -tclargs <command> <project.xpr> [optional_run_name]
+# vivado -mode batch -source project_tool.tcl -tclargs list_all_runs <project.xpr>
+# vivado -mode batch -source project_tool.tcl -tclargs reset_run <project.xpr> <run_name>
 
 if { $argc < 2 } {
     puts "Usage:"
-    puts "  vivado -mode batch -source project_tool.tcl -tclargs list_synth_runs <project.xpr>"
-    puts "  vivado -mode batch -source project_tool.tcl -tclargs list_impl_runs <project.xpr>"
     puts "  vivado -mode batch -source project_tool.tcl -tclargs list_all_runs <project.xpr>"
     puts "  vivado -mode batch -source project_tool.tcl -tclargs reset_run <project.xpr> <run_name>"
     exit 1
@@ -28,22 +27,53 @@ set_property board_part {} [current_project]
 
 # Command dispatcher
 switch -- $cmd {
-    "list_synth_runs" {
-        foreach run [get_runs -filter {IS_SYNTHESIS == 1}] {
-            puts "SYNTH: $run\t[get_property STATUS $run]"
-        }
-    }
-    "list_impl_runs" {
-        foreach run [get_runs -filter {IS_IMPLEMENTATION == 1}] {
-            puts "IMPL : $run\t[get_property STATUS $run]"
-        }
-    }
     "list_all_runs" {
         foreach run [get_runs] {
             set synth [get_property IS_SYNTHESIS $run]
             set impl  [get_property IS_IMPLEMENTATION $run]
             set status [get_property STATUS $run]
-            puts "$run\tSynth=$synth Impl=$impl Status=$status"
+            
+            # Get defines and parameters from MORE_OPTIONS for synthesis runs
+            set defines ""
+            set parameters ""
+            if { $synth == 1 } {
+                catch {
+                    set more_opts [get_property {STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS} $run]
+                    if { $more_opts ne "" } {
+                        # Parse -verilog_define and -generic options
+                        set opts_list [split $more_opts " "]
+                        set i 0
+                        while { $i < [llength $opts_list] } {
+                            set opt [lindex $opts_list $i]
+                            if { $opt == "-verilog_define" } {
+                                incr i
+                                if { $i < [llength $opts_list] } {
+                                    if { $defines ne "" } {
+                                        append defines " "
+                                    }
+                                    append defines [lindex $opts_list $i]
+                                }
+                            } elseif { $opt == "-generic" } {
+                                incr i
+                                if { $i < [llength $opts_list] } {
+                                    if { $parameters ne "" } {
+                                        append parameters " "
+                                    }
+                                    append parameters [lindex $opts_list $i]
+                                }
+                            }
+                            incr i
+                        }
+                    }
+                }
+            }
+            
+            if { $impl == 1 } {
+                set parent [get_property PARENT $run]
+                puts "$run\tSynth=$synth Impl=$impl Status=$status Parent=$parent Defines=$defines Parameters=$parameters"
+            } else {
+                puts "$run\tSynth=$synth Impl=$impl Status=$status Parent= Defines=$defines Parameters=$parameters"
+            }
         }
     }
     "reset_run" {
@@ -82,7 +112,7 @@ switch -- $cmd {
 
     default {
         puts "Unknown command: $cmd"
-        puts "Available commands: list_synth_runs, list_impl_runs, list_all_runs, reset_run"
+        puts "Available commands: list_all_runs, reset_run"
         close_project
         exit 1
     }
