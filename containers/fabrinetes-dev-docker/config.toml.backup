@@ -19,6 +19,7 @@ mounts = [
 [config.image]
 name = "ykarmon/fabrinetes"
 tag = "v2.0"
+dockerfile_path = "Dockerfile"
 package_list_path = "packages.txt"
 
 
