@@ -27,7 +27,7 @@ from project_loader import ProjectLoader
 
 class VivadoStep(str, Enum):
     """Enum for Vivado step names"""
-    NEW = "new"
+    GEN_PRJ_TCL = "gen_prj_tcl"
     LIST_RUNS = "list_runs"
     RESET_RUN = "reset_run"
     SYN = "syn"
@@ -38,7 +38,7 @@ class VivadoStep(str, Enum):
     GEN = "gen"
     WRITE_TCL = "write_tcl"
     COMMIT = "commit"
-    CMD_GEN = "cmd-gen"
+    GEN_PRJ = "gen_prj"
 
 
 
@@ -190,6 +190,12 @@ def print_task_args(local_vars: dict, REPO_TOP: str, allowed_values: dict[str, L
     for key in sorted_keys:
         try:
             value = args[key]
+            # Special handling for project_loader - show just the project file name
+            if key == "project_loader" and hasattr(value, 'project_file_path'):
+                display_value = value.project_file_path.name
+                table.append([key.ljust(max_key_len), display_value, ""])
+                continue
+            
             if( key in allowed_values):
                 # Format value for display, truncate if needed
                 display_value = str(value) if value is not None else ""
@@ -450,44 +456,65 @@ def vivado(c,project,verbose=False,step:List[str]=[],clean=False,run_flow=None,f
     for s in step:
         step_enum = to_vivado_step(s)
         match (step_enum):
-            case VivadoStep.NEW:
-                c.run(f"mkdir -p {project_loader.vivado_build_dir}")
-                cleaning(project_loader.vivado_build_dir,True)
-                print(f"[i] Creating new Vivado project: {project_loader.vivado_project_name}")
+            case VivadoStep.GEN_PRJ_TCL:
+                print(f"[i] Generating basic project script: {project_loader.vivado_project_name}")
 
                 # Check if vivado_project_settings.tcl already exists
                 if project_loader.vivado_project_tcl.exists():
-                    print(f"[i] Found existing script: {project_loader.vivado_project_tcl}")
-                    response = input(f"Regenerate the script or reuse existing? (r)egenerate/(u)se existing [u]: ").strip().lower()
-                    if response == 'r' or response == 'regenerate':
-                        print(f"[i] Regenerating script: {project_loader.vivado_project_tcl}")
-                        generate_vivado_tcl(
-                            output_path=project_loader.vivado_project_tcl,
-                            project_name=project_loader.vivado_project_name,
-                            part=project_loader.vivado_part,
-                            top_module=project_loader.vivado_top_module,
-                            sources_dict_list=project_loader.get_vivado_sources(verbose))
+                    if not force:
+                        print(f"[i] Found existing script: {project_loader.vivado_project_tcl}")
+                        print(f"[i] Skipping generation - will not overwrite existing script")
+                        print(f"[i] Use -f or --force to overwrite the existing file")
+                        return
                     else:
-                        print(f"[i] Reusing existing script: {project_loader.vivado_project_tcl}")
-                else:
-                    # File doesn't exist, generate it
-                    generate_vivado_tcl(
-                        output_path=project_loader.vivado_project_tcl,
-                        project_name=project_loader.vivado_project_name,
-                        part=project_loader.vivado_part,
-                        top_module=project_loader.vivado_top_module,
-                        sources_dict_list=project_loader.get_vivado_sources(verbose))
+                        print(f"[i] Found existing script: {project_loader.vivado_project_tcl}")
+                        print(f"[i] Force flag set - will overwrite existing script")
                 
-                print(f"[i] Creating Vivado project : {project_loader.vivado_project_tcl}")
-                with c.cd(str(project_loader.vivado_build_dir)):
-                    c.run(f"vivado -mode batch -source {project_loader.vivado_project_tcl} -notrace")
+                # Generate basic script without files
+                print(f"[i] Generating basic project script: {project_loader.vivado_project_tcl}")
+                generate_vivado_tcl(
+                    output_path=project_loader.vivado_project_tcl,
+                    project_name=project_loader.vivado_project_name,
+                    part=project_loader.vivado_part,
+                    top_module=project_loader.vivado_top_module,
+                    sources_dict_list=[])  # Empty list - no files
+                print(f"[+] Generated basic project script: {project_loader.vivado_project_tcl}")
 
             case VivadoStep.LIST_RUNS:
                 print(f"[i] Listing Vivado runs for project: {project_loader.vivado_project_name}")
                 
+                # Check if build directory exists
+                if not project_loader.vivado_build_dir.exists():
+                    print(f"[!x!] Vivado build directory not found: {project_loader.vivado_build_dir}")
+                    print(f"[i] Please create the project first using: hdlforge vivado --step gen")
+                    exit(1)
+                
+                # Check if project file exists
+                if not project_loader.vivado_project_xpr_path.exists():
+                    print(f"[!x!] Vivado project file not found: {project_loader.vivado_project_xpr_path}")
+                    print(f"[i] Expected location: {project_loader.vivado_project_xpr_path}")
+                    print(f"[i] Please create the project first using: hdlforge vivado --step gen")
+                    exit(1)
+                
                 # Run list_all_runs command and capture output
-                with c.cd(str(project_loader.vivado_build_dir)):
-                    result = c.run(f"vivado -mode batch -source {SCRIPT_DIR}/project_tool.tcl -notrace -tclargs  list_all_runs  {project_loader.vivado_project_xpr_relative}",pty=True,echo=True)
+                try:
+                    with c.cd(str(project_loader.vivado_build_dir)):
+                        result = c.run(f"vivado -mode batch -source {SCRIPT_DIR}/project_tool.tcl -notrace -tclargs  list_all_runs  {project_loader.vivado_project_xpr_relative}",pty=True,echo=True, warn=True)
+                        # Check if command failed
+                        if result.exited != 0:
+                            print(f"[!x!] Vivado command failed with exit code: {result.exited}")
+                            if hasattr(result, 'stderr') and result.stderr:
+                                print(f"[!x!] Error output: {result.stderr}")
+                            exit(1)
+                except invoke.exceptions.UnexpectedExit as e:
+                    print(f"[!x!] Failed to execute Vivado command")
+                    print(f"[!x!] Error: {e}")
+                    print(f"[i] Make sure Vivado is installed and in your PATH")
+                    exit(1)
+                except Exception as e:
+                    print(f"[!x!] Unexpected error while executing Vivado command: {e}")
+                    print(f"[i] Make sure Vivado is installed and in your PATH")
+                    exit(1)
                 
                 # Parse output and create hierarchical structure
                 all_runs_dict = {}  # Dictionary to store all runs with their properties
@@ -651,7 +678,7 @@ def vivado(c,project,verbose=False,step:List[str]=[],clean=False,run_flow=None,f
                 # Check if TCL file exists
                 if not project_loader.vivado_project_tcl.exists():
                     print(f"[!x!] Project TCL file not found: {project_loader.vivado_project_tcl}")
-                    print(f"[i] Please create the TCL file first or use --step new to generate it")
+                    print(f"[i] Please create the TCL file first or use --step gen_prj_tcl to generate it")
                     exit(1)
                 
                 # Set origin_dir to "." since we'll run from within _vivado directory
@@ -709,7 +736,7 @@ def vivado(c,project,verbose=False,step:List[str]=[],clean=False,run_flow=None,f
                 # Check if project exists
                 if not project_loader.vivado_project_xpr_path.exists():
                     print(f"[!x!] Project file not found: {project_loader.vivado_project_xpr_path}")
-                    print(f"[i] Please create the project first using --step new or --step gen")
+                    print(f"[i] Please create the project first using --step gen")
                     exit(1)
                 
                 # Show command details
@@ -766,7 +793,7 @@ def vivado(c,project,verbose=False,step:List[str]=[],clean=False,run_flow=None,f
                 # Check if project exists
                 if not project_loader.vivado_project_xpr_path.exists():
                     print(f"[!x!] Project file not found: {project_loader.vivado_project_xpr_path}")
-                    print(f"[i] Please create the project first using --step new or --step gen")
+                    print(f"[i] Please create the project first using --step gen")
                     exit(1)
                 
                 # Run list_all_runs command and capture output
@@ -1009,10 +1036,10 @@ def vivado(c,project,verbose=False,step:List[str]=[],clean=False,run_flow=None,f
                     
                     print(f"[+] Successfully updated runs_flow in {project_loader.project_file_path.name}")
             
-            case VivadoStep.CMD_GEN:
+            case VivadoStep.GEN_PRJ:
                 # Generate TCL command for piping to vivado
                 if cmd is None:
-                    print("[!x!] --cmd argument is required for cmd-gen", file=sys.stderr)
+                    print("[!x!] --cmd argument is required for gen_prj", file=sys.stderr)
                     exit(1)
                 
                 if not project_loader.vivado_project_xpr_path.exists():
@@ -1270,7 +1297,7 @@ def help(c):
     
     print("QUICK START:")
     print("  1. Set up your project: hdlforge projects")
-    print("  2. Create Vivado project: hdlforge vivado --step new --clean")
+    print("  2. Generate project TCL script: hdlforge vivado --step gen_prj_tcl")
     print("  3. Run synthesis: hdlforge vivado --step syn --run-flow default")
     print("  4. Run simulation: hdlforge Verilator --step build --step sim")
     print()
@@ -1319,7 +1346,7 @@ if __name__ == "__main__":
     vivado_parser.add_argument('--run-flow')
     vivado_parser.add_argument('-f', '--force', action='store_true', help='Skip confirmation prompts')
     vivado_parser.add_argument('--run-name', help='Run name for reset_run command')
-    vivado_parser.add_argument('--cmd', help='TCL command name for cmd-gen (e.g., add_files)')
+    vivado_parser.add_argument('--cmd', help='TCL command name for gen_prj (e.g., add_files)')
     vivado_parser.add_argument('--arg', help='Arguments for the TCL command (e.g., file path)')
     
     # Other subcommands
