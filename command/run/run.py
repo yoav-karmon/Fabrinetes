@@ -49,20 +49,22 @@ def run(args, container_info):
     builder = CommandBuilder("Run")
     builder.set_base_command(["docker", "run", "-dit"])
     
-    # Add WORKDIR environment variable
-    builder.add_part("workdir", CmdPartEnv("WORKDIR", container_member="working_directory", 
-                                          comment="# Set working directory for relative paths"))
-    
     # Add user creation environment variables
     current_user = os.getenv('USER', os.getenv('USERNAME', 'user'))
+    container_home = f"/home/{current_user}"
+    
     builder.add_part("container_user", CmdPartEnv("CONTAINER_USER", current_user, 
                                                  comment="# Set container username for entrypoint"))
     builder.add_part("container_uid", CmdPartEnv("CONTAINER_UID", str(os.getuid()), 
                                                 comment="# Set container user ID for entrypoint"))
     builder.add_part("container_gid", CmdPartEnv("CONTAINER_GID", str(os.getgid()), 
                                                 comment="# Set container group ID for entrypoint"))
-    builder.add_part("container_home", CmdPartEnv("CONTAINER_HOME", f"/home/{current_user}", 
+    builder.add_part("container_home", CmdPartEnv("CONTAINER_HOME", container_home, 
                                                  comment="# Set container home directory for entrypoint"))
+    
+    # Add WORKDIR environment variable - set to user's home directory
+    builder.add_part("workdir", CmdPartEnv("WORKDIR", container_home, 
+                                          comment="# Set working directory to user's home directory"))
     
     # Add flags
     if rm:
@@ -128,6 +130,10 @@ def run(args, container_info):
     # Add container name
     builder.add_part("container_name", CmdPartArg("--name", "run_name", 
                                                  comment="# Container name (from config.container.name)"))
+    
+    # Add working directory (-w flag) - set to user's home directory
+    builder.add_part("working_dir", CmdPartHardcoded(f"-w {container_home}", 
+                                              comment="# Set working directory to user's home directory"))
     
     # Add image name
     builder.add_part("image_name", CmdPartName("image_docker", 
