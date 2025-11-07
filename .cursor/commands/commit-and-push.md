@@ -1,0 +1,1 @@
+../../../.cursor/commands/commit-and-push.md
