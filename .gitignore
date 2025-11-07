@@ -27,3 +27,6 @@ _*/
 *.log
 venv/
 cursor_send_box/
+
+# Git doesn't track empty directories by default
+# To track an empty directory, add a .gitkeep file inside it
