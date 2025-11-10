@@ -38,8 +38,47 @@ class VivadoStep(str, Enum):
     GEN = "gen"
     WRITE_TCL = "write_tcl"
     COMMIT = "commit"
-    GEN_PRJ = "gen_prj"
 
+
+
+def validate_vivado_tcl(tcl_path: Path) -> Tuple[bool, List[str]]:
+    """
+    Validate a Vivado TCL script for common issues.
+    Returns (is_valid, list_of_errors)
+    """
+    errors = []
+    
+    if not tcl_path.exists():
+        return (False, [f"TCL file does not exist: {tcl_path}"])
+    
+    try:
+        tcl_content = tcl_path.read_text()
+        lines = tcl_content.split('\n')
+        
+        # Check for empty add_files command
+        for i, line in enumerate(lines, 1):
+            stripped = line.strip()
+            # Check for empty add_files (with optional trailing whitespace)
+            if stripped == "add_files" or (stripped.startswith("add_files") and len(stripped.split()) == 1):
+                errors.append(f"Line {i}: Empty 'add_files' command - no file paths specified")
+            # Check for add_files with only whitespace
+            elif stripped.startswith("add_files ") and len(stripped.split()) == 1:
+                errors.append(f"Line {i}: Empty 'add_files' command - no file paths specified")
+        
+        # Check for required commands
+        has_create_project = any("create_project" in line for line in lines)
+        if not has_create_project:
+            errors.append("Missing 'create_project' command")
+        
+        # Check for set_property top
+        has_set_top = any("set_property top" in line or "set_property_top" in line for line in lines)
+        if not has_set_top:
+            errors.append("Missing 'set_property top' command (required to set top module)")
+            
+    except Exception as e:
+        errors.append(f"Failed to read/parse TCL file: {e}")
+    
+    return (len(errors) == 0, errors)
 
 
 def generate_vivado_tcl(
@@ -371,7 +410,7 @@ def validate_repository_environment(captured_vars: dict, invoked_dir: str):
     print(f"   Git repository: ✓")
     print(f"   Directory structure: ✓")
 
-def vivado(c,project,verbose=False,step:List[str]=[],clean=False,run_flow=None,force=False,run_name=None,cmd=None,arg=None):
+def vivado(c,project,verbose=False,step:List[str]=[],clean=False,run_flow=None,force=False,run_name=None):
     # Capture environment variables set by update_repo_path
     capture_environment_variables(c)
     
@@ -619,17 +658,18 @@ def vivado(c,project,verbose=False,step:List[str]=[],clean=False,run_flow=None,f
                 
             case VivadoStep.LINT:
                 print(f"[i] Running Vivado lint for project: {project_loader.vivado_project_name}",flush=True)
+                # Lint doesn't require run_flow - it can run without it
                 if run_flow is None:
-                    print("[i] Available run_flow options:")
-                    for key, value in project_loader.vivado_runs_flow.items():
-                        print(f"--run-flow {key} ~  {key}: {value}")
-                    print("[!x!] Please specify a valid run_flow argument using --run-flow <option>")
-                    exit(1)
-                runs_flow = project_loader.vivado_runs_flow[run_flow]
-                paramaters = runs_flow.get("paramaters", [])
-                defines = runs_flow.get("defines", [])
-                paramaters_str = " ".join(paramaters) if paramaters else ""
-                defines_str = " ".join(defines) if defines else ""
+                    # Use empty parameters and defines when run_flow is not specified
+                    paramaters_str = ""
+                    defines_str = ""
+                else:
+                    # If run_flow is provided, use its parameters and defines
+                    runs_flow = project_loader.vivado_runs_flow[run_flow]
+                    paramaters = runs_flow.get("paramaters", [])
+                    defines = runs_flow.get("defines", [])
+                    paramaters_str = " ".join(paramaters) if paramaters else ""
+                    defines_str = " ".join(defines) if defines else ""
                 ignore_error_codes = " ".join(project_loader.vivado_lint_ignore_error_codes)
                 ignore_warning_codes = " ".join(project_loader.vivado_lint_ignore_warning_codes)
                 with c.cd(str(project_loader.vivado_build_dir)):
@@ -681,9 +721,9 @@ def vivado(c,project,verbose=False,step:List[str]=[],clean=False,run_flow=None,f
                     print(f"[i] Please create the TCL file first or use --step gen_prj_tcl to generate it")
                     exit(1)
                 
-                # Set origin_dir to "." since we'll run from within _vivado directory
-                # This allows source paths like "$origin_dir/../sources/..." to resolve correctly
-                origin_dir = "."
+                # Set origin_dir to the absolute path of the project root (where hdlforge.json is located)
+                # This allows source paths in the TCL script to resolve correctly relative to the project root
+                origin_dir = str(project_loader.working_path.resolve())
                 
                 # Show command details
                 print("=" * 80)
@@ -708,8 +748,11 @@ def vivado(c,project,verbose=False,step:List[str]=[],clean=False,run_flow=None,f
                         print("[i] Force flag set, proceeding with overwrite...")
                 
                 # Show the exact command
-                # Note: We run from _vivado directory with origin_dir="."
-                cmd = f"vivado -mode batch -source {project_loader.vivado_project_tcl} -notrace -tclargs --origin_dir {origin_dir} --project_name {project_loader.vivado_project_name}"
+                # Note: We run from _vivado directory with origin_dir set to project root (hdlforge.json location)
+                # The TCL script accepts --origin_dir as a command line argument (parsed from $::argv)
+                # Quote the origin_dir path in case it contains spaces
+                origin_dir_quoted = f'"{origin_dir}"'
+                cmd = f"vivado -mode batch -source {project_loader.vivado_project_tcl} -notrace -tclargs --origin_dir {origin_dir_quoted} --project_name {project_loader.vivado_project_name}"
                 print(f"\n[i] Executing command:")
                 print(f"    cd {project_loader.vivado_build_dir}")
                 print(f"    {cmd}\n")
@@ -724,9 +767,52 @@ def vivado(c,project,verbose=False,step:List[str]=[],clean=False,run_flow=None,f
                 # Create build directory if it doesn't exist
                 c.run(f"mkdir -p {project_loader.vivado_build_dir}")
                 
-                # Execute the command from within _vivado directory
-                with c.cd(str(project_loader.vivado_build_dir)):
-                    c.run(cmd, pty=True, echo=True)
+                # Execute the command from within _vivado directory with better error handling
+                try:
+                    with c.cd(str(project_loader.vivado_build_dir)):
+                        result = c.run(cmd, pty=True, echo=True, warn=True)
+                        
+                        # Check if command failed
+                        if result.exited != 0:
+                            print(f"\n[!x!] Vivado command failed with exit code: {result.exited}")
+                            if hasattr(result, 'stderr') and result.stderr:
+                                print(f"[!x!] Error output:")
+                                print(result.stderr)
+                            if hasattr(result, 'stdout') and result.stdout:
+                                # Look for error messages in stdout
+                                error_lines = [line for line in result.stdout.split('\n') 
+                                             if 'ERROR' in line.upper() or 'CRITICAL' in line.upper() or 'FATAL' in line.upper()]
+                                if error_lines:
+                                    print(f"[!x!] Error messages from Vivado:")
+                                    for error_line in error_lines:
+                                        print(f"    {error_line}")
+                            print(f"\n[i] Please check the TCL script for errors:")
+                            print(f"    {project_loader.vivado_project_tcl}")
+                            print(f"[i] Common issues:")
+                            print(f"    - Empty 'add_files' command (no file paths specified)")
+                            print(f"    - Missing or incorrect file paths")
+                            print(f"    - Syntax errors in TCL script")
+                            exit(1)
+                except invoke.exceptions.UnexpectedExit as e:
+                    print(f"\n[!x!] Failed to execute Vivado command")
+                    print(f"[!x!] Error: {e}")
+                    if hasattr(e, 'result') and hasattr(e.result, 'stderr') and e.result.stderr:
+                        print(f"[!x!] Error output: {e.result.stderr}")
+                    print(f"[i] Make sure Vivado is installed and in your PATH")
+                    exit(1)
+                except Exception as e:
+                    print(f"\n[!x!] Unexpected error while executing Vivado command: {e}")
+                    print(f"[i] Make sure Vivado is installed and in your PATH")
+                    exit(1)
+                
+                # Verify project was created
+                if not project_loader.vivado_project_xpr_path.exists():
+                    print(f"\n[!x!] Project file was not created: {project_loader.vivado_project_xpr_path}")
+                    print(f"[i] Vivado command completed but project file is missing")
+                    print(f"[i] Please check the TCL script for errors:")
+                    print(f"    {project_loader.vivado_project_tcl}")
+                    print(f"[i] Check Vivado log files in: {project_loader.vivado_build_dir}")
+                    exit(1)
                 
                 print(f"[+] Project generated successfully: {project_loader.vivado_project_xpr_path}")
             
@@ -1036,49 +1122,6 @@ def vivado(c,project,verbose=False,step:List[str]=[],clean=False,run_flow=None,f
                     
                     print(f"[+] Successfully updated runs_flow in {project_loader.project_file_path.name}")
             
-            case VivadoStep.GEN_PRJ:
-                # Generate TCL command for piping to vivado
-                if cmd is None:
-                    print("[!x!] --cmd argument is required for gen_prj", file=sys.stderr)
-                    exit(1)
-                
-                if not project_loader.vivado_project_xpr_path.exists():
-                    print(f"[!x!] Project file not found: {project_loader.vivado_project_xpr_path}", file=sys.stderr)
-                    exit(1)
-                
-                # Calculate relative path from _vivado directory to project
-                project_xpr_relative = project_loader.vivado_project_xpr_relative
-                
-                # Generate TCL command
-                tcl_lines = [
-                    f"open_project {project_xpr_relative}",
-                    f"set_property board_part {{}} [current_project]"
-                ]
-                
-                # Build the command based on cmd type
-                if cmd == "add_files":
-                    if arg is None:
-                        print("[!x!] --arg is required for add_files command (file path)", file=sys.stderr)
-                        exit(1)
-                    # Determine fileset based on file extension or use default
-                    fileset = "sources_1"
-                    if arg.endswith(('.vhd', '.vhdl')):
-                        fileset = "sources_1"
-                    elif arg.endswith(('.v', '.sv')):
-                        fileset = "sources_1"
-                    tcl_lines.append(f"{cmd} -fileset {fileset} {arg}")
-                else:
-                    # Generic command - just append cmd and arg
-                    if arg:
-                        tcl_lines.append(f"{cmd} {arg}")
-                    else:
-                        tcl_lines.append(cmd)
-                
-                tcl_lines.append("close_project")
-                
-                # Print to stdout (can be piped)
-                print("\n".join(tcl_lines))
-            
             case _:
                 pass
 
@@ -1297,8 +1340,8 @@ def help(c):
     
     print("QUICK START:")
     print("  1. Set up your project: hdlforge projects")
-    print("  2. Generate project TCL script: hdlforge vivado --step gen_prj_tcl")
-    print("  3. Run synthesis: hdlforge vivado --step syn --run-flow default")
+    print("  2. Generate project TCL script: hdlforge vivado --gen_prj_tcl")
+    print("  3. Run synthesis: hdlforge vivado --syn --run-flow default")
     print("  4. Run simulation: hdlforge Verilator --step build --step sim")
     print()
     print("GETTING HELP:")
@@ -1340,14 +1383,24 @@ if __name__ == "__main__":
     # Vivado subcommand
     vivado_parser = subparsers.add_parser('vivado')
     vivado_parser.add_argument('--project', required=False)
-    vivado_parser.add_argument('--step', action='append')
+    vivado_parser.add_argument('--step', action='append', help='DEPRECATED: Use direct step flags instead (e.g., --gen_prj_tcl, --bit)')
+    # Add direct step flags
+    vivado_parser.add_argument('--gen_prj_tcl', action='store_true', help='Generate project TCL script')
+    vivado_parser.add_argument('--list_runs', action='store_true', help='List all Vivado runs')
+    vivado_parser.add_argument('--reset_run', action='store_true', help='Reset a Vivado run (requires --run-name)')
+    vivado_parser.add_argument('--syn', action='store_true', help='Run synthesis (requires --run-flow)')
+    vivado_parser.add_argument('--impl', action='store_true', help='Run implementation (requires --run-flow)')
+    vivado_parser.add_argument('--bit', action='store_true', help='Generate bitstream (requires --run-flow)')
+    vivado_parser.add_argument('--lint', action='store_true', help='Run lint (--run-flow optional)')
+    vivado_parser.add_argument('--all', action='store_true', help='Run synthesis, implementation and bitstream generation')
+    vivado_parser.add_argument('--gen', action='store_true', help='Generate Vivado project from TCL')
+    vivado_parser.add_argument('--write_tcl', action='store_true', help='Export Vivado project to TCL')
+    vivado_parser.add_argument('--commit', action='store_true', help='Update HDLForge project file with runs from Vivado project')
     vivado_parser.add_argument('--verbose', action='store_true')
     vivado_parser.add_argument('--clean', action='store_true')
     vivado_parser.add_argument('--run-flow')
     vivado_parser.add_argument('-f', '--force', action='store_true', help='Skip confirmation prompts')
     vivado_parser.add_argument('--run-name', help='Run name for reset_run command')
-    vivado_parser.add_argument('--cmd', help='TCL command name for gen_prj (e.g., add_files)')
-    vivado_parser.add_argument('--arg', help='Arguments for the TCL command (e.g., file path)')
     
     # Other subcommands
     subparsers.add_parser('projects')
@@ -1361,7 +1414,39 @@ if __name__ == "__main__":
     if args.command == 'Verilator':
         Verilator(c, args.project, args.step, args.clean, args.SimTargetName, args.flags, args.extra_env)
     elif args.command == 'vivado':
-        vivado(c, args.project, args.verbose, args.step, args.clean, args.run_flow, args.force, args.run_name, args.cmd, args.arg)
+        # Collect steps from direct flags
+        steps_from_flags = []
+        if args.gen_prj_tcl:
+            steps_from_flags.append('gen_prj_tcl')
+        if args.list_runs:
+            steps_from_flags.append('list_runs')
+        if args.reset_run:
+            steps_from_flags.append('reset_run')
+        if args.syn:
+            steps_from_flags.append('syn')
+        if args.impl:
+            steps_from_flags.append('impl')
+        if args.bit:
+            steps_from_flags.append('bit')
+        if args.lint:
+            steps_from_flags.append('lint')
+        if args.all:
+            steps_from_flags.append('all')
+        if args.gen:
+            steps_from_flags.append('gen')
+        if args.write_tcl:
+            steps_from_flags.append('write_tcl')
+        if args.commit:
+            steps_from_flags.append('commit')
+        
+        # Combine with --step for backward compatibility (--step takes precedence if both are used)
+        final_steps = args.step if args.step else steps_from_flags
+        
+        # Warn if both are used
+        if args.step and steps_from_flags:
+            print("[!] Warning: Both --step and direct step flags are specified. Using --step values.")
+        
+        vivado(c, args.project, args.verbose, final_steps, args.clean, args.run_flow, args.force, args.run_name)
     elif args.command == 'projects':
         projects(c, getattr(args, 'set_project', None))
     elif args.command == 'help':

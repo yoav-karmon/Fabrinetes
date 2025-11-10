@@ -20,9 +20,16 @@ if [ -z "$1" ]; then
 fi
 
 CONFIG_FILE="$1"
-# If relative path, make it relative to FABRINETES_ROOT
+# If relative path, make it relative to the current working directory (invoke location)
 if [[ ! "$CONFIG_FILE" = /* ]]; then
-    CONFIG_FILE="$FABRINETES_ROOT/$CONFIG_FILE"
+    # Resolve relative path from current working directory
+    if [[ "$CONFIG_FILE" == */* ]]; then
+        # Has directory component
+        CONFIG_FILE="$(cd "$(dirname "$CONFIG_FILE")" && pwd)/$(basename "$CONFIG_FILE")"
+    else
+        # Just filename, use current directory
+        CONFIG_FILE="$(pwd)/$CONFIG_FILE"
+    fi
 fi
 
 # Validate config file exists
