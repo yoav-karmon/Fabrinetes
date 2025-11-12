@@ -1,216 +1,561 @@
 #!/bin/bash
 
-# HDLForge Integration Test / Container Setup
-# Tests the complete workflow: clean, build, run container, compile and simulate example project
+# Fabrinetes Container and Image Management Script
+# Provides fine-grained control over container and image operations
 #
-# Usage: ./setup_container.sh <config_file>
-#   config_file: Path to config.toml file (required)
+# Usage: ./setup.sh -f <config_file> [OPTIONS]
+#   -f, --config-file: Path to config.toml file (required)
+#   Options: --start, --stop, --restart, --run, --image-pull, --image-build, --image-reuse, --image-commit, --image-push
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FABRINETES_ROOT="$SCRIPT_DIR"
 
-# Config file is required
-if [ -z "$1" ]; then
-    echo "[ERROR] Config file is required"
-    echo "Usage: $0 <config_file>"
-    echo "Example: $0 containers/fabrinetes-dev-docker/config.toml"
-    exit 1
-fi
-
-CONFIG_FILE="$1"
-# If relative path, make it relative to the current working directory (invoke location)
-if [[ ! "$CONFIG_FILE" = /* ]]; then
-    # Resolve relative path from current working directory
-    if [[ "$CONFIG_FILE" == */* ]]; then
-        # Has directory component
-        CONFIG_FILE="$(cd "$(dirname "$CONFIG_FILE")" && pwd)/$(basename "$CONFIG_FILE")"
-    else
-        # Just filename, use current directory
-        CONFIG_FILE="$(pwd)/$CONFIG_FILE"
-    fi
-fi
-
-# Validate config file exists
-if [ ! -f "$CONFIG_FILE" ]; then
-    echo "[ERROR] Config file not found: $CONFIG_FILE"
-    echo "Usage: $0 <config_file>"
-    exit 1
-fi
-
-EXAMPLE_PROJECT="$FABRINETES_ROOT/examples/addr_32bit"
-
+# Print functions
 print_info() { echo "[INFO] $1"; }
 print_success() { echo "[SUCCESS] $1"; }
 print_error() { echo "[ERROR] $1"; }
 print_warning() { echo "[WARNING] $1"; }
 
-# Get container name from config
-CONTAINER_NAME=$(grep -A 2 "\[config.container\]" "$CONFIG_FILE" | grep "name" | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/')
-if [ -z "$CONTAINER_NAME" ]; then
-    print_error "Could not extract container name from config"
-    exit 1
-fi
-CONTAINER_RUN_NAME="${CONTAINER_NAME}.run"
+# Show usage/help
+show_usage() {
+    cat << EOF
+Fabrinetes Container and Image Management
 
-# Get image name from config
-IMAGE_NAME=$(grep -A 3 "\[config.image\]" "$CONFIG_FILE" | grep "name" | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/')
-IMAGE_TAG=$(grep -A 3 "\[config.image\]" "$CONFIG_FILE" | grep "tag" | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/')
-if [ -z "$IMAGE_NAME" ] || [ -z "$IMAGE_TAG" ]; then
-    print_error "Could not extract image name/tag from config"
-    print_error "Image name: '$IMAGE_NAME', Tag: '$IMAGE_TAG'"
-    exit 1
-fi
-IMAGE_FULL="${IMAGE_NAME}:${IMAGE_TAG}"
+Usage: $0 -f <config_file> [OPTIONS]
 
-print_info "HDLForge Integration Test / Container Setup"
-print_info "==========================================="
-print_info "Config: $CONFIG_FILE"
-print_info "Container: $CONTAINER_RUN_NAME"
-print_info "Image: $IMAGE_FULL"
-print_info "Example: $EXAMPLE_PROJECT"
-echo ""
+Required:
+  -f, --config-file <file>    Path to config.toml file
 
-# Step 1: Clean - Remove running container and image
-print_info "Step 1: Cleaning existing container and image..."
-if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_RUN_NAME}$"; then
-    print_info "Stopping and removing container: $CONTAINER_RUN_NAME"
-    docker stop "$CONTAINER_RUN_NAME" 2>/dev/null || true
-    docker rm "$CONTAINER_RUN_NAME" 2>/dev/null || true
-    print_success "Container removed"
-else
-    print_info "No existing container found"
-fi
+Container Operations:
+  -s, --start                 Start existing stopped container
+  -S, --stop                  Stop running container
+  -r, --restart               Restart container (stop then start)
+  -R, --run                   Run new container (create and start)
 
-if docker images --format '{{.Repository}}:{{.Tag}}' | grep -q "^${IMAGE_FULL}$"; then
-    print_info "Removing image: $IMAGE_FULL"
-    docker rmi "$IMAGE_FULL" 2>/dev/null || true
-    print_success "Image removed"
-else
-    print_info "No existing image found"
-fi
-echo ""
+Image Operations:
+  -p, --image-pull            Pull image from Docker registry
+  -b, --image-build           Build image from scratch
+  -u, --image-reuse           Use existing local image (verify only)
+  -c, --image-commit          Commit running container to image
+  -P, --image-push            Push image to registry
 
-# Step 2: Rebuild image
-print_info "Step 2: Rebuilding image with fabrinetes.py..."
-print_info "  This will: 1) Create temp container, 2) Set it up, 3) Commit as image, 4) Remove temp container"
-cd "$FABRINETES_ROOT"
-if ! "$FABRINETES_ROOT/fabrinetes.py" --cmd build --config-file "$CONFIG_FILE" | bash; then
-    print_error "Image build failed"
-    exit 1
-fi
+Other:
+  -h, --help                  Show this help message
 
-# Verify temp container was removed
-TEMP_CONTAINER="${CONTAINER_NAME}-build-temp"
-if docker ps -a --format '{{.Names}}' | grep -q "^${TEMP_CONTAINER}$"; then
-    print_error "Temporary build container ${TEMP_CONTAINER} still exists (should have been removed)"
-    exit 1
-else
-    print_success "Temporary build container removed (as expected)"
-fi
+Examples:
+  # Pull image and run container
+  $0 -f config.toml --image-pull --run
 
-# Verify image was created
-if docker images --format '{{.Repository}}:{{.Tag}}' | grep -q "^${IMAGE_FULL}$"; then
-    print_success "Image created successfully: $IMAGE_FULL"
-else
-    print_error "Image $IMAGE_FULL was not created"
-    exit 1
-fi
-echo ""
+  # Build image and run container
+  $0 -f config.toml --image-build --run
 
-# Step 3: Run fresh container from committed image
-print_info "Step 3: Running fresh container from committed image with fabrinetes.py --cmd run..."
-if ! "$FABRINETES_ROOT/fabrinetes.py" --cmd run --config-file "$CONFIG_FILE" | bash; then
-    print_error "Container run failed"
-    exit 1
-fi
+  # Stop container, commit as image, push
+  $0 -f config.toml --stop --image-commit --image-push
 
-# Wait a moment for container to start
-sleep 2
+  # Just restart container
+  $0 -f config.toml --restart
 
-if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_RUN_NAME}$"; then
-    print_success "Container running: $CONTAINER_RUN_NAME"
-else
-    print_error "Container failed to start"
-    exit 1
-fi
+  # Reuse existing image and run
+  $0 -f config.toml --image-reuse --run
+EOF
+}
 
-# Verify mount: ~/repo/Fabrinetes is mounted to $HOME/repo/Fabrinetes
-print_info "Verifying mount: ~/repo/Fabrinetes -> \$HOME/repo/Fabrinetes"
-HOST_REPO_PATH="$HOME/repo/Fabrinetes"
-CONTAINER_REPO_PATH="/home/$(whoami)/repo/Fabrinetes"
+# Parse arguments
+CONFIG_FILE=""
+FLAG_START=false
+FLAG_STOP=false
+FLAG_RESTART=false
+FLAG_RUN=false
+FLAG_IMAGE_PULL=false
+FLAG_IMAGE_BUILD=false
+FLAG_IMAGE_REUSE=false
+FLAG_IMAGE_COMMIT=false
+FLAG_IMAGE_PUSH=false
+FLAG_FORCE=false
 
-if docker exec --user "$(whoami)" "$CONTAINER_RUN_NAME" test -d "$CONTAINER_REPO_PATH"; then
-    print_success "Mount verified: $CONTAINER_REPO_PATH exists in container"
-    
-    # Verify it's actually the same directory (check for a known file)
-    if docker exec --user "$(whoami)" "$CONTAINER_RUN_NAME" test -f "$CONTAINER_REPO_PATH/fabrinetes.py"; then
-        print_success "Mount verified: fabrinetes.py found at $CONTAINER_REPO_PATH"
-    else
-        print_error "Mount issue: fabrinetes.py not found at $CONTAINER_REPO_PATH"
+parse_arguments() {
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -f|--config-file)
+                CONFIG_FILE="$2"
+                shift 2
+                ;;
+            -s|--start)
+                FLAG_START=true
+                shift
+                ;;
+            -S|--stop)
+                FLAG_STOP=true
+                shift
+                ;;
+            -r|--restart)
+                FLAG_RESTART=true
+                shift
+                ;;
+            -R|--run)
+                FLAG_RUN=true
+                shift
+                ;;
+            -p|--image-pull)
+                FLAG_IMAGE_PULL=true
+                shift
+                ;;
+            -b|--image-build)
+                FLAG_IMAGE_BUILD=true
+                shift
+                ;;
+            -u|--image-reuse)
+                FLAG_IMAGE_REUSE=true
+                shift
+                ;;
+            -c|--image-commit)
+                FLAG_IMAGE_COMMIT=true
+                shift
+                ;;
+            -P|--image-push)
+                FLAG_IMAGE_PUSH=true
+                shift
+                ;;
+            --force)
+                FLAG_FORCE=true
+                shift
+                ;;
+            -h|--help)
+                show_usage
+                exit 0
+                ;;
+            -i|--image-id)
+                # Legacy flag, ignore for now
+                shift 2
+                ;;
+            *)
+                print_error "Unknown option: $1"
+                show_usage
+                exit 1
+                ;;
+        esac
+    done
+
+    # Validate config file is provided
+    if [ -z "$CONFIG_FILE" ]; then
+        print_error "Config file is required"
+        show_usage
         exit 1
     fi
-else
-    print_error "Mount failed: $CONTAINER_REPO_PATH does not exist in container"
-    print_error "Expected mount: $HOST_REPO_PATH -> $CONTAINER_REPO_PATH"
-    exit 1
-fi
-echo ""
 
-# Step 4: Wait for entrypoint to complete
-print_info "Step 4: Waiting for container initialization..."
-sleep 3
-echo ""
-
-# Step 5: Compile example project (build step)
-print_info "Step 5: Compiling example project with Verilator (build step)..."
-cd "$FABRINETES_ROOT"
-
-# Use container path for hdlforge (mounted from host)
-CONTAINER_HDLFORGE_PATH="$CONTAINER_REPO_PATH/hdlforge/project_setup/hdlforge"
-
-# Use container path for example project (mounted from host)
-CONTAINER_EXAMPLE_PROJECT="$CONTAINER_REPO_PATH/examples/addr_32bit"
-
-if "$FABRINETES_ROOT/fabrinetes.py" --cmd exec --config-file "$CONFIG_FILE" \
-    --exec-cmd "cd $CONTAINER_EXAMPLE_PROJECT && update_repo_path && $CONTAINER_HDLFORGE_PATH Verilator --project addr_32bit.hdlforge.toml --step build --SimTargetName basic_test" | bash 2>&1; then
-    print_success "Example project compiled successfully!"
-    
-    # Verify the executable was created
-    if docker exec --user "$(whoami)" "$CONTAINER_RUN_NAME" test -f "$CONTAINER_EXAMPLE_PROJECT/_verilator/addr_32bit_top"; then
-        print_success "Verilator executable created: addr_32bit_top"
-    else
-        print_warning "Executable not found (but build reported success)"
+    # Resolve config file path
+    if [[ ! "$CONFIG_FILE" = /* ]]; then
+        if [[ "$CONFIG_FILE" == */* ]]; then
+            CONFIG_FILE="$(cd "$(dirname "$CONFIG_FILE")" && pwd)/$(basename "$CONFIG_FILE")"
+        else
+            CONFIG_FILE="$(pwd)/$CONFIG_FILE"
+        fi
     fi
-else
-    print_error "Example project compilation failed"
-    exit 1
-fi
-echo ""
 
-# Step 6: Run simulation (sim step)
-print_info "Step 6: Running simulation with Verilator (sim step)..."
-cd "$FABRINETES_ROOT"
-
-if "$FABRINETES_ROOT/fabrinetes.py" --cmd exec --config-file "$CONFIG_FILE" \
-    --exec-cmd "cd $CONTAINER_EXAMPLE_PROJECT && update_repo_path && $CONTAINER_HDLFORGE_PATH Verilator --project addr_32bit.hdlforge.toml --step sim --SimTargetName basic_test" | bash 2>&1; then
-    print_success "Simulation completed successfully!"
-    
-    # Verify simulation artifacts were created (VCD file, etc.)
-    if docker exec --user "$(whoami)" "$CONTAINER_RUN_NAME" test -d "$CONTAINER_EXAMPLE_PROJECT/_verilator"; then
-        print_success "Simulation artifacts directory exists"
-    else
-        print_warning "Simulation artifacts directory not found (but simulation reported success)"
+    # Validate config file exists
+    if [ ! -f "$CONFIG_FILE" ]; then
+        print_error "Config file not found: $CONFIG_FILE"
+        exit 1
     fi
-else
-    print_error "Simulation failed"
-    exit 1
-fi
-echo ""
 
-print_success "All tests passed!"
-print_info "Container: $CONTAINER_RUN_NAME"
-print_info "Image: $IMAGE_FULL"
-print_info "Example project compiled and simulated successfully"
+    # Check if any operation flags are provided
+    local has_operation=false
+    if $FLAG_START || $FLAG_STOP || $FLAG_RESTART || $FLAG_RUN || \
+       $FLAG_IMAGE_PULL || $FLAG_IMAGE_BUILD || $FLAG_IMAGE_REUSE || \
+       $FLAG_IMAGE_COMMIT || $FLAG_IMAGE_PUSH; then
+        has_operation=true
+    fi
 
+    if [ "$has_operation" = false ]; then
+        print_error "No operation specified. Please provide at least one operation flag."
+        echo ""
+        show_usage
+        exit 1
+    fi
+
+    # Validate mutually exclusive flags
+    if $FLAG_IMAGE_PULL && $FLAG_IMAGE_BUILD && [ "$FLAG_FORCE" = false ]; then
+        print_error "--image-pull and --image-build are mutually exclusive (use --force to override)"
+        exit 1
+    fi
+
+    if $FLAG_START && $FLAG_RUN && [ "$FLAG_FORCE" = false ]; then
+        print_error "--start and --run are mutually exclusive (use --force to override)"
+        exit 1
+    fi
+}
+
+# Extract config information
+extract_config_info() {
+    # Get container name from config
+    CONTAINER_NAME=$(grep -A 2 "\[config.container\]" "$CONFIG_FILE" | grep "name" | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/')
+    if [ -z "$CONTAINER_NAME" ]; then
+        print_error "Could not extract container name from config"
+        exit 1
+    fi
+    CONTAINER_RUN_NAME="${CONTAINER_NAME}.run"
+
+    # Get image name from config
+    IMAGE_NAME=$(grep -A 3 "\[config.image\]" "$CONFIG_FILE" | grep "name" | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/')
+    IMAGE_TAG=$(grep -A 3 "\[config.image\]" "$CONFIG_FILE" | grep "tag" | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/')
+    if [ -z "$IMAGE_NAME" ] || [ -z "$IMAGE_TAG" ]; then
+        print_error "Could not extract image name/tag from config"
+        print_error "Image name: '$IMAGE_NAME', Tag: '$IMAGE_TAG'"
+        exit 1
+    fi
+    IMAGE_FULL="${IMAGE_NAME}:${IMAGE_TAG}"
+}
+
+# Check container status
+check_container_status() {
+    # Check if running
+    if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_RUN_NAME}$"; then
+        echo "running"
+        return
+    fi
+    
+    # Check if stopped
+    if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_RUN_NAME}$"; then
+        echo "stopped"
+        return
+    fi
+    
+    echo "none"
+}
+
+# Check if image exists locally
+check_image_exists() {
+    if docker images --format '{{.Repository}}:{{.Tag}}' | grep -q "^${IMAGE_FULL}$"; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Check Docker login status
+check_docker_login() {
+    if docker info 2>/dev/null | grep -q "Username:"; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Analyze docker pull error
+analyze_pull_error() {
+    local error_output="$1"
+    local error_lower=$(echo "$error_output" | tr '[:upper:]' '[:lower:]')
+    
+    if echo "$error_lower" | grep -qiE "permission denied|access denied|unauthorized"; then
+        echo "permission"
+    elif echo "$error_lower" | grep -qiE "connection refused|network|timeout|dial tcp|no route to host"; then
+        echo "connectivity"
+    elif echo "$error_lower" | grep -qiE "not found|manifest unknown|repository.*not found|pull access denied"; then
+        echo "not_found"
+    elif echo "$error_lower" | grep -qiE "connection aborted|no such file or directory"; then
+        echo "daemon"
+    else
+        echo "unknown"
+    fi
+}
+
+# Show available images from repository
+show_available_images() {
+    local repo_name="$1"
+    echo "[INFO] Available images from repository '$repo_name':"
+    docker images "$repo_name" --format 'table {{.Repository}}\t{{.Tag}}\t{{.CreatedSince}}' 2>/dev/null || echo "[INFO] No images found from this repository"
+}
+
+# Image operations
+image_pull() {
+    print_info "Pulling image: $IMAGE_FULL"
+    
+    # Check Docker login
+    if ! check_docker_login; then
+        print_warning "Not logged into Docker"
+        print_info "Please run: $FABRINETES_ROOT/scripts/docker-login.sh"
+        exit 1
+    fi
+    
+    # Attempt pull
+    local pull_output
+    pull_output=$(docker pull "$IMAGE_FULL" 2>&1) || {
+        local pull_error="$pull_output"
+        local error_type=$(analyze_pull_error "$pull_error")
+        
+        case "$error_type" in
+            permission)
+                print_error "Permission denied - check Docker permissions"
+                ;;
+            connectivity)
+                print_error "Network connectivity issue - check Docker connectivity"
+                ;;
+            not_found)
+                print_error "Image not found: $IMAGE_FULL"
+                # Extract repository name and show available images
+                local repo_name=$(echo "$IMAGE_NAME" | cut -d'/' -f1)
+                show_available_images "$repo_name"
+                ;;
+            daemon)
+                print_error "Docker daemon not running - start Docker service"
+                ;;
+            *)
+                print_error "Failed to pull image: $IMAGE_FULL"
+                echo "$pull_error"
+                ;;
+        esac
+        exit 1
+    }
+    
+    print_success "Successfully pulled image: $IMAGE_FULL"
+}
+
+image_build() {
+    print_info "Building image: $IMAGE_FULL"
+    
+    # Check if image exists and ask before overwriting
+    if check_image_exists && [ "$FLAG_FORCE" = false ]; then
+        print_warning "Image $IMAGE_FULL already exists"
+        read -p "Do you want to rebuild it? (y/N): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            print_info "Build cancelled"
+            return 0
+        fi
+    fi
+    
+    cd "$FABRINETES_ROOT"
+    if ! "$FABRINETES_ROOT/fabrinetes.py" --cmd build --config-file "$CONFIG_FILE" | bash; then
+        print_error "Image build failed"
+        exit 1
+    fi
+    
+    # Verify image was created
+    if check_image_exists; then
+        print_success "Image built successfully: $IMAGE_FULL"
+    else
+        print_error "Image $IMAGE_FULL was not created"
+        exit 1
+    fi
+}
+
+image_reuse() {
+    print_info "Checking for existing local image: $IMAGE_FULL"
+    
+    if check_image_exists; then
+        print_success "Image exists locally: $IMAGE_FULL"
+    else
+        print_error "Image not found locally: $IMAGE_FULL"
+        exit 1
+    fi
+}
+
+image_commit() {
+    print_info "Committing container to image: $IMAGE_FULL"
+    
+    local container_status=$(check_container_status)
+    if [ "$container_status" != "running" ]; then
+        print_error "Container $CONTAINER_RUN_NAME is not running (status: $container_status)"
+        exit 1
+    fi
+    
+    if docker commit "$CONTAINER_RUN_NAME" "$IMAGE_FULL"; then
+        print_success "Successfully committed container to image: $IMAGE_FULL"
+    else
+        print_error "Failed to commit container to image"
+        exit 1
+    fi
+}
+
+image_push() {
+    print_info "Pushing image: $IMAGE_FULL"
+    
+    # Check if image exists locally
+    if ! check_image_exists; then
+        print_error "Image not found locally: $IMAGE_FULL"
+        exit 1
+    fi
+    
+    # Check Docker login
+    if ! check_docker_login; then
+        print_warning "Not logged into Docker"
+        print_info "Please run: $FABRINETES_ROOT/scripts/docker-login.sh"
+        exit 1
+    fi
+    
+    if docker push "$IMAGE_FULL"; then
+        print_success "Successfully pushed image: $IMAGE_FULL"
+    else
+        print_error "Failed to push image: $IMAGE_FULL"
+        exit 1
+    fi
+}
+
+# Container operations
+container_start() {
+    print_info "Starting container: $CONTAINER_RUN_NAME"
+    
+    local container_status=$(check_container_status)
+    case "$container_status" in
+        running)
+            print_warning "Container is already running"
+            return 0
+            ;;
+        stopped)
+            if docker start "$CONTAINER_RUN_NAME"; then
+                print_success "Container started: $CONTAINER_RUN_NAME"
+            else
+                print_error "Failed to start container"
+                exit 1
+            fi
+            ;;
+        none)
+            print_error "Container does not exist: $CONTAINER_RUN_NAME"
+            exit 1
+            ;;
+    esac
+}
+
+container_stop() {
+    print_info "Stopping container: $CONTAINER_RUN_NAME"
+    
+    local container_status=$(check_container_status)
+    case "$container_status" in
+        running)
+            if docker stop "$CONTAINER_RUN_NAME"; then
+                print_success "Container stopped: $CONTAINER_RUN_NAME"
+            else
+                print_error "Failed to stop container"
+                exit 1
+            fi
+            ;;
+        stopped)
+            print_warning "Container is already stopped"
+            return 0
+            ;;
+        none)
+            print_error "Container does not exist: $CONTAINER_RUN_NAME"
+            exit 1
+            ;;
+    esac
+}
+
+container_restart() {
+    print_info "Restarting container: $CONTAINER_RUN_NAME"
+    
+    local container_status=$(check_container_status)
+    case "$container_status" in
+        running|stopped)
+            if docker restart "$CONTAINER_RUN_NAME"; then
+                print_success "Container restarted: $CONTAINER_RUN_NAME"
+            else
+                print_error "Failed to restart container"
+                exit 1
+            fi
+            ;;
+        none)
+            print_error "Container does not exist: $CONTAINER_RUN_NAME"
+            exit 1
+            ;;
+    esac
+}
+
+container_run() {
+    print_info "Running container: $CONTAINER_RUN_NAME"
+    
+    # Check if container already exists
+    local container_status=$(check_container_status)
+    if [ "$container_status" != "none" ]; then
+        if [ "$FLAG_FORCE" = false ]; then
+            print_warning "Container $CONTAINER_RUN_NAME already exists (status: $container_status)"
+            read -p "Do you want to remove it and create a new one? (y/N): " -n 1 -r
+            echo
+            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                print_info "Run cancelled"
+                return 0
+            fi
+        fi
+        
+        # Stop and remove existing container
+        print_info "Removing existing container: $CONTAINER_RUN_NAME"
+        docker stop "$CONTAINER_RUN_NAME" 2>/dev/null || true
+        docker rm "$CONTAINER_RUN_NAME" 2>/dev/null || true
+    fi
+    
+    # Run container - let fabrinetes.py handle image existence check
+    cd "$FABRINETES_ROOT"
+    if ! "$FABRINETES_ROOT/fabrinetes.py" --cmd run --config-file "$CONFIG_FILE" | bash; then
+        print_error "Container run failed"
+        exit 1
+    fi
+    
+    # Wait a moment for container to start
+    sleep 2
+    
+    # Verify container is running
+    if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_RUN_NAME}$"; then
+        print_success "Container running: $CONTAINER_RUN_NAME"
+    else
+        print_error "Container failed to start"
+        exit 1
+    fi
+}
+
+# Main execution
+main() {
+    # Parse arguments
+    parse_arguments "$@"
+    
+    # Extract config information
+    extract_config_info
+    
+    print_info "Config: $CONFIG_FILE"
+    print_info "Container: $CONTAINER_RUN_NAME"
+    print_info "Image: $IMAGE_FULL"
+    echo ""
+    
+    # Execute image operations first
+    if $FLAG_IMAGE_PULL; then
+        image_pull
+    fi
+    
+    if $FLAG_IMAGE_BUILD; then
+        image_build
+    fi
+    
+    if $FLAG_IMAGE_REUSE; then
+        image_reuse
+    fi
+    
+    if $FLAG_IMAGE_COMMIT; then
+        image_commit
+    fi
+    
+    if $FLAG_IMAGE_PUSH; then
+        image_push
+    fi
+    
+    # Execute container operations second
+    if $FLAG_STOP; then
+        container_stop
+    fi
+    
+    if $FLAG_START; then
+        container_start
+    fi
+    
+    if $FLAG_RESTART; then
+        container_restart
+    fi
+    
+    if $FLAG_RUN; then
+        container_run
+    fi
+    
+    print_success "Operations completed successfully"
+}
+
+# Run main function
+main "$@"
