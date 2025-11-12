@@ -52,7 +52,16 @@ Fabrinetes/
 - **Logging** to `_log/` directory
 - **Parameter handling** for build/run commands
 
-### 2. Configuration System (`fabrinetes.config`)
+### 2. Advanced Container Management (`setup.sh` script)
+- **Fine-grained control** over container and image lifecycle
+- **Image operations**: pull, build, commit, push, reuse
+- **Container operations**: start, stop, restart, run
+- **Operation chaining** for complex workflows
+- **Interactive confirmations** for safety
+- **Detailed error analysis** and troubleshooting
+- **See**: [Setup Script Guide](container-doc/setup-script-guide.md) for complete documentation
+
+### 3. Configuration System (`fabrinetes.config`)
 - **TOML format** for easy editing
 - **Master configuration** with all container definitions
 - **Individual container configs** in `containers/*/config/` directories
@@ -60,14 +69,14 @@ Fabrinetes/
 - **Environment variables** support
 - **Self-contained containers** with local `Fabrinetes_init_env.sh` files
 
-### 3. Task Automation (`tasks.py`)
+### 4. Task Automation (`tasks.py`)
 - **Invoke-based** task runner
 - **Docker operations**: build, run, list
 - **Path resolution** for mounts and configs
 - **Unique container naming** with timestamps
 - **X11/USB support** for GUI and hardware access
 
-### 4. Container Definitions
+### 5. Container Definitions
 - **fabrinetes-dev**: Full FPGA development with Vivado, tools
 - **fabrinetes-dev-testing**: Lightweight testing environment
 - **fabrinetes-fpga-full**: Complete FPGA development with GUI support
@@ -108,7 +117,7 @@ Each container has its own configuration file in `containers/*/config/fabrinetes
 
 ## Usage Examples
 
-### Basic Commands
+### Basic Commands (fabrinetes)
 ```bash
 # Show help and list containers
 ./fabrinetes
@@ -121,6 +130,23 @@ Each container has its own configuration file in `containers/*/config/fabrinetes
 
 # List running containers
 ./fabrinetes list
+```
+
+### Advanced Commands (setup.sh)
+```bash
+# Pull image and run container
+./setup.sh -f containers/fabrinetes-dev/config.toml --image-pull --run
+
+# Build custom image and run
+./setup.sh -f containers/fabrinetes-dev/config.toml --image-build --run
+
+# Stop, commit changes, and push to registry
+./setup.sh -f containers/fabrinetes-dev/config.toml --stop --image-commit --image-push
+
+# Restart existing container
+./setup.sh -f containers/fabrinetes-dev/config.toml --restart
+
+# See setup-script-guide.md for complete documentation
 ```
 
 ### Container Options
@@ -174,3 +200,9 @@ The repository includes a sophisticated PATH management system:
 - **USB**: Hardware device access
 
 This repository provides a complete solution for managing FPGA development environments with Docker containers, offering flexibility, isolation, and ease of use.
+
+---
+
+## Document History
+
+**Last Updated:** Commit `b1dfa6d6a9b4f65bba02265a196e9590650b6585` - Update documentation index to reflect new structure (2025-11-11)

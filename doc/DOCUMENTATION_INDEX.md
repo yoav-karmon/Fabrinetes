@@ -17,6 +17,7 @@ Fabrinetes/
 │   │   ├── architecture.md
 │   │   ├── container-path-management.md
 │   │   ├── docker-installation.md
+│   │   ├── setup-script-guide.md
 │   │   ├── testing_guide.md
 │   │   ├── container-hdlforge-test.md
 │   │   └── github-container-registry.md
@@ -61,12 +62,14 @@ Fabrinetes/
 
 ### Getting Started
 - **[Docker Installation](container-doc/docker-installation.md)** - Docker setup and installation guide
+- **[Setup Script Guide](container-doc/setup-script-guide.md)** - Using setup.sh for container and image management
 - **[Testing Guide](container-doc/testing_guide.md)** - Comprehensive testing procedures and methodologies
 - **[Container Path Management](container-doc/container-path-management.md)** - Understanding the path system
 
 ### Container Management
 - **[Architecture Documentation](container-doc/architecture.md)** - Container architecture and design
 - **[Docker Installation](container-doc/docker-installation.md)** - Docker setup
+- **[Setup Script Guide](container-doc/setup-script-guide.md)** - Fine-grained container and image lifecycle management
 - **[Container HDLForge Test](container-doc/container-hdlforge-test.md)** - Testing HDLForge in container environments
 - **[GitHub Container Registry](container-doc/github-container-registry.md)** - Container registry setup and usage
 
@@ -151,6 +154,7 @@ Fabrinetes/
 | [Architecture](container-doc/architecture.md) | Core container architecture and design |
 | [Path Management](container-doc/container-path-management.md) | Two-level path system explained |
 | [Docker Installation](container-doc/docker-installation.md) | Docker setup and configuration |
+| [Setup Script Guide](container-doc/setup-script-guide.md) | setup.sh for granular container/image control |
 | [Container Registry](container-doc/github-container-registry.md) | GHCR setup and usage |
 
 ### 🔧 Build System (HDLForge)
@@ -253,12 +257,18 @@ Fabrinetes/
 | Category | Document Count |
 |----------|----------------|
 | Core Documentation | 3 files |
-| Container Documentation | 6 files |
+| Container Documentation | 7 files |
 | HDLForge Documentation | 9 files |
 | Command Documentation | 5 files |
 | Example Documentation | 2 files |
-| **Total** | **25+ markdown files** |
+| **Total** | **26+ markdown files** |
 
 ---
 
 This documentation index serves as a comprehensive guide to all Fabrinetes documentation, helping users find the information they need quickly and efficiently. All documentation follows a **"big picture → details"** structure for optimal learning and reference.
+
+---
+
+## Document History
+
+**Last Updated:** Commit `b1dfa6d6a9b4f65bba02265a196e9590650b6585` - Update documentation index to reflect new structure (2025-11-11)
