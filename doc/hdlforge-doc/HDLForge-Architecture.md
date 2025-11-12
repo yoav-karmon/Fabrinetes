@@ -404,3 +404,9 @@ cat <project>/_vivado/<project>/vivado.log
 - **Vivado Guide:** [HDLForge-Vivado.md](HDLForge-Vivado.md)
 - **Verilator Examples:** [HDLForge-Verilator-Examples.md](HDLForge-Verilator-Examples.md)
 - **Vivado Examples:** [HDLForge-Vivado-Examples.md](HDLForge-Vivado-Examples.md)
+
+---
+
+## Document History
+
+**Last Updated:** Commit `e8ac713cdcf020cde9acfcc3e58270fa519a5ddb` - Consolidate and reorganize HDLForge documentation into hdlforge-doc/ (2025-11-11)

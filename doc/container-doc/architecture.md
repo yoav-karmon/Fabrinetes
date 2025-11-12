@@ -206,3 +206,9 @@ useradd -u $CONTAINER_UID -g $CONTAINER_GID -d $CONTAINER_HOME -s /bin/bash $CON
 - **Monitoring**: Container health monitoring and alerting
 
 This architecture provides a solid foundation for Docker container management with consistent patterns, reliable error handling, and maintainable code structure.
+
+---
+
+## Document History
+
+**Last Updated:** Commit `0dfcbd30f42c9be4be92bcdbfb1507dd1fad77f3` - Reorganize container documentation into container-doc/ subdirectory (2025-11-11)

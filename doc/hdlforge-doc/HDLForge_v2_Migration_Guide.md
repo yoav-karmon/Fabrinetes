@@ -240,3 +240,9 @@ HDLForge v2.0 provides a cleaner, more consistent command-line interface. While 
 ---
 
 *For more information, see the main [HDLForge Reference Guide](../README.md#hdlforge-reference-guide) in the main README.*
+
+---
+
+## Document History
+
+**Last Updated:** Commit `e8ac713cdcf020cde9acfcc3e58270fa519a5ddb` - Consolidate and reorganize HDLForge documentation into hdlforge-doc/ (2025-11-11)

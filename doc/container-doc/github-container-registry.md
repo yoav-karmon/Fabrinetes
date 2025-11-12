@@ -280,5 +280,11 @@ By default, packages are private. To make them public:
 4. **Documentation**: Keep Dockerfile and scripts well-documented
 5. **Testing**: Test images before pushing to production tags
 
+---
+
+## Document History
+
+**Last Updated:** Commit `0dfcbd30f42c9be4be92bcdbfb1507dd1fad77f3` - Reorganize container documentation into container-doc/ subdirectory (2025-11-11)
+
 
 

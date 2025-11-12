@@ -96,3 +96,9 @@ Access via:
 
 **Migration Date:** 2025-11-11
 **Status:** ✅ Complete
+
+---
+
+## Document History
+
+**Last Updated:** Commit `e8ac713cdcf020cde9acfcc3e58270fa519a5ddb` - Consolidate and reorganize HDLForge documentation into hdlforge-doc/ (2025-11-11)

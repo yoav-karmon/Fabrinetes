@@ -321,3 +321,9 @@ gtkwave _verilator/my_test/dump.vcd
 - **Verilator Manual:** https://verilator.org/guide/latest/
 - **GTKWave:** http://gtkwave.sourceforge.net/
 - **Architecture Details:** [HDLForge-Architecture.md](HDLForge-Architecture.md)
+
+---
+
+## Document History
+
+**Last Updated:** Commit `e8ac713cdcf020cde9acfcc3e58270fa519a5ddb` - Consolidate and reorganize HDLForge documentation into hdlforge-doc/ (2025-11-11)

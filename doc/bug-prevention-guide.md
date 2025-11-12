@@ -361,3 +361,9 @@ print("# Different format for each command")
 - Include usage examples
 
 Following these guidelines will help prevent common bugs and maintain high code quality in the Fabrinetes project.
+
+---
+
+## Document History
+
+**Last Updated:** Commit `2b7ed23bd1f39af0323d1846d3cb68c40b31713f` - Add documentation files to doc/ folder (2025-10-19)

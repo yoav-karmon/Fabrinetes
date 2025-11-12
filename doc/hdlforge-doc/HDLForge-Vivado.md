@@ -365,3 +365,9 @@ cat _vivado/<project>/<project>.runs/impl_1/*_timing_summary.rpt
 - **Constraints Guide:** UG903 - Using Constraints
 - **Timing Closure:** UG906 - Design Analysis and Closure Techniques
 - **Architecture Details:** [HDLForge-Architecture.md](HDLForge-Architecture.md)
+
+---
+
+## Document History
+
+**Last Updated:** Commit `e8ac713cdcf020cde9acfcc3e58270fa519a5ddb` - Consolidate and reorganize HDLForge documentation into hdlforge-doc/ (2025-11-11)

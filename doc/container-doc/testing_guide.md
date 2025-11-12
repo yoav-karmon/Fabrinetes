@@ -334,3 +334,9 @@ ls -la containers/fabrinetes-dev-testing/
 - Check that all mounts are accessible inside containers
 
 This testing guide ensures comprehensive validation of the Fabrinetes system functionality.
+
+---
+
+## Document History
+
+**Last Updated:** Commit `0dfcbd30f42c9be4be92bcdbfb1507dd1fad77f3` - Reorganize container documentation into container-doc/ subdirectory (2025-11-11)

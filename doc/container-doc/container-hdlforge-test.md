@@ -159,3 +159,9 @@ examples/addr_32bit/
 HDLForge compilation and simulation works perfectly in the Fabrinetes container when using the correct shell configuration. The key is using the `-i` flag to ensure `.bashrc` runs and sets up the required environment variables.
 
 **Test Status**: ✅ **PASSED** - HDLForge fully functional in container
+
+---
+
+## Document History
+
+**Last Updated:** Commit `0dfcbd30f42c9be4be92bcdbfb1507dd1fad77f3` - Reorganize container documentation into container-doc/ subdirectory (2025-11-11)

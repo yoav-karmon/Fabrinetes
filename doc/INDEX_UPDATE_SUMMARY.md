@@ -109,3 +109,9 @@ find doc -name "*.md" -type f | sort
 
 **Updated by:** Cursor AI Assistant
 **Verified:** 2025-11-11
+
+---
+
+## Document History
+
+**Last Updated:** Commit `b1dfa6d6a9b4f65bba02265a196e9590650b6585` - Update documentation index to reflect new structure (2025-11-11)

@@ -371,3 +371,9 @@ cat _vivado/<project_name>/<project_name>.runs/impl_1/*_power_routed.rpt
 - **Timing Closure:** UG906 - Design Analysis and Closure Techniques
 - **Main Vivado Doc:** [HDLForge-Vivado.md](HDLForge-Vivado.md)
 
+---
+
+## Document History
+
+**Last Updated:** Commit `e8ac713cdcf020cde9acfcc3e58270fa519a5ddb` - Consolidate and reorganize HDLForge documentation into hdlforge-doc/ (2025-11-11)
+

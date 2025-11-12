@@ -315,3 +315,9 @@ hdlforge vivado --step bit --run-flow default
 ```
 
 > **📘 Full examples:** See [HDLForge-Verilator.md](HDLForge-Verilator.md#7-examples) and [HDLForge-Vivado.md](HDLForge-Vivado.md#8-examples)
+
+---
+
+## Document History
+
+**Last Updated:** Commit `e8ac713cdcf020cde9acfcc3e58270fa519a5ddb` - Consolidate and reorganize HDLForge documentation into hdlforge-doc/ (2025-11-11)
