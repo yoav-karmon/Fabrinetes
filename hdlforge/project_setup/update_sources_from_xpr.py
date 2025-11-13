@@ -160,10 +160,52 @@ def extract_files_from_xpr(xpr_file: Path, fileset_name: str = 'sources_1') -> L
     return files
 
 
+def _compare_properties(old_props: Dict[str, Any], new_props: Dict[str, Any], file_path: str) -> List[str]:
+    """
+    Compare old and new properties and return list of differences.
+    
+    Args:
+        old_props: Existing properties from JSON
+        new_props: New properties from XPR
+        file_path: File path for logging
+    
+    Returns:
+        List of difference messages
+    """
+    differences = []
+    
+    # Normalize properties for comparison (handle list vs string for UsedIn)
+    def normalize_value(val):
+        if isinstance(val, list):
+            return sorted(val) if all(isinstance(x, str) for x in val) else val
+        return val
+    
+    # Check all keys in both old and new
+    all_keys = set(old_props.keys()) | set(new_props.keys())
+    
+    for key in all_keys:
+        old_val = old_props.get(key)
+        new_val = new_props.get(key)
+        
+        # Normalize for comparison
+        old_normalized = normalize_value(old_val)
+        new_normalized = normalize_value(new_val)
+        
+        if old_val is None:
+            differences.append(f"  [+] Added property '{key}': {new_val}")
+        elif new_val is None:
+            differences.append(f"  [-] Removed property '{key}': {old_val}")
+        elif old_normalized != new_normalized:
+            differences.append(f"  [~] Changed property '{key}': {old_val} → {new_val}")
+    
+    return differences
+
+
 def update_sources_from_xpr(project_loader, xpr_file: Path, working_path: Path) -> bool:
     """
     Update project sources from XPR file.
     Converts each file to its own JSON record with vivado/verilator flags.
+    Logs property differences between JSON and XPR.
     
     Args:
         project_loader: ProjectLoader instance
@@ -174,6 +216,42 @@ def update_sources_from_xpr(project_loader, xpr_file: Path, working_path: Path) 
         True if sources were updated, False otherwise
     """
     try:
+        # Get existing files from JSON for comparison
+        existing_files = {}
+        if 'sources' in project_loader._project_data and 'files' in project_loader._project_data['sources']:
+            for file_entry in project_loader._project_data['sources']['files']:
+                file_path = file_entry.get('file', '')
+                # Handle both string and list formats
+                if isinstance(file_path, list):
+                    for fp in file_path:
+                        # Resolve path relative to working_path
+                        try:
+                            if Path(fp).is_absolute():
+                                abs_fp = Path(fp).resolve()
+                            else:
+                                abs_fp = (working_path / fp).resolve()
+                            existing_files[str(abs_fp)] = {
+                                'hdlforge_properties': file_entry.get('hdlforge_properties', {}),
+                                'vivado_properties': file_entry.get('vivado_properties', {})
+                            }
+                        except Exception:
+                            # Skip if path can't be resolved
+                            pass
+                else:
+                    # Resolve path relative to working_path
+                    try:
+                        if Path(file_path).is_absolute():
+                            abs_fp = Path(file_path).resolve()
+                        else:
+                            abs_fp = (working_path / file_path).resolve()
+                        existing_files[str(abs_fp)] = {
+                            'hdlforge_properties': file_entry.get('hdlforge_properties', {}),
+                            'vivado_properties': file_entry.get('vivado_properties', {})
+                        }
+                    except Exception:
+                        # Skip if path can't be resolved
+                        pass
+        
         # Extract files from XPR
         xpr_files = extract_files_from_xpr(xpr_file, 'sources_1')
         
@@ -183,6 +261,7 @@ def update_sources_from_xpr(project_loader, xpr_file: Path, working_path: Path) 
         
         # Convert to new structure: each file is its own record
         new_files = []
+        property_changes_found = False
         
         for xpr_file_entry in xpr_files:
             abs_path = Path(xpr_file_entry['path'])
@@ -239,6 +318,32 @@ def update_sources_from_xpr(project_loader, xpr_file: Path, working_path: Path) 
             if vivado_props:
                 file_record['vivado_properties'] = vivado_props
             
+            # Compare with existing properties
+            abs_path_str = str(abs_path.resolve())
+            if abs_path_str in existing_files:
+                existing = existing_files[abs_path_str]
+                existing_hdlforge = existing.get('hdlforge_properties', {})
+                existing_vivado = existing.get('vivado_properties', {})
+                new_hdlforge = file_record.get('hdlforge_properties', {})
+                new_vivado = file_record.get('vivado_properties', {})
+                
+                # Check HDLForge properties
+                hdlforge_diffs = _compare_properties(existing_hdlforge, new_hdlforge, str(rel_path))
+                # Check Vivado properties
+                vivado_diffs = _compare_properties(existing_vivado, new_vivado, str(rel_path))
+                
+                if hdlforge_diffs or vivado_diffs:
+                    property_changes_found = True
+                    print(f"[~] Property changes detected for: {rel_path}")
+                    if hdlforge_diffs:
+                        print("  HDLForge properties:")
+                        for diff in hdlforge_diffs:
+                            print(diff)
+                    if vivado_diffs:
+                        print("  Vivado properties:")
+                        for diff in vivado_diffs:
+                            print(diff)
+            
             new_files.append(file_record)
         
         # Update project data
@@ -248,12 +353,12 @@ def update_sources_from_xpr(project_loader, xpr_file: Path, working_path: Path) 
         project_loader._project_data['sources']['files'] = new_files
         project_loader.sources = project_loader._project_data['sources']
         
-        print(f"[+] Updated {len(new_files)} files from XPR")
-        return True
+        # Return True if changes were found (to trigger save), False if no changes, None on error
+        return property_changes_found
         
     except Exception as e:
         print(f"[!x!] Error updating sources from XPR: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        return None
 

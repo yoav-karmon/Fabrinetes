@@ -879,13 +879,16 @@ def vivado(c,project,verbose=False,step:List[str]=[],clean=False,run_flow=None,f
                     print(f"[+] Project TCL exported successfully: {project_loader.vivado_project_tcl}")
                     
                     # Update sources from XPR file
-                    print(f"[i] Updating sources from XPR file...")
-                    if update_sources_from_xpr(project_loader, project_loader.vivado_project_xpr_path, project_loader.working_path):
+                    print(f"[i] Reading sources from XPR file...")
+                    changes_found = update_sources_from_xpr(project_loader, project_loader.vivado_project_xpr_path, project_loader.working_path)
+                    if changes_found is None:
+                        print(f"[!] Failed to update sources from XPR")
+                    elif changes_found:
                         # Save updated project file
                         project_loader.save_project_data()
-                        print(f"[+] Sources updated in project file")
                     else:
-                        print(f"[!] Failed to update sources from XPR")
+                        # No changes, skip save but show message
+                        print(f"⏭️  Skipped Updated project file: {project_loader._project_file_path.name}")
                 else:
                     print(f"[!x!] Failed to export TCL file")
                     exit(1)
