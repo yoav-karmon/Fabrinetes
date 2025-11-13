@@ -48,6 +48,9 @@ hdlforge/project_setup/
 ├── hdlforge            # Bash wrapper
 ├── tasks.py            # Python core
 ├── project_loader.py   # Config loader
+├── json_file_handler.py # Centralized JSON read/write with merging
+├── vivado_property.py  # Vivado set_property command handler
+├── update_sources_from_xpr.py # Extract files/properties from XPR
 ├── project_detector.py # File detection
 └── logs/              # Execution logs
 ```
@@ -152,6 +155,8 @@ def Verilator(c, project, step, clean, SimTargetName, flags, extra_env):
 ## 5. Project Loader
 
 **Location:** `hdlforge/project_setup/project_loader.py`
+
+**JSON File Handling:** `hdlforge/project_setup/json_file_handler.py`
 
 ### Purpose
 
@@ -332,6 +337,33 @@ SUBPROCESS: Verilator compiles → Output: _verilator/my_test/
 def mytool_settings(self) -> dict:
     return self._project_data.get('mytool_settings', {})
 ```
+
+### JSONFileHandler - Centralized JSON Management
+
+**Location:** `hdlforge/project_setup/json_file_handler.py`
+
+**Purpose:** Centralized handler for all JSON file read/write operations with automatic optimization.
+
+**Key Features:**
+- **Automatic merging:** Files with identical `hdlforge_properties` and `vivado_properties` are merged
+- **Compact formatting:** Properties formatted as single-line JSON
+- **Centralized operations:** All JSON operations go through this handler
+
+**Usage:**
+```python
+from json_file_handler import JSONFileHandler
+
+# Read JSON file
+data = JSONFileHandler.read_json_file(Path('project.hdlforge.json'))
+
+# Write JSON file (with automatic merging and formatting)
+JSONFileHandler.write_json_file(Path('project.hdlforge.json'), data, merge_records=True)
+```
+
+**Integration:**
+- `ProjectLoader._load_project_data()` uses `JSONFileHandler.read_json_file()`
+- `ProjectLoader.save_project_data()` uses `JSONFileHandler.write_json_file()`
+- All JSON operations are centralized through this handler
 
 ---
 

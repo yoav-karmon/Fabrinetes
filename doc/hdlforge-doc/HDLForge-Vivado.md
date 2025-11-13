@@ -163,6 +163,54 @@ hdlforge vivado --step bit --run-flow <flow_name>
 
 **Output:** `<project_name>.runs/<impl_run>/<top_module>.bit`
 
+### 4.5 Export Project to TCL
+
+```bash
+hdlforge vivado --step write_tcl
+```
+
+**Purpose:** Export Vivado project to TCL script for version control or manual editing.
+
+**Output:** `<build_dir>/<project_name>.tcl`
+
+**Automatic Updates:**
+- After successful export, HDLForge automatically extracts file properties from the `.xpr` file
+- Updates the JSON project file with:
+  - Individual file records with `hdlforge_properties` and `vivado_properties`
+  - Merged records for files with identical properties
+  - Compact single-line formatting for properties
+
+### 4.6 Set File Properties
+
+```bash
+hdlforge vivado --set-property '<tcl_set_property_command>'
+```
+
+**Purpose:** Execute Vivado `set_property` commands to modify file properties in the project.
+
+**Usage:**
+```bash
+# Remove file from synthesis
+hdlforge vivado --set-property 'set file_obj [get_files -of_objects [get_filesets sources_1] [list "*sources/ip/my_ip.xci"]]; set_property -name "used_in_synthesis" -value "0" -objects $file_obj'
+
+# Set file type
+hdlforge vivado --set-property 'set file_obj [get_files -of_objects [get_filesets sources_1] [list "*sources/rtl/module.sv"]]; set_property -name "file_type" -value "SystemVerilog" -objects $file_obj'
+```
+
+**How it works:**
+1. Opens the Vivado project in batch mode
+2. Executes the provided `set_property` command
+3. Prints Vivado output to screen
+4. Captures return value to verify success
+5. If successful, automatically updates JSON from `.xpr` file
+
+**Common Properties:**
+- `used_in_synthesis` - Set to `"0"` or `"1"` to exclude/include from synthesis
+- `used_in_implementation` - Set to `"0"` or `"1"` to exclude/include from implementation
+- `used_in_simulation` - Set to `"0"` or `"1"` to exclude/include from simulation
+- `file_type` - Set file type (e.g., `"SystemVerilog"`, `"VHDL 2008"`)
+- `library` - Set VHDL library name
+
 ---
 
 ## 5. Run Flows
@@ -236,24 +284,73 @@ hdlforge vivado --step impl --run-flow explore
 | `.xci` | IP Core | Vivado IP catalog cores |
 | `.bd` | Block Design | Vivado block diagrams |
 
-### 6.2 File Filtering
+### 6.2 File Structure and Properties
 
-Only files with `"vivado": true` are included:
+HDLForge uses an optimized JSON structure where files with identical properties are automatically merged:
 
+**Individual File Record:**
 ```json
 "sources": {
   "files": [
     {
-      "vivado": true,
-      "verilator": false,
-      "relative_to_project_path": true,
-      "file": ["sources/rtl/fpga_specific.sv"]
+      "file": "sources/rtl/module.sv",
+      "hdlforge_properties": {"vivado":true,"verilator":true,"relative_to_project_path":true},
+      "vivado_properties": {"Library":"xil_defaultlib","UsedIn":["synthesis","implementation","simulation"]}
     }
   ]
 }
 ```
 
-### 6.3 Path Resolution
+**Merged File Record (files with identical properties):**
+```json
+"sources": {
+  "files": [
+    {
+      "file": [
+        "sources/rtl/module1.sv",
+        "sources/rtl/module2.sv",
+        "sources/rtl/module3.sv"
+      ],
+      "hdlforge_properties": {"vivado":true,"verilator":true,"relative_to_project_path":true},
+      "vivado_properties": {"Library":"xil_defaultlib","UsedIn":["synthesis","implementation","simulation"]}
+    }
+  ]
+}
+```
+
+**Property Fields:**
+- `hdlforge_properties` - HDLForge-specific settings:
+  - `vivado` - Include in Vivado builds (boolean)
+  - `verilator` - Include in Verilator builds (boolean)
+  - `relative_to_project_path` - Path resolution mode (boolean)
+- `vivado_properties` - Vivado-specific file properties:
+  - `Library` - VHDL library name
+  - `UsedIn` - List of usage contexts: `["synthesis", "implementation", "simulation"]`
+  - `file_type` - File type (e.g., `"SystemVerilog"`, `"VHDL 2008"`)
+  - Other Vivado properties as needed
+
+**Automatic Merging:**
+- Files with identical `hdlforge_properties` and `vivado_properties` are automatically merged
+- The `file` field becomes a list when multiple files share properties
+- Properties are formatted as compact single-line JSON for readability
+
+### 6.3 File Filtering
+
+Only files with `"vivado": true` in `hdlforge_properties` are included in Vivado builds:
+
+```json
+"sources": {
+  "files": [
+    {
+      "file": "sources/rtl/fpga_specific.sv",
+      "hdlforge_properties": {"vivado":true,"verilator":false,"relative_to_project_path":true},
+      "vivado_properties": {"UsedIn":["synthesis","implementation"]}
+    }
+  ]
+}
+```
+
+### 6.4 Path Resolution
 
 **Relative paths:**
 ```json
@@ -332,6 +429,12 @@ hdlforge vivado --step syn --run-flow default
 hdlforge vivado --step impl --run-flow default
 hdlforge vivado --step bit --run-flow default
 
+# Export project to TCL (auto-updates JSON from XPR)
+hdlforge vivado --step write_tcl
+
+# Set file properties
+hdlforge vivado --set-property 'set file_obj [get_files -of_objects [get_filesets sources_1] [list "*file.sv"]]; set_property -name "used_in_synthesis" -value "0" -objects $file_obj'
+
 # Bitstream location
 # _vivado/<project_name>/<project_name>.runs/impl_1/<top_module>.bit
 
@@ -368,6 +471,37 @@ cat _vivado/<project>/<project>.runs/impl_1/*_timing_summary.rpt
 
 ---
 
+## 11. Project File Management
+
+### 11.1 Automatic JSON Updates
+
+HDLForge automatically maintains synchronization between the Vivado project (`.xpr`) and the JSON configuration file:
+
+**After `write_tcl` command:**
+- Extracts file list and properties from `.xpr` XML file
+- Updates JSON with individual file records
+- Merges files with identical properties
+- Formats properties as compact single-line JSON
+
+**After `set_property` command:**
+- Executes the property change in Vivado
+- Extracts updated properties from `.xpr` file
+- Updates JSON to reflect changes
+
+### 11.2 JSON File Structure
+
+The JSON file uses an optimized structure:
+- **Merged records:** Files with identical `hdlforge_properties` and `vivado_properties` are grouped
+- **Compact formatting:** Properties are stored as single-line JSON for readability
+- **Centralized handling:** All JSON read/write operations go through `JSONFileHandler`
+
+**Benefits:**
+- Reduced file size (fewer duplicate property records)
+- Easier to read (compact property formatting)
+- Automatic optimization (merging happens on save)
+
+---
+
 ## Document History
 
-**Last Updated:** Commit `e8ac713cdcf020cde9acfcc3e58270fa519a5ddb` - Consolidate and reorganize HDLForge documentation into hdlforge-doc/ (2025-11-11)
+**Last Updated:** 2025-11-13 - Added set_property command, automatic XPR extraction, and JSON file optimization with property merging

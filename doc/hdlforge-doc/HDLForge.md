@@ -118,8 +118,26 @@ HDLForge uses a single JSON file (`.hdlforge.json`) to define your entire projec
 - `relative_to_project_path` controls path resolution
 
 **Tool Filtering:**
-- Mark files with `"verilator": true` or `"vivado": true`
+- Mark files with `"verilator": true` or `"vivado": true` in `hdlforge_properties`
 - Share files across tools or keep tool-specific
+
+**File Properties Structure:**
+- Each file can have `hdlforge_properties` (tool flags) and `vivado_properties` (Vivado-specific settings)
+- Files with identical properties are automatically merged for compact storage
+- Properties are formatted as single-line JSON for readability
+
+**Example:**
+```json
+"sources": {
+  "files": [
+    {
+      "file": ["sources/rtl/module1.sv", "sources/rtl/module2.sv"],
+      "hdlforge_properties": {"vivado":true,"verilator":true,"relative_to_project_path":true},
+      "vivado_properties": {"Library":"xil_defaultlib","UsedIn":["synthesis","implementation","simulation"]}
+    }
+  ]
+}
+```
 
 ### 3.3 Configuration Examples
 
