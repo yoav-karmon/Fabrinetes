@@ -263,6 +263,7 @@ def update_sources_from_xpr(project_loader, xpr_file: Path, working_path: Path) 
         # Convert to new structure: each file is its own record
         new_files = []
         property_changes_found = False
+        files_in_xpr = set()  # Track which files are in XPR
         
         for xpr_file_entry in xpr_files:
             abs_path = Path(xpr_file_entry['path'])
@@ -302,54 +303,114 @@ def update_sources_from_xpr(project_loader, xpr_file: Path, working_path: Path) 
                 'file': str(rel_path)
             }
             
-            # Add HDLForge properties (compact, single line format)
-            file_record['hdlforge_properties'] = {
-                'vivado': vivado,
-                'verilator': verilator,
-                'relative_to_project_path': True
-            }
+            # Check if file exists and preserve existing HDLForge properties (XPR doesn't contain them)
+            abs_path_str = str(abs_path.resolve())
+            files_in_xpr.add(abs_path_str)  # Track that this file is in XPR
+            existing = existing_files.get(abs_path_str) if abs_path_str in existing_files else None
+            existing_hdlforge = existing.get('hdlforge_properties', {}) if existing else {}
+            existing_vivado = existing.get('vivado_properties', {}) if existing else {}
             
-            # Add Vivado properties if any (excluding internal ones)
-            vivado_props = {}
+            # XPR only contains Vivado properties, not HDLForge properties
+            # Always preserve existing HDLForge properties (verilator, etc. are not in XPR)
+            # But ensure vivado is true since file is in XPR
+            if existing_hdlforge:
+                # Preserve existing, but ensure vivado is true (file is in XPR)
+                file_record['hdlforge_properties'] = existing_hdlforge.copy()
+                file_record['hdlforge_properties']['vivado'] = True
+            else:
+                # New file: create default HDLForge properties
+                file_record['hdlforge_properties'] = {
+                    'vivado': True,  # File is in XPR, so vivado must be true
+                    'verilator': verilator,
+                    'relative_to_project_path': True
+                }
+            
+            # Determine new Vivado properties from XPR
+            new_vivado_props = {}
             for key, value in props.items():
                 # Skip internal/read-only properties
                 if not key.startswith('IS_') and not key.startswith('CLASS_'):
                     # Normalize UsedIn array to sorted list for consistent merging
                     if key == 'USEDIN' and isinstance(value, list):
-                        vivado_props[key] = sorted(value)
+                        new_vivado_props[key] = sorted(value)
                     else:
-                        vivado_props[key] = value
+                        new_vivado_props[key] = value
             
-            if vivado_props:
-                file_record['vivado_properties'] = vivado_props
+            # Only compare Vivado properties (XPR only contains Vivado properties)
+            vivado_diffs = _compare_properties(existing_vivado, new_vivado_props, str(rel_path))
             
-            # Compare with existing properties
-            abs_path_str = str(abs_path.resolve())
-            if abs_path_str in existing_files:
-                existing = existing_files[abs_path_str]
-                existing_hdlforge = existing.get('hdlforge_properties', {})
-                existing_vivado = existing.get('vivado_properties', {})
-                new_hdlforge = file_record.get('hdlforge_properties', {})
-                new_vivado = file_record.get('vivado_properties', {})
+            # Only update Vivado properties if they're actually different
+            if vivado_diffs:
+                property_changes_found = True
+                print(f"[~] Vivado property changes detected for: {rel_path}")
+                print("  Vivado properties:")
+                for diff in vivado_diffs:
+                    print(diff)
                 
-                # Check HDLForge properties
-                hdlforge_diffs = _compare_properties(existing_hdlforge, new_hdlforge, str(rel_path))
-                # Check Vivado properties
-                vivado_diffs = _compare_properties(existing_vivado, new_vivado, str(rel_path))
-                
-                if hdlforge_diffs or vivado_diffs:
-                    property_changes_found = True
-                    print(f"[~] Property changes detected for: {rel_path}")
-                    if hdlforge_diffs:
-                        print("  HDLForge properties:")
-                        for diff in hdlforge_diffs:
-                            print(diff)
-                    if vivado_diffs:
-                        print("  Vivado properties:")
-                        for diff in vivado_diffs:
-                            print(diff)
+                # Use new Vivado properties (they're different)
+                if new_vivado_props:
+                    file_record['vivado_properties'] = new_vivado_props
+            else:
+                # Vivado properties are the same, preserve existing ones
+                if existing_vivado:
+                    file_record['vivado_properties'] = existing_vivado
+                elif new_vivado_props:
+                    file_record['vivado_properties'] = new_vivado_props
             
             new_files.append(file_record)
+        
+        # Handle files that are in JSON but not in XPR - set vivado to false
+        # Reuse the original file entries from JSON
+        if 'sources' in project_loader._project_data and 'files' in project_loader._project_data['sources']:
+            for file_entry in project_loader._project_data['sources']['files']:
+                file_path = file_entry.get('file', '')
+                existing_hdlforge = file_entry.get('hdlforge_properties', {})
+                existing_vivado = file_entry.get('vivado_properties', {})
+                
+                # Check if any file in this entry is in XPR
+                file_paths_to_check = file_path if isinstance(file_path, list) else [file_path]
+                file_in_xpr = False
+                
+                for fp in file_paths_to_check:
+                    try:
+                        if Path(fp).is_absolute():
+                            abs_fp = Path(fp).resolve()
+                        else:
+                            abs_fp = (working_path / fp).resolve()
+                        if str(abs_fp) in files_in_xpr:
+                            file_in_xpr = True
+                            break
+                    except Exception:
+                        pass
+                
+                # If file is not in XPR, set vivado to false and clear vivado_properties
+                if not file_in_xpr:
+                    # Check if we need to update (vivado is true or vivado_properties exist)
+                    needs_update = existing_hdlforge.get('vivado', False) or existing_vivado
+                    
+                    if needs_update:
+                        property_changes_found = True
+                        print(f"[~] File not in XPR, setting vivado=false and clearing vivado_properties for: {file_path}")
+                        
+                        # Update HDLForge properties to set vivado=false
+                        updated_hdlforge = existing_hdlforge.copy() if existing_hdlforge else {}
+                        updated_hdlforge['vivado'] = False
+                        # Ensure other required HDLForge properties exist
+                        if 'relative_to_project_path' not in updated_hdlforge:
+                            updated_hdlforge['relative_to_project_path'] = True
+                        if 'verilator' not in updated_hdlforge:
+                            updated_hdlforge['verilator'] = False
+                        
+                        file_record = {
+                            'file': file_path,
+                            'hdlforge_properties': updated_hdlforge
+                        }
+                        # Do NOT include vivado_properties (they should be empty/removed)
+                        
+                        new_files.append(file_record)
+                    else:
+                        # File already has vivado=false and no vivado_properties, preserve the entire entry
+                        new_files.append(file_entry.copy())
         
         # Merge files with identical properties
         merged_files = JSONFileHandler.merge_file_records(new_files)
