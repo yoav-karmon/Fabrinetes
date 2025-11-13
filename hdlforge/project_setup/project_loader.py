@@ -12,6 +12,7 @@ import tomllib
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Union
 from project_detector import detect_project_file, handle_project_detection_errors, get_project_files
+from json_file_handler import JSONFileHandler
 
 
 class ProjectLoader:
@@ -129,8 +130,7 @@ class ProjectLoader:
         file_ext = self._project_file_path.suffix.lower()
         
         if file_ext == '.json':
-            with open(self._project_file_path, 'r', encoding='utf-8') as f:
-                project_data = json.load(f)
+            project_data = JSONFileHandler.read_json_file(self._project_file_path)
         elif file_ext == '.toml':
             with open(self._project_file_path, "rb") as f:
                 project_data = tomllib.load(f)
@@ -188,10 +188,20 @@ class ProjectLoader:
         file_order = 1
         
         for file_dict in all_source_files:
-            if tool_name in file_dict and file_dict[tool_name] is True:
+            # Support both old format (direct keys) and new format (hdlforge_properties)
+            hdlforge_props = file_dict.get("hdlforge_properties", {})
+            if hdlforge_props:
+                # New format: properties in hdlforge_properties
+                tool_enabled = hdlforge_props.get(tool_name, False)
+                relative_to_project_path = hdlforge_props.get("relative_to_project_path", False)
+            else:
+                # Old format: properties directly in file_dict
+                tool_enabled = file_dict.get(tool_name, False)
                 relative_to_project_path = file_dict.get("relative_to_project_path", False)
+            
+            if tool_enabled:
                 
-                # Ensure file is a list
+                # Handle both old format (file as list) and new format (file as string)
                 file_list = file_dict.get("file", [])
                 if not isinstance(file_list, list):
                     file_list = [file_list]
@@ -260,8 +270,7 @@ class ProjectLoader:
         file_ext = self._project_file_path.suffix.lower()
         
         if file_ext == '.json':
-            with open(self._project_file_path, 'w', encoding='utf-8') as f:
-                json.dump(self._project_data, f, indent=2, ensure_ascii=False)
+            JSONFileHandler.write_json_file(self._project_file_path, self._project_data, merge_records=True)
             print(f"✅ Updated project file: {self._project_file_path.name}")
         else:
             print(f"❌ Saving is only supported for JSON files. Current file: {file_ext}")

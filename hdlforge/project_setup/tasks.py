@@ -23,6 +23,8 @@ from enum import Enum
 
 # Import project loader (single source of truth for project data)
 from project_loader import ProjectLoader
+from update_sources_from_xpr import update_sources_from_xpr
+from vivado_property import set_property as vivado_set_property
 
 
 class VivadoStep(str, Enum):
@@ -38,6 +40,7 @@ class VivadoStep(str, Enum):
     GEN = "gen"
     WRITE_TCL = "write_tcl"
     COMMIT = "commit"
+    SET_PROPERTY = "set_property"
 
 
 
@@ -410,7 +413,7 @@ def validate_repository_environment(captured_vars: dict, invoked_dir: str):
     print(f"   Git repository: ✓")
     print(f"   Directory structure: ✓")
 
-def vivado(c,project,verbose=False,step:List[str]=[],clean=False,run_flow=None,force=False,run_name=None):
+def vivado(c,project,verbose=False,step:List[str]=[],clean=False,run_flow=None,force=False,run_name=None,set_property_command=None):
     # Capture environment variables set by update_repo_path
     capture_environment_variables(c)
     
@@ -869,9 +872,57 @@ def vivado(c,project,verbose=False,step:List[str]=[],clean=False,run_flow=None,f
                 
                 # Execute the command
                 with c.cd(str(project_loader.vivado_build_dir)):
-                    c.run(cmd, pty=True, echo=True)
+                    result = c.run(cmd, pty=True, echo=True)
                 
-                print(f"[+] Project TCL exported successfully: {project_loader.vivado_project_tcl}")
+                # Check if command was successful
+                if result.ok:
+                    print(f"[+] Project TCL exported successfully: {project_loader.vivado_project_tcl}")
+                    
+                    # Update sources from XPR file
+                    print(f"[i] Updating sources from XPR file...")
+                    if update_sources_from_xpr(project_loader, project_loader.vivado_project_xpr_path, project_loader.working_path):
+                        # Save updated project file
+                        project_loader.save_project_data()
+                        print(f"[+] Sources updated in project file")
+                    else:
+                        print(f"[!] Failed to update sources from XPR")
+                else:
+                    print(f"[!x!] Failed to export TCL file")
+                    exit(1)
+            
+            case VivadoStep.COMMIT:
+                print(f"[i] Updating HDLForge project file with runs from Vivado project: {project_loader.vivado_project_name}")
+                
+                # Check if project exists
+                if not project_loader.vivado_project_xpr_path.exists():
+                    print(f"[!x!] Project file not found: {project_loader.vivado_project_xpr_path}")
+                    print(f"[i] Please create the project first using --step gen")
+                    exit(1)
+            
+            case VivadoStep.SET_PROPERTY:
+                print(f"[i] Setting property in Vivado project: {project_loader.vivado_project_name}")
+                
+                # Check if project exists
+                if not project_loader.vivado_project_xpr_path.exists():
+                    print(f"[!x!] Project file not found: {project_loader.vivado_project_xpr_path}")
+                    print(f"[i] Please create the project first using --step gen")
+                    exit(1)
+                
+                # Validate arguments
+                if not set_property_command:
+                    print(f"[!x!] --set-property requires a TCL command")
+                    print(f"[i] Example: --set-property 'set_property -name FILE_TYPE -value SystemVerilog -objects [get_files watch_dog.sv]'")
+                    exit(1)
+                
+                # Run set_property
+                success = vivado_set_property(
+                    project_loader,
+                    set_property_command,
+                    verbose=verbose
+                )
+                
+                if not success:
+                    exit(1)
             
             case VivadoStep.COMMIT:
                 print(f"[i] Updating HDLForge project file with runs from Vivado project: {project_loader.vivado_project_name}")
@@ -1396,6 +1447,7 @@ if __name__ == "__main__":
     vivado_parser.add_argument('--gen', action='store_true', help='Generate Vivado project from TCL')
     vivado_parser.add_argument('--write_tcl', action='store_true', help='Export Vivado project to TCL')
     vivado_parser.add_argument('--commit', action='store_true', help='Update HDLForge project file with runs from Vivado project')
+    vivado_parser.add_argument('--set-property', help='Execute set_property command (raw TCL command, e.g., "set_property -name FILE_TYPE -value SystemVerilog -objects [get_files watch_dog.sv]")')
     vivado_parser.add_argument('--verbose', action='store_true')
     vivado_parser.add_argument('--clean', action='store_true')
     vivado_parser.add_argument('--run-flow')
@@ -1438,15 +1490,20 @@ if __name__ == "__main__":
             steps_from_flags.append('write_tcl')
         if args.commit:
             steps_from_flags.append('commit')
+        if args.set_property:
+            steps_from_flags.append('set_property')
         
         # Combine with --step for backward compatibility (--step takes precedence if both are used)
         final_steps = args.step if args.step else steps_from_flags
+        
+        # Pass set_property command to vivado function
+        set_property_command = args.set_property
         
         # Warn if both are used
         if args.step and steps_from_flags:
             print("[!] Warning: Both --step and direct step flags are specified. Using --step values.")
         
-        vivado(c, args.project, args.verbose, final_steps, args.clean, args.run_flow, args.force, args.run_name)
+        vivado(c, args.project, args.verbose, final_steps, args.clean, args.run_flow, args.force, args.run_name, set_property_command)
     elif args.command == 'projects':
         projects(c, getattr(args, 'set_project', None))
     elif args.command == 'help':
