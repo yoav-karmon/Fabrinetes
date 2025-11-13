@@ -35,6 +35,11 @@ class JSONFileHandler:
             hdlforge_props = file_entry.get('hdlforge_properties', {})
             vivado_props = file_entry.get('vivado_properties', {})
             
+            # Normalize UsedIn arrays to sorted lists for consistent comparison
+            if 'UsedIn' in vivado_props and isinstance(vivado_props['UsedIn'], list):
+                vivado_props = vivado_props.copy()  # Don't modify original
+                vivado_props['UsedIn'] = sorted(vivado_props['UsedIn'])
+            
             # Convert to JSON strings for comparison (sorted keys for consistency)
             hdlforge_key = json.dumps(hdlforge_props, sort_keys=True)
             vivado_key = json.dumps(vivado_props, sort_keys=True)
@@ -50,6 +55,10 @@ class JSONFileHandler:
             # Parse the properties back
             hdlforge_props = json.loads(hdlforge_key)
             vivado_props = json.loads(vivado_key)
+            
+            # Ensure UsedIn is normalized (sorted) in output
+            if 'UsedIn' in vivado_props and isinstance(vivado_props['UsedIn'], list):
+                vivado_props['UsedIn'] = sorted(vivado_props['UsedIn'])
             
             # Create merged record
             merged_record = {

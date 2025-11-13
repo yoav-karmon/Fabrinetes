@@ -10,6 +10,7 @@ import json
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import List, Dict, Any
+from json_file_handler import JSONFileHandler
 
 
 def resolve_vivado_path(path_str: str, xpr_file: Path) -> str:
@@ -313,7 +314,11 @@ def update_sources_from_xpr(project_loader, xpr_file: Path, working_path: Path) 
             for key, value in props.items():
                 # Skip internal/read-only properties
                 if not key.startswith('IS_') and not key.startswith('CLASS_'):
-                    vivado_props[key] = value
+                    # Normalize UsedIn array to sorted list for consistent merging
+                    if key == 'USEDIN' and isinstance(value, list):
+                        vivado_props[key] = sorted(value)
+                    else:
+                        vivado_props[key] = value
             
             if vivado_props:
                 file_record['vivado_properties'] = vivado_props
@@ -346,15 +351,18 @@ def update_sources_from_xpr(project_loader, xpr_file: Path, working_path: Path) 
             
             new_files.append(file_record)
         
+        # Merge files with identical properties
+        merged_files = JSONFileHandler.merge_file_records(new_files)
+        
         # Update project data
         if 'sources' not in project_loader._project_data:
             project_loader._project_data['sources'] = {}
         
-        project_loader._project_data['sources']['files'] = new_files
+        project_loader._project_data['sources']['files'] = merged_files
         project_loader.sources = project_loader._project_data['sources']
         
-        # Return True if changes were found (to trigger save), False if no changes, None on error
-        return property_changes_found
+        # Always return True to trigger save (merging may have changed structure even if no property changes)
+        return True
         
     except Exception as e:
         print(f"[!x!] Error updating sources from XPR: {e}")

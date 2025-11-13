@@ -139,11 +139,15 @@ def set_property(
         print("[+] Property set successfully")
         # Update sources from XPR
         print("[i] Updating sources from XPR...")
-        if update_sources_from_xpr(project_loader, xpr_file, project_loader.working_path):
+        update_result = update_sources_from_xpr(project_loader, xpr_file, project_loader.working_path)
+        if update_result is None:
+            print("[!] Failed to update sources from XPR (error occurred)")
+        elif update_result:
             project_loader.save_project_data()
-            print("[+] Sources updated in project file")
+            print("[+] Sources updated and saved in project file")
         else:
-            print("[!] Failed to update sources from XPR")
+            # This shouldn't happen now (always returns True), but keep for safety
+            print("[i] No changes detected in sources (JSON already up to date)")
     else:
         print(f"[!x!] Failed to set property: {output}")
     
