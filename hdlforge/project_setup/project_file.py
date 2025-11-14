@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 """
-Project Loader - Single source of truth for HDLForge project data
+Project File - Single source of truth for HDLForge project data
 
-This module provides a ProjectLoader class that loads and provides access
+This module provides a ProjectFile class that loads and provides access
 to project configuration from JSON or TOML files.
 """
 
@@ -15,7 +15,7 @@ from project_detector import detect_project_file, handle_project_detection_error
 from json_file_handler import JSONFileHandler
 
 
-class ProjectLoader:
+class ProjectFile:
     """
     Loads and provides access to HDLForge project configuration.
     
@@ -25,7 +25,7 @@ class ProjectLoader:
     
     def __init__(self, project_file: Optional[Union[str, Path]] = None):
         """
-        Initialize the ProjectLoader.
+        Initialize the ProjectFile.
         
         Args:
             project_file: Optional project file path. If None, auto-detects from current directory.
@@ -38,28 +38,33 @@ class ProjectLoader:
         
         # Extract settings
         self.settings = self._project_data.get("settings", {})
-        self.vivado_settings = self._project_data.get("vivado_settings", {})
-        self.verilator_settings = self._project_data.get("verilator_settings", {})
-        self.sources = self._project_data.get("sources", {})
+        # Tool configurations - each tool has its own section
+        vivado_section = self._project_data.get("vivado", {})
+        verilator_section = self._project_data.get("verilator", {})
+        
+        self.vivado_config = vivado_section.get("config", {})
+        self.vivado_external_config = vivado_section.get("external_config", {})
+        self.verilator_config = verilator_section.get("config", {})
+        self.verilator_external_config = verilator_section.get("external_config", {})
+        # Sources are now under verilator.config.sources (flat array format)
+        self.sources = self.verilator_config.get("sources", [])
         
         # Project settings
         self.project_name = self.settings.get("project_name", "").strip()
         self.project_path = self.settings.get("project_path", "")
         
-        # Vivado settings - compute all values
-        vivado_build_dir_str = self.vivado_settings.get("build_dir", "_vivado")
+        # Vivado config - compute all values
+        vivado_build_dir_str = self.vivado_config.get("build_dir", "_vivado")
         self.vivado_build_dir = self._working_path / vivado_build_dir_str
-        self.vivado_project_name = self.vivado_settings.get("project_name", "").strip()
-        self.vivado_top_module = self.vivado_settings.get("top_module", "")
-        self.vivado_part = self.vivado_settings.get("part", "")
-        self.vivado_runs_flow = self.vivado_settings.get("runs_flow", {})
-        self.vivado_lint_ignore_error_codes = self.vivado_settings.get("lint_ignore_error_codes", [])
-        self.vivado_lint_ignore_warning_codes = self.vivado_settings.get("lint_ignore_warning_codes", [])
+        self.vivado_project_name = self.vivado_config.get("project_name", "").strip()
+        # Note: part, top_module, set_var, runs_flow are now only in TCL file, not JSON
+        self.vivado_lint_ignore_error_codes = self.vivado_config.get("lint_ignore_error_codes", [])
+        self.vivado_lint_ignore_warning_codes = self.vivado_config.get("lint_ignore_warning_codes", [])
         
-        # Vivado paths
-        project_tcl = self.vivado_settings.get("project_tcl", "")
-        if project_tcl:
-            self.vivado_project_tcl = self._working_path / project_tcl
+        # Vivado paths - get from external_config.filename
+        project_tcl_filename = self.vivado_external_config.get("filename", "")
+        if project_tcl_filename:
+            self.vivado_project_tcl = self._working_path / project_tcl_filename
         else:
             self.vivado_project_tcl = self._working_path / f"{self.vivado_project_name}.tcl"
         
@@ -67,11 +72,11 @@ class ProjectLoader:
         self.vivado_project_xpr_relative = f"{self.vivado_project_name}/{self.vivado_project_name}.xpr"
         self.vivado_output_tcl_path = self.vivado_build_dir / f"{self.vivado_project_name}.tcl"
         
-        # Verilator settings
-        verilator_build_dir_str = self.verilator_settings.get("build_dir", "_verilator")
+        # Verilator config
+        verilator_build_dir_str = self.verilator_config.get("build_dir", "_verilator")
         self.verilator_build_dir = self._working_path / verilator_build_dir_str
-        self.verilator_sim_targets = self.verilator_settings.get("sim_targets", [])
-        self.verilator_includes_paths = self.verilator_settings.get("includes_paths", [])
+        self.verilator_sim_targets = self.verilator_config.get("sim_targets", [])
+        self.verilator_includes_paths = self.verilator_config.get("includes_paths", [])
     
     def _get_project_file_path(self, project_file: Optional[Union[str, Path]]) -> Path:
         """
@@ -174,58 +179,78 @@ class ProjectLoader:
     # Methods for getting file lists
     def get_file_list_for_tool(self, tool_name: str, verbose: bool = False) -> List[dict]:
         """
-        Get list of source files for a specific tool (vivado or verilator).
+        Get list of source files for a specific tool.
+        Sources are now a flat array in verilator.config.sources.
+        Paths are resolved relative to the JSON file location (not project path).
         
         Args:
-            tool_name: Tool name ('vivado' or 'verilator')
+            tool_name: Tool name ('vivado' or 'verilator') - currently only 'verilator' is supported
             verbose: If True, print file information
             
         Returns:
             List of file dictionaries with resolved paths
         """
-        all_source_files = self.sources.get("files", []).copy()
+        # Sources are now a flat array in verilator_settings.sources
+        # Support both old format (sources.files array) and new format (sources array)
+        if isinstance(self.sources, dict) and "files" in self.sources:
+            # Old format: sources.files array
+            source_list = self.sources.get("files", [])
+            # Extract file paths from old format
+            all_file_paths = []
+            for file_entry in source_list:
+                if isinstance(file_entry, dict):
+                    file_path = file_entry.get("file", "")
+                    if isinstance(file_path, list):
+                        all_file_paths.extend(file_path)
+                    else:
+                        all_file_paths.append(file_path)
+                else:
+                    all_file_paths.append(file_entry)
+        elif isinstance(self.sources, list):
+            # New format: flat array of file paths
+            all_file_paths = self.sources
+        else:
+            all_file_paths = []
+        
         tool_source_files = []
         file_order = 1
         
-        for file_dict in all_source_files:
-            # Support both old format (direct keys) and new format (hdlforge_properties)
-            hdlforge_props = file_dict.get("hdlforge_properties", {})
-            if hdlforge_props:
-                # New format: properties in hdlforge_properties
-                tool_enabled = hdlforge_props.get(tool_name, False)
-                relative_to_project_path = hdlforge_props.get("relative_to_project_path", False)
-            else:
-                # Old format: properties directly in file_dict
-                tool_enabled = file_dict.get(tool_name, False)
-                relative_to_project_path = file_dict.get("relative_to_project_path", False)
+        # JSON file directory - paths are relative to this
+        json_file_dir = self._project_file_path.parent
+        
+        for file_path_str in all_file_paths:
+            # Resolve environment variables first
+            expanded_path = os.path.expandvars(file_path_str)
             
-            if tool_enabled:
-                
-                # Handle both old format (file as list) and new format (file as string)
-                file_list = file_dict.get("file", [])
-                if not isinstance(file_list, list):
-                    file_list = [file_list]
-                
-                for file_path_str in file_list:
-                    if relative_to_project_path:
-                        file_path = self._working_path / Path(file_path_str)
-                    else:
-                        file_path = Path(os.path.expandvars(file_path_str))
-                    
-                    if verbose:
-                        print(f"[i] source file #{file_order}: {str(file_path)} for tool: {tool_name}")
-                    
-                    # Create a copy of the file dict with resolved path
-                    _file_dict = file_dict.copy()
-                    _file_dict["file"] = str(file_path.resolve())
-                    tool_source_files.append(_file_dict)
-                    file_order += 1
+            # Resolve path relative to JSON file location
+            file_path = Path(expanded_path)
+            if not file_path.is_absolute():
+                # Relative path - resolve relative to JSON file directory
+                file_path = (json_file_dir / file_path).resolve()
+            else:
+                # Absolute path - just resolve it
+                file_path = file_path.resolve()
+            
+            if verbose:
+                print(f"[i] source file #{file_order}: {str(file_path)} for tool: {tool_name}")
+            
+            # Create file dict with resolved path
+            file_dict = {
+                "file": str(file_path)
+            }
+            tool_source_files.append(file_dict)
+            file_order += 1
         
         return tool_source_files
     
     def get_vivado_sources(self, verbose: bool = False) -> List[dict]:
-        """Get source files for Vivado."""
-        return self.get_file_list_for_tool("vivado", verbose)
+        """
+        Get source files for Vivado.
+        Note: Vivado sources are now managed in the TCL file, not in JSON.
+        This method returns an empty list.
+        """
+        # Vivado sources come from TCL file, not JSON
+        return []
     
     def get_verilator_sources(self, verbose: bool = False) -> List[dict]:
         """Get source files for Verilator."""
@@ -276,16 +301,4 @@ class ProjectLoader:
             print(f"❌ Saving is only supported for JSON files. Current file: {file_ext}")
             exit(1)
     
-    def update_vivado_runs_flow(self, runs_flow: Dict[str, Any]) -> None:
-        """
-        Update the vivado_settings.runs_flow in the project data.
-        
-        Args:
-            runs_flow: Dictionary containing the updated runs_flow configuration
-        """
-        if "vivado_settings" not in self._project_data:
-            self._project_data["vivado_settings"] = {}
-        self._project_data["vivado_settings"]["runs_flow"] = runs_flow
-        # Also update the cached value
-        self.vivado_runs_flow = runs_flow
 
