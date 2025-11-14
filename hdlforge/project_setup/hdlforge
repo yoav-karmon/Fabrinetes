@@ -16,7 +16,7 @@ if [ $# -lt 1 ]; then
         echo "Examples:"
         echo "  1. hdlforge Verilator --step sim --SimTargetName basic_test"
         echo "  2. hdlforge vivado --syn --run-flow default"
-        echo "  3. hdlforge vivado --gen_prj_tcl"
+        echo "  3. hdlforge vivado --generate_prj_with_external_tcl"
         echo "  4. hdlforge vivado --bit --run-flow default"
         echo ""
         echo "hdlforge auto-detected project file in the current directory: $example_file"
