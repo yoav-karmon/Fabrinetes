@@ -19,7 +19,8 @@ class JSONFileHandler:
     @staticmethod
     def merge_file_records(files: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
-        Merge file records that have identical hdlforge_properties and vivado_properties.
+        Merge file records that have identical properties.
+        Supports both old nested format (hdlforge_properties) and new flat format.
         
         Args:
             files: List of file records
@@ -31,45 +32,35 @@ class JSONFileHandler:
         groups = defaultdict(list)
         
         for file_entry in files:
-            # Create a key from the properties
-            hdlforge_props = file_entry.get('hdlforge_properties', {})
-            vivado_props = file_entry.get('vivado_properties', {})
-            
-            # Normalize UsedIn arrays to sorted lists for consistent comparison
-            if 'UsedIn' in vivado_props and isinstance(vivado_props['UsedIn'], list):
-                vivado_props = vivado_props.copy()  # Don't modify original
-                vivado_props['UsedIn'] = sorted(vivado_props['UsedIn'])
+            # Normalize properties - extract from nested or flat format
+            if 'hdlforge_properties' in file_entry:
+                # Old format: nested in hdlforge_properties
+                props = file_entry.get('hdlforge_properties', {}).copy()
+            else:
+                # New format: flat structure - extract properties (exclude 'file')
+                props = {k: v for k, v in file_entry.items() if k != 'file'}
             
             # Convert to JSON strings for comparison (sorted keys for consistency)
-            hdlforge_key = json.dumps(hdlforge_props, sort_keys=True)
-            vivado_key = json.dumps(vivado_props, sort_keys=True)
-            key = (hdlforge_key, vivado_key)
+            props_key = json.dumps(props, sort_keys=True)
             
             # Add file path to the group
             file_path = file_entry.get('file', '')
-            groups[key].append(file_path)
+            groups[props_key].append(file_path)
         
         # Create merged records
         merged_files = []
-        for (hdlforge_key, vivado_key), file_paths in groups.items():
+        for props_key, file_paths in groups.items():
             # Parse the properties back
-            hdlforge_props = json.loads(hdlforge_key)
-            vivado_props = json.loads(vivado_key)
-            
-            # Ensure UsedIn is normalized (sorted) in output
-            if 'UsedIn' in vivado_props and isinstance(vivado_props['UsedIn'], list):
-                vivado_props['UsedIn'] = sorted(vivado_props['UsedIn'])
+            props = json.loads(props_key)
             
             # Create merged record
             merged_record = {
                 'file': file_paths if len(file_paths) > 1 else file_paths[0]
             }
             
-            # Only add properties if they're not empty
-            if hdlforge_props:
-                merged_record['hdlforge_properties'] = hdlforge_props
-            if vivado_props:
-                merged_record['vivado_properties'] = vivado_props
+            # Add properties in new flat format
+            if props:
+                merged_record.update(props)
             
             merged_files.append(merged_record)
         
@@ -98,7 +89,8 @@ class JSONFileHandler:
             # Filter out empty properties if compact_properties is enabled
             filtered_items = []
             for key, val in items:
-                if compact_properties and key in ['hdlforge_properties', 'vivado_properties'] and not val:
+                # Note: hdlforge_properties is deprecated, but we still handle it for backward compatibility
+                if compact_properties and key == 'hdlforge_properties' and not val:
                     continue  # Skip empty properties
                 filtered_items.append((key, val))
             
@@ -106,7 +98,8 @@ class JSONFileHandler:
                 key_str = json.dumps(key, ensure_ascii=False)
                 
                 # Check if this is a property dictionary that should be compact
-                if compact_properties and key in ['hdlforge_properties', 'vivado_properties']:
+                # Note: hdlforge_properties is deprecated, but we still handle it for backward compatibility
+                if compact_properties and key == 'hdlforge_properties':
                     # Format as compact single line (we know it's not empty from filter above)
                     compact = json.dumps(val, separators=(',', ':'))
                     lines.append(f'{indent_str}{key_str}: {compact}')
@@ -180,8 +173,38 @@ class JSONFileHandler:
         data_copy = json.loads(json.dumps(data))
         
         # Merge file records if requested
-        if merge_records and 'sources' in data_copy and 'files' in data_copy['sources']:
-            data_copy['sources']['files'] = JSONFileHandler.merge_file_records(data_copy['sources']['files'])
+        # Sources are now a flat array under verilator.config.sources
+        verilator_section = data_copy.get('verilator', {})
+        verilator_config = verilator_section.get('config', {})
+        verilator_sources = verilator_config.get('sources', [])
+        
+        # Support both old format (dict with 'files') and new format (flat array)
+        if isinstance(verilator_sources, dict) and 'files' in verilator_sources:
+            # Old format: convert to new format
+            old_files = verilator_sources.get('files', [])
+            # Extract file paths from old format
+            file_paths = []
+            for file_entry in old_files:
+                if isinstance(file_entry, dict):
+                    file_path = file_entry.get('file', '')
+                    if isinstance(file_path, list):
+                        file_paths.extend(file_path)
+                    else:
+                        file_paths.append(file_path)
+                else:
+                    file_paths.append(file_entry)
+            verilator_sources = file_paths
+        
+        # Ensure sources is a list
+        if not isinstance(verilator_sources, list):
+            verilator_sources = []
+        
+        # Ensure the structure is properly nested
+        if 'verilator' not in data_copy:
+            data_copy['verilator'] = {}
+        if 'config' not in data_copy['verilator']:
+            data_copy['verilator']['config'] = {}
+        data_copy['verilator']['config']['sources'] = verilator_sources
         
         # Format the entire JSON structure
         formatted = JSONFileHandler._format_json_value(data_copy, indent=2, level=0, compact_properties=True)
