@@ -1,11 +1,13 @@
 # Usage:
 # vivado -mode batch -source project_tool.tcl -tclargs list_all_runs <project.xpr>
 # vivado -mode batch -source project_tool.tcl -tclargs reset_run <project.xpr> <run_name>
+# vivado -mode batch -source project_tool.tcl -tclargs get_child_runs <project.xpr> <synth_run_name>
 
 if { $argc < 2 } {
     puts "Usage:"
     puts "  vivado -mode batch -source project_tool.tcl -tclargs list_all_runs <project.xpr>"
     puts "  vivado -mode batch -source project_tool.tcl -tclargs reset_run <project.xpr> <run_name>"
+    puts "  vivado -mode batch -source project_tool.tcl -tclargs get_child_runs <project.xpr> <synth_run_name>"
     exit 1
 }
 
@@ -14,16 +16,8 @@ set cmd [lindex $argv 0]
 set project_path [lindex $argv 1]
 set run_name [lindex $argv 2]
 
-# Check project file exists
-if {![file exists $project_path]} {
-    puts "Error: Project file '$project_path' not found."
-    exit 1
-}
-
 # Open project
 open_project $project_path
-# Remove board_part to avoid board definition warnings
-set_property board_part {} [current_project]
 
 # Command dispatcher
 switch -- $cmd {
@@ -109,10 +103,48 @@ switch -- $cmd {
         }
         puts "\n"
     }
+    "get_child_runs" {
+        if { $argc < 3 } {
+            puts "Error: get_child_runs requires a synth run name. Usage:"
+            puts "  vivado -mode batch -source project_tool.tcl -tclargs get_child_runs <project.xpr> <synth_run_name>"
+            close_project
+            exit 1
+        }
+        set synth_run_name $run_name
+        if { [lsearch [get_runs] $synth_run_name] == -1 } {
+            puts "Error: Run '$synth_run_name' not found in project."
+            close_project
+            exit 1
+        }
+        
+        # Verify it's a synthesis run
+        set synth_run_obj [get_runs $synth_run_name]
+        set is_synth [get_property IS_SYNTHESIS $synth_run_obj]
+        if { $is_synth != 1 } {
+            puts "Error: '$synth_run_name' is not a synthesis run."
+            close_project
+            exit 1
+        }
+        
+        # Find all implementation runs with this synth run as parent
+        set child_runs []
+        foreach run [get_runs] {
+            set is_impl [get_property IS_IMPLEMENTATION $run]
+            if { $is_impl == 1 } {
+                set parent [get_property PARENT $run]
+                if { $parent == $synth_run_name } {
+                    lappend child_runs $run
+                }
+            }
+        }
+        
+        # Output child runs (space-separated)
+        puts [join $child_runs " "]
+    }
 
     default {
         puts "Unknown command: $cmd"
-        puts "Available commands: list_all_runs, reset_run"
+        puts "Available commands: list_all_runs, reset_run, get_child_runs"
         close_project
         exit 1
     }
