@@ -208,6 +208,21 @@ def show_push_help():
     }
     show_command_help('push', command_data)
 
+def show_setup_x11_help():
+    """Show help for setup-x11 command"""
+    command_data = {
+        'syntax': './fabrinetes setup-x11 --config-file <config-file>',
+        'description': 'Copy .Xauthority from host to container and create DISPLAY environment setup file',
+        'arguments': [
+            '--config-file <config-file> (REQUIRED) - Path to config file'
+        ],
+        'examples': [
+            './fabrinetes setup-x11 --config-file containers/my-container/config.toml | bash',
+            './fabrinetes setup-x11 --config-file containers/fabrinetes-dev/config.toml | bash'
+        ]
+    }
+    show_command_help('setup-x11', command_data)
+
 
 # Global help function for no arguments
 def show_config_status(config_file):

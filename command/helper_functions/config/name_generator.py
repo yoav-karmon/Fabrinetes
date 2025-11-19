@@ -94,6 +94,7 @@ class CommandConfig:
         from command.run.run import run
         from command.test.test import test
         from command.exec.exec import exec_cmd
+        from command.setup_x11.setup_x11 import setup_x11
         
         return {
             'build': CommandDefinition(
@@ -135,6 +136,13 @@ class CommandConfig:
                 name='exec',
                 description='Generate Docker exec command for running container',
                 function=exec_cmd,
+                requires_config=True,
+                testable=True
+            ),
+            'setup-x11': CommandDefinition(
+                name='setup-x11',
+                description='Copy .Xauthority and create DISPLAY setup file in container',
+                function=setup_x11,
                 requires_config=True,
                 testable=True
             )

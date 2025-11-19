@@ -393,6 +393,26 @@ image_push() {
     fi
 }
 
+# Setup X11 for container
+setup_x11_for_container() {
+    print_info "Setting up X11 for container: $CONTAINER_RUN_NAME"
+    
+    # Check if container is running
+    local container_status=$(check_container_status)
+    if [ "$container_status" != "running" ]; then
+        print_warning "Container is not running, skipping X11 setup"
+        return 0
+    fi
+    
+    # Run setup-x11 command and pipe to bash
+    cd "$FABRINETES_ROOT"
+    if "$FABRINETES_ROOT/fabrinetes.py" --cmd setup-x11 --config-file "$CONFIG_FILE" | bash; then
+        print_success "X11 setup completed for container: $CONTAINER_RUN_NAME"
+    else
+        print_warning "X11 setup failed (non-fatal, continuing)"
+    fi
+}
+
 # Container operations
 container_start() {
     print_info "Starting container: $CONTAINER_RUN_NAME"
@@ -401,11 +421,15 @@ container_start() {
     case "$container_status" in
         running)
             print_warning "Container is already running"
+            # Still run setup-x11 even if already running
+            setup_x11_for_container
             return 0
             ;;
         stopped)
             if docker start "$CONTAINER_RUN_NAME"; then
                 print_success "Container started: $CONTAINER_RUN_NAME"
+                # Setup X11 after successful start
+                setup_x11_for_container
             else
                 print_error "Failed to start container"
                 exit 1
@@ -450,6 +474,8 @@ container_restart() {
         running|stopped)
             if docker restart "$CONTAINER_RUN_NAME"; then
                 print_success "Container restarted: $CONTAINER_RUN_NAME"
+                # Setup X11 after successful restart
+                setup_x11_for_container
             else
                 print_error "Failed to restart container"
                 exit 1
