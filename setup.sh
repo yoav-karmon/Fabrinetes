@@ -30,9 +30,10 @@ Required:
 
 Container Operations:
   -s, --start                 Start existing stopped container
+                              (automatically runs X11 setup after start)
   -S, --stop                  Stop running container
-  -r, --restart               Restart container (stop then start)
-  -R, --run                   Run new container (create and start)
+  -r, --run                   Run container from image
+  -x, --setup-x11             Manually run X11 setup for running container
 
 Image Operations:
   -p, --image-pull            Pull image from Docker registry
@@ -44,6 +45,11 @@ Image Operations:
 Other:
   -h, --help                  Show this help message
 
+Notes:
+  - X11 setup (copy .Xauthority and create DISPLAY env file) runs automatically
+    after successful container start or restart operations
+  - Use '--setup-x11' flag to manually run X11 setup for a running container
+
 Examples:
   # Pull image and run container
   $0 -f config.toml --image-pull --run
@@ -54,11 +60,17 @@ Examples:
   # Stop container, commit as image, push
   $0 -f config.toml --stop --image-commit --image-push
 
-  # Just restart container
-  $0 -f config.toml --restart
-
   # Reuse existing image and run
   $0 -f config.toml --image-reuse --run
+
+  # Run and start container (combine -r and -s)
+  $0 -f config.toml --run --start
+
+  # Stop and start container (combine -S and -s)
+  $0 -f config.toml --stop --start
+
+  # Manually run X11 setup for running container
+  $0 -f config.toml --setup-x11
 EOF
 }
 
@@ -66,7 +78,6 @@ EOF
 CONFIG_FILE=""
 FLAG_START=false
 FLAG_STOP=false
-FLAG_RESTART=false
 FLAG_RUN=false
 FLAG_IMAGE_PULL=false
 FLAG_IMAGE_BUILD=false
@@ -74,6 +85,7 @@ FLAG_IMAGE_REUSE=false
 FLAG_IMAGE_COMMIT=false
 FLAG_IMAGE_PUSH=false
 FLAG_FORCE=false
+FLAG_SETUP_X11=false
 
 parse_arguments() {
     while [[ $# -gt 0 ]]; do
@@ -90,11 +102,7 @@ parse_arguments() {
                 FLAG_STOP=true
                 shift
                 ;;
-            -r|--restart)
-                FLAG_RESTART=true
-                shift
-                ;;
-            -R|--run)
+            -r|--run)
                 FLAG_RUN=true
                 shift
                 ;;
@@ -116,6 +124,10 @@ parse_arguments() {
                 ;;
             -P|--image-push)
                 FLAG_IMAGE_PUSH=true
+                shift
+                ;;
+            -x|--setup-x11)
+                FLAG_SETUP_X11=true
                 shift
                 ;;
             --force)
@@ -162,9 +174,9 @@ parse_arguments() {
 
     # Check if any operation flags are provided
     local has_operation=false
-    if $FLAG_START || $FLAG_STOP || $FLAG_RESTART || $FLAG_RUN || \
+    if $FLAG_START || $FLAG_STOP || $FLAG_RUN || \
        $FLAG_IMAGE_PULL || $FLAG_IMAGE_BUILD || $FLAG_IMAGE_REUSE || \
-       $FLAG_IMAGE_COMMIT || $FLAG_IMAGE_PUSH; then
+       $FLAG_IMAGE_COMMIT || $FLAG_IMAGE_PUSH || $FLAG_SETUP_X11; then
         has_operation=true
     fi
 
@@ -400,17 +412,18 @@ setup_x11_for_container() {
     # Check if container is running
     local container_status=$(check_container_status)
     if [ "$container_status" != "running" ]; then
-        print_warning "Container is not running, skipping X11 setup"
-        return 0
+        print_error "Container is not running, cannot setup X11"
+        exit 1
     fi
     
     # Run setup-x11 command and pipe to bash
     cd "$FABRINETES_ROOT"
-    if "$FABRINETES_ROOT/fabrinetes.py" --cmd setup-x11 --config-file "$CONFIG_FILE" | bash; then
-        print_success "X11 setup completed for container: $CONTAINER_RUN_NAME"
-    else
-        print_warning "X11 setup failed (non-fatal, continuing)"
+    if ! "$FABRINETES_ROOT/fabrinetes.py" --cmd setup-x11 --config-file "$CONFIG_FILE" | bash; then
+        print_error "X11 setup failed"
+        exit 1
     fi
+    
+    print_success "X11 setup completed for container: $CONTAINER_RUN_NAME"
 }
 
 # Container operations
@@ -466,67 +479,18 @@ container_stop() {
     esac
 }
 
-container_restart() {
-    print_info "Restarting container: $CONTAINER_RUN_NAME"
-    
-    local container_status=$(check_container_status)
-    case "$container_status" in
-        running|stopped)
-            if docker restart "$CONTAINER_RUN_NAME"; then
-                print_success "Container restarted: $CONTAINER_RUN_NAME"
-                # Setup X11 after successful restart
-                setup_x11_for_container
-            else
-                print_error "Failed to restart container"
-                exit 1
-            fi
-            ;;
-        none)
-            print_error "Container does not exist: $CONTAINER_RUN_NAME"
-            exit 1
-            ;;
-    esac
-}
-
 container_run() {
     print_info "Running container: $CONTAINER_RUN_NAME"
     
-    # Check if container already exists
-    local container_status=$(check_container_status)
-    if [ "$container_status" != "none" ]; then
-        if [ "$FLAG_FORCE" = false ]; then
-            print_warning "Container $CONTAINER_RUN_NAME already exists (status: $container_status)"
-            read -p "Do you want to remove it and create a new one? (y/N): " -n 1 -r
-            echo
-            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-                print_info "Run cancelled"
-                return 0
-            fi
-        fi
-        
-        # Stop and remove existing container
-        print_info "Removing existing container: $CONTAINER_RUN_NAME"
-        docker stop "$CONTAINER_RUN_NAME" 2>/dev/null || true
-        docker rm "$CONTAINER_RUN_NAME" 2>/dev/null || true
-    fi
-    
-    # Run container - let fabrinetes.py handle image existence check
+    # Run container - let fabrinetes.py handle everything
+    # If container doesn't exist or fails, it will fail
     cd "$FABRINETES_ROOT"
     if ! "$FABRINETES_ROOT/fabrinetes.py" --cmd run --config-file "$CONFIG_FILE" | bash; then
         print_error "Container run failed"
         exit 1
     fi
     
-    # Wait a moment for container to start
-    sleep 2
-    
-    # Verify container is running
-    if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_RUN_NAME}$"; then
-        print_success "Container running: $CONTAINER_RUN_NAME"
-    else
-        print_error "Container failed to start"
-        exit 1
-    fi
+    print_success "Container run command executed: $CONTAINER_RUN_NAME"
 }
 
 # Main execution
@@ -572,12 +536,12 @@ main() {
         container_start
     fi
     
-    if $FLAG_RESTART; then
-        container_restart
-    fi
-    
     if $FLAG_RUN; then
         container_run
+    fi
+    
+    if $FLAG_SETUP_X11; then
+        setup_x11_for_container
     fi
     
     print_success "Operations completed successfully"
