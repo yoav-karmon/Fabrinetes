@@ -2,7 +2,7 @@
 
 **Release Date:** 2025-11-25  
 **Git Tag:** hdlforge-v2.1  
-**Commit:** ad68080b2eee89d19516b676906523560dde33a9
+**Commit:** ee94b1e4cd53860c3f5135e44b580ba4c0a43570
 
 ## Summary
 This release focuses on improving the HDLForge help system, enhancing Vivado task handling, and adding a new toolbox tool for network packet testing. The help system now provides consistent, comprehensive documentation across all commands. Vivado tasks have been improved with better output handling, progress indicators, and bug fixes for run management. A new toolbox tool has been added for sending raw network packets (ARP, ICMP, UDP) for testing and debugging purposes.
@@ -21,6 +21,8 @@ This release focuses on improving the HDLForge help system, enhancing Vivado tas
   - `send_icmp` - Send ICMP packets (ping/echo)
   - `send_udp` - Send UDP packets
 - Automatic network interface listing when interface not specified
+- Automatic interface MAC address detection and use as default Ethernet source MAC
+- Separate Ethernet MAC address arguments (`--eth_dst_mac`, `--eth_src_mac`) for ARP packets
 - Default values display for toolbox commands
 - Test script (`test_toolbox.sh`) for verifying toolbox functionality
 
@@ -38,6 +40,8 @@ This release focuses on improving the HDLForge help system, enhancing Vivado tas
 - Simplified TCL scripts for better maintainability
 - Toolbox commands now display default values being used
 - Toolbox commands list available network interfaces when interface not specified
+- Toolbox ARP packets now default to broadcast destination MAC (FF:FF:FF:FF:FF:FF) for requests
+- Toolbox automatically uses interface MAC address as Ethernet source MAC when not specified
 
 ## Fixed
 - Fixed `compile.tcl` to set `$run_obj` variable before use (resolved "can't read run_obj" error)
@@ -78,6 +82,7 @@ None - this is a backward-compatible release.
 - Toolbox tool uses raw sockets (AF_PACKET) for direct network interface access
 - Toolbox implements proper packet construction with Ethernet, IP, ARP, ICMP, and UDP headers
 - Network interface detection reads from `/proc/net/dev` or uses `ip` command
+- Interface MAC address detection reads from `/sys/class/net/<interface>/address` or uses `ip` command
 - Toolbox requires root privileges for raw socket operations
 
 ## Related Commits
