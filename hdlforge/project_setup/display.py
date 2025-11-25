@@ -17,8 +17,7 @@ def print_task_args(local_vars: dict, REPO_TOP: str, allowed_values: dict[str, L
     # Remove Invoke context (c), internal variables (_path, _full), and empty project argument
     # Also exclude internal metadata variables like ALLOWED_STEPS, TOOL_NAME, SCRIPT_DIR
     # Exclude callable objects (functions, methods, etc.)
-    # Exclude run_name and file_path as they are derived from flag values, not direct parameters
-    excluded_keys = {"c", "project", "ALLOWED_STEPS", "TOOL_NAME", "SCRIPT_DIR", "capture_environment_variables", "print_task_args", "run_name", "file_path"}
+    excluded_keys = {"c", "project", "ALLOWED_STEPS", "TOOL_NAME", "SCRIPT_DIR", "capture_environment_variables", "print_task_args"}
     args = {k: v for k, v in local_vars.items() 
             if k not in excluded_keys 
             and not k.endswith("_path") 
@@ -37,10 +36,17 @@ def print_task_args(local_vars: dict, REPO_TOP: str, allowed_values: dict[str, L
     sorted_keys = sorted(args.keys())
     
     # Maximum width for value column to keep table readable
-    MAX_VALUE_WIDTH = 80
+    MAX_VALUE_WIDTH = 40
+    MAX_ALLOWED_WIDTH = 35
     
     def truncate_value(val: str, max_width: int = MAX_VALUE_WIDTH) -> str:
         """Truncate long values with ellipsis"""
+        if len(val) <= max_width:
+            return val
+        return val[:max_width-3] + "..."
+    
+    def truncate_allowed(val: str, max_width: int = MAX_ALLOWED_WIDTH) -> str:
+        """Truncate allowed values more aggressively"""
         if len(val) <= max_width:
             return val
         return val[:max_width-3] + "..."
@@ -60,7 +66,28 @@ def print_task_args(local_vars: dict, REPO_TOP: str, allowed_values: dict[str, L
                 if isinstance(value, list):
                     display_value = f"[{', '.join(map(str, value))}]"
                 display_value = truncate_value(display_value)
-                table.append([key.ljust(max_key_len), display_value, f"(allowed: {', '.join(allowed_values[key])})"])
+                # For step parameter, show API flag names instead of internal step names
+                if key == "step" and isinstance(value, list):
+                    # Map internal step names to API flag names
+                    step_to_flag = {
+                        "list_runs": "--list_runs",
+                        "reset_run": "--reset_run <run_name>",
+                        "syn": "--syn <run_name>",
+                        "impl": "--impl <run_name>",
+                        "bit": "--bit <run_name>",
+                        "lint": "--lint",
+                        "all": "--all <run_name>",
+                        "generate_prj_with_external_tcl": "--generate_prj_with_external_tcl",
+                        "write_tcl": "--write_tcl",
+                        "file_remove": "--file_remove --file_path <path>",
+                        "file_add": "--file_add --file_path <path>"
+                    }
+                    flag_names = [step_to_flag.get(s, s) for s in value]
+                    display_value = f"[{', '.join(flag_names)}]"
+                    display_value = truncate_value(display_value)
+                allowed_str = ', '.join(allowed_values[key])
+                allowed_str = truncate_allowed(allowed_str)
+                table.append([key.ljust(max_key_len), display_value, allowed_str])
             elif(not isinstance(value, dict) and not isinstance(value, list)):
                 # Convert Path objects to strings
                 if isinstance(value, Path):
@@ -94,7 +121,7 @@ def print_task_args(local_vars: dict, REPO_TOP: str, allowed_values: dict[str, L
         except Exception as e:
             # Skip problematic variables silently
             continue
-    print(tabulate(table, headers="firstrow", tablefmt="fancy_grid",colalign=("left", "left", "center")))
+    print(tabulate(table, headers="firstrow", tablefmt="grid", colalign=("left", "left", "left")))
         
     print(border)
     print("")

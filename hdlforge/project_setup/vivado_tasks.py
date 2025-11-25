@@ -10,6 +10,8 @@ from typing import List
 from enum import Enum
 import re
 import invoke
+import threading
+import time
 from tabulate import tabulate
 
 from project_file import ProjectFile
@@ -47,7 +49,6 @@ def vivado(c, project, verbose=False, step: List[str] = [], clean=False, force=F
     """
     # Import shared utilities
     from environment import capture_environment_variables
-    from display import print_task_args
     
     # Capture environment variables set by update_repo_path
     capture_environment_variables(c)
@@ -58,7 +59,6 @@ def vivado(c, project, verbose=False, step: List[str] = [], clean=False, force=F
     elif isinstance(step, str):
         step = [step]
 
-    ALLOWED_STEPS = {"step": [step.value for step in VivadoStep]}
     TOOL_NAME = "vivado"
     # Get script directory from environment or use the directory where this script is located
     SCRIPT_DIR = Path(os.environ.get("HDLFORGE", str(Path(__file__).parent)))
@@ -67,8 +67,6 @@ def vivado(c, project, verbose=False, step: List[str] = [], clean=False, force=F
     # Load project using ProjectFile (single source of truth)
     project_file = ProjectFile(project)
     project_file.verify_repo_path()
-
-    print_task_args(locals(), str(REPO_TOP), ALLOWED_STEPS)
 
     def cleaning(BUILD_DIR, clean):  
         if clean:
@@ -131,8 +129,6 @@ def vivado(c, project, verbose=False, step: List[str] = [], clean=False, force=F
         step_enum = to_vivado_step(s)
         match (step_enum):
             case VivadoStep.LIST_RUNS:
-                print(f"[i] Listing Vivado runs for project: {project_file.vivado_project_name}")
-                
                 # Check if build directory exists
                 if not project_file.vivado_build_dir.exists():
                     print(f"[!x!] Vivado build directory not found: {project_file.vivado_build_dir}")
@@ -146,16 +142,47 @@ def vivado(c, project, verbose=False, step: List[str] = [], clean=False, force=F
                     print(f"[i] Please create the project first using: hdlforge vivado --step gen")
                     exit(1)
                 
-                # Run list_all_runs command and capture output
+                # Print progress messages
+                print(f"[i] Listing Vivado runs for project: {project_file.vivado_project_name}")
+                print(f"[i] Opening Vivado...")
+                
+                # Build the command
+                cmd = f"vivado -mode batch -source {SCRIPT_DIR}/project_tool.tcl -notrace -tclargs  list_all_runs  {project_file.vivado_project_xpr_relative}"
+                print(f"[i] Running command: vivado -mode batch -source project_tool.tcl -notrace -tclargs list_all_runs {project_file.vivado_project_xpr_relative}")
+                print(f"[i] Please wait", end='', flush=True)
+                
+                # Simple spinner function
+                spinner_active = threading.Event()
+                spinner_active.set()
+                
+                def spinner():
+                    chars = ['|', '/', '-', '\\']
+                    i = 0
+                    while spinner_active.is_set():
+                        print(f'\r[i] Please wait {chars[i % len(chars)]}', end='', flush=True)
+                        i += 1
+                        time.sleep(0.2)
+                
+                # Start spinner in background thread
+                spinner_thread = threading.Thread(target=spinner, daemon=True)
+                spinner_thread.start()
+                
+                # Run list_all_runs command and capture output silently (no live streaming)
                 try:
                     with c.cd(str(project_file.vivado_build_dir)):
-                        result = c.run(f"vivado -mode batch -source {SCRIPT_DIR}/project_tool.tcl -notrace -tclargs  list_all_runs  {project_file.vivado_project_xpr_relative}", pty=True, echo=True, warn=True)
-                        # Check if command failed
-                        if result.exited != 0:
-                            print(f"[!x!] Vivado command failed with exit code: {result.exited}")
-                            if hasattr(result, 'stderr') and result.stderr:
-                                print(f"[!x!] Error output: {result.stderr}")
-                            exit(1)
+                        result = c.run(cmd, pty=False, echo=False, warn=True, hide='stdout')
+                    
+                    # Stop spinner
+                    spinner_active.clear()
+                    spinner_thread.join(timeout=0.5)
+                    print('\r[i] Done!                    \n', flush=True)  # Clear spinner line
+                    
+                    # Check if command failed
+                    if result.exited != 0:
+                        print(f"[!x!] Vivado command failed with exit code: {result.exited}")
+                        if hasattr(result, 'stderr') and result.stderr:
+                            print(f"[!x!] Error output: {result.stderr}")
+                        exit(1)
                 except invoke.exceptions.UnexpectedExit as e:
                     print(f"[!x!] Failed to execute Vivado command")
                     print(f"[!x!] Error: {e}")
@@ -242,14 +269,63 @@ def vivado(c, project, verbose=False, step: List[str] = [], clean=False, force=F
                     print(f"[i] Available runs:")
                     # List all runs first to show what's available
                     with c.cd(str(project_file.vivado_build_dir)):
-                        c.run(f"vivado -mode batch -source {SCRIPT_DIR}/project_tool.tcl -notrace -tclargs  list_all_runs  {project_file.vivado_project_xpr_relative}", pty=True, echo=True)
+                        result = c.run(f"vivado -mode batch -source {SCRIPT_DIR}/project_tool.tcl -notrace -tclargs  list_all_runs  {project_file.vivado_project_xpr_relative}", pty=False, echo=False, warn=True, hide='stdout')
+                        # Parse and display runs in formatted table (same logic as LIST_RUNS case)
+                        output_lines = result.stdout.split('\n') if hasattr(result, 'stdout') else []
+                        runs = []
+                        for line in output_lines:
+                            line_stripped = line.strip()
+                            if line_stripped and '\t' in line_stripped:
+                                parts = line_stripped.split('\t')
+                                if len(parts) >= 2:
+                                    run_name = parts[0].strip()
+                                    props_str = parts[1].strip()
+                                    props = {}
+                                    prop_pattern = r'(\w+)=([^\s]+(?:\s+[^\s=]+)*?)(?=\s+\w+=|$)'
+                                    for match in re.finditer(prop_pattern, props_str):
+                                        key = match.group(1)
+                                        value = match.group(2).strip()
+                                        if key in ['Synth', 'Impl', 'Status', 'Parent']:
+                                            props[key] = value
+                                    run_type = "Unknown"
+                                    synth_val = props.get('Synth', '').strip()
+                                    impl_val = props.get('Impl', '').strip()
+                                    parent = props.get('Parent', '').strip()
+                                    status = props.get('Status', 'Unknown')
+                                    if synth_val in ('1', 'true', 'True'):
+                                        run_type = "synth"
+                                    elif impl_val in ('1', 'true', 'True'):
+                                        run_type = "impl"
+                                    runs.append({
+                                        'name': run_name,
+                                        'type': run_type,
+                                        'status': status,
+                                        'parent': parent if parent else "(none)"
+                                    })
+                        if runs:
+                            print("\n" + "=" * 80)
+                            print("[i] Vivado Runs:")
+                            print("=" * 80)
+                            table = [["Run Name", "Type", "Parent", "Status"]]
+                            for run in runs:
+                                table.append([run['name'], run['type'], run['parent'], run['status']])
+                            print(tabulate(table, headers="firstrow", tablefmt="fancy_grid"))
+                            print("=" * 80 + "\n")
+                        else:
+                            print("\n[i] No runs found.\n")
                     exit(1)
                 
                 # Get child impl runs for the synth run
                 print(f"[i] Getting child implementation runs for synth run: {run_name}")
                 with c.cd(str(project_file.vivado_build_dir)):
-                    result = c.run(f"vivado -mode batch -source {SCRIPT_DIR}/project_tool.tcl -notrace -tclargs  get_child_runs  {project_file.vivado_project_xpr_relative} {run_name}", pty=True, echo=True, hide=True)
+                    result = c.run(f"vivado -mode batch -source {SCRIPT_DIR}/project_tool.tcl -notrace -tclargs  get_child_runs  {project_file.vivado_project_xpr_relative} {run_name}", pty=False, echo=False, warn=True, hide='stdout')
                     child_runs_str = result.stdout.strip() if hasattr(result, 'stdout') else ""
+                    # Filter out any lines that look like Vivado output (contain "INFO:", "WARNING:", etc.)
+                    lines = child_runs_str.split('\n') if child_runs_str else []
+                    child_runs = [line.strip() for line in lines if line.strip() and not any(marker in line for marker in ['INFO:', 'WARNING:', 'ERROR:', 'Copyright', 'Vivado', 'SW Build'])]
+                    # If we got multiple lines, join them; otherwise use the original string
+                    if child_runs:
+                        child_runs_str = ' '.join(child_runs)
                     child_runs = child_runs_str.split() if child_runs_str else []
                 
                 # Reset the synth run
@@ -280,8 +356,14 @@ def vivado(c, project, verbose=False, step: List[str] = [], clean=False, force=F
                 # Get child impl runs for the synth run
                 print(f"[i] Getting child implementation runs for synth run: {run_name}")
                 with c.cd(str(project_file.vivado_build_dir)):
-                    result = c.run(f"vivado -mode batch -source {SCRIPT_DIR}/project_tool.tcl -notrace -tclargs  get_child_runs  {project_file.vivado_project_xpr_relative} {run_name}", pty=True, echo=True, hide=True)
+                    result = c.run(f"vivado -mode batch -source {SCRIPT_DIR}/project_tool.tcl -notrace -tclargs  get_child_runs  {project_file.vivado_project_xpr_relative} {run_name}", pty=False, echo=False, warn=True, hide='stdout')
                     child_runs_str = result.stdout.strip() if hasattr(result, 'stdout') else ""
+                    # Filter out any lines that look like Vivado output (contain "INFO:", "WARNING:", etc.)
+                    lines = child_runs_str.split('\n') if child_runs_str else []
+                    child_runs = [line.strip() for line in lines if line.strip() and not any(marker in line for marker in ['INFO:', 'WARNING:', 'ERROR:', 'Copyright', 'Vivado', 'SW Build'])]
+                    # If we got multiple lines, join them; otherwise use the original string
+                    if child_runs:
+                        child_runs_str = ' '.join(child_runs)
                     child_runs = child_runs_str.split() if child_runs_str else []
                 
                 if not child_runs:
@@ -311,8 +393,14 @@ def vivado(c, project, verbose=False, step: List[str] = [], clean=False, force=F
                 # Get child impl runs for the synth run
                 print(f"[i] Getting child implementation runs for synth run: {run_name}")
                 with c.cd(str(project_file.vivado_build_dir)):
-                    result = c.run(f"vivado -mode batch -source {SCRIPT_DIR}/project_tool.tcl -notrace -tclargs  get_child_runs  {project_file.vivado_project_xpr_relative} {run_name}", pty=True, echo=True, hide=True)
+                    result = c.run(f"vivado -mode batch -source {SCRIPT_DIR}/project_tool.tcl -notrace -tclargs  get_child_runs  {project_file.vivado_project_xpr_relative} {run_name}", pty=False, echo=False, warn=True, hide='stdout')
                     child_runs_str = result.stdout.strip() if hasattr(result, 'stdout') else ""
+                    # Filter out any lines that look like Vivado output (contain "INFO:", "WARNING:", etc.)
+                    lines = child_runs_str.split('\n') if child_runs_str else []
+                    child_runs = [line.strip() for line in lines if line.strip() and not any(marker in line for marker in ['INFO:', 'WARNING:', 'ERROR:', 'Copyright', 'Vivado', 'SW Build'])]
+                    # If we got multiple lines, join them; otherwise use the original string
+                    if child_runs:
+                        child_runs_str = ' '.join(child_runs)
                     child_runs = child_runs_str.split() if child_runs_str else []
                 
                 if not child_runs:
@@ -457,10 +545,10 @@ def vivado(c, project, verbose=False, step: List[str] = [], clean=False, force=F
                     total_files += 1
                 
                 if total_files == 0:
-                    print("✅ No files found to clean")
+                    print("[+] No files found to clean")
                     continue
                 
-                print(f"\n📊 Found:")
+                print(f"\n[i] Found:")
                 print(f"   • {len(jou_files)} journal file(s) (vivado*.jou)")
                 print(f"   • {len(log_files)} log file(s) (vivado*.log)")
                 if dump_file.exists():
@@ -471,9 +559,9 @@ def vivado(c, project, verbose=False, step: List[str] = [], clean=False, force=F
                 
                 # Confirm deletion
                 if not force:
-                    response = input(f"⚠️  Delete {total_files} file(s)? [y/N] ").strip().lower()
+                    response = input(f"[!] Delete {total_files} file(s)? [y/N] ").strip().lower()
                     if response != 'y' and response != 'yes':
-                        print("❌ Cancelled")
+                        print("[!] Cancelled")
                         continue
                 
                 # Delete journal files
@@ -483,9 +571,9 @@ def vivado(c, project, verbose=False, step: List[str] = [], clean=False, force=F
                         file.unlink()
                         deleted_count += 1
                         if verbose:
-                            print(f"   🗑️  Removed: {file.relative_to(project_root)}")
+                            print(f"   [-] Removed: {file.relative_to(project_root)}")
                     except Exception as e:
-                        print(f"   ⚠️  Failed to remove {file.relative_to(project_root)}: {e}")
+                        print(f"   [!] Failed to remove {file.relative_to(project_root)}: {e}")
                 
                 # Delete log files
                 for file in log_files:
@@ -493,9 +581,9 @@ def vivado(c, project, verbose=False, step: List[str] = [], clean=False, force=F
                         file.unlink()
                         deleted_count += 1
                         if verbose:
-                            print(f"   🗑️  Removed: {file.relative_to(project_root)}")
+                            print(f"   [-] Removed: {file.relative_to(project_root)}")
                     except Exception as e:
-                        print(f"   ⚠️  Failed to remove {file.relative_to(project_root)}: {e}")
+                        print(f"   [!] Failed to remove {file.relative_to(project_root)}: {e}")
                 
                 # Delete dump file
                 if dump_file.exists():
@@ -503,9 +591,9 @@ def vivado(c, project, verbose=False, step: List[str] = [], clean=False, force=F
                         dump_file.unlink()
                         deleted_count += 1
                         if verbose:
-                            print(f"   🗑️  Removed: {dump_file.name}")
+                            print(f"   [-] Removed: {dump_file.name}")
                     except Exception as e:
-                        print(f"   ⚠️  Failed to remove {dump_file.name}: {e}")
+                        print(f"   [!] Failed to remove {dump_file.name}: {e}")
                 
                 # Delete def_val file
                 if def_val_file.exists():
@@ -513,14 +601,14 @@ def vivado(c, project, verbose=False, step: List[str] = [], clean=False, force=F
                         def_val_file.unlink()
                         deleted_count += 1
                         if verbose:
-                            print(f"   🗑️  Removed: {def_val_file.name}")
+                            print(f"   [-] Removed: {def_val_file.name}")
                     except Exception as e:
-                        print(f"   ⚠️  Failed to remove {def_val_file.name}: {e}")
+                        print(f"   [!] Failed to remove {def_val_file.name}: {e}")
                 
                 if not verbose:
-                    print(f"🗑️  Removed {deleted_count} file(s)")
+                    print(f"[-] Removed {deleted_count} file(s)")
                 
-                print(f"\n✅ Clean complete - Removed {deleted_count} file(s)")
+                print(f"\n[+] Clean complete - Removed {deleted_count} file(s)")
             
             case VivadoStep.FILE_REMOVE:
                 print(f"[i] Removing file from Vivado project: {project_file.vivado_project_name}")

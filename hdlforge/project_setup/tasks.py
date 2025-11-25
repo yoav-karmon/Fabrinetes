@@ -85,12 +85,13 @@ def help(c):
     print("  1. Set up your project: hdlforge projects")
     print("  2. Generate project with external TCL: hdlforge vivado --generate_prj_with_external_tcl")
     print("  3. Run synthesis: hdlforge vivado --syn <synth_run_name>")
-    print("  4. Run simulation: hdlforge Verilator --step build --step sim")
+    print("  4. Run simulation: hdlforge Verilator --step build --step sim --SimTargetName <target>")
     print()
     print("GETTING HELP:")
-    print("  hdlforge help                    # Show this help")
-    print("  hdlforge --help <task_name>       # Get detailed help for specific task")
-    print("  hdlforge --list                   # List all available tasks")
+    print("  hdlforge                          # Show this help")
+    print("  hdlforge --help                   # Show this help")
+    print("  hdlforge <tool>                   # Show help for specific tool")
+    print("  hdlforge <tool> --help             # Show detailed help for specific tool")
     print()
     print("PROJECT CONFIGURATION:")
     print("  Projects are configured using *.hdlforge.json (or *.hdlforge.toml) files in your working directory.")
@@ -110,12 +111,97 @@ def help(c):
     print("=" * 80)
 
 
+def help_vivado():
+    """
+    Show detailed help for Vivado tool
+    """
+    print("=" * 80)
+    print("HDLFORGE VIVADO - FPGA Development Tasks")
+    print("=" * 80)
+    print()
+    print("DESCRIPTION:")
+    print("  Manage Xilinx Vivado projects, run synthesis, implementation, and bitstream generation.")
+    print()
+    print("USAGE:")
+    print("  hdlforge vivado <--arg1> <value1> <--arg2> <value2> ...")
+    print()
+    print("AVAILABLE STEPS:")
+    print()
+    print("  Project Management:")
+    print("    --generate_prj_with_external_tcl    Generate Vivado project using external TCL script")
+    print("    --write_tcl                         Export Vivado project to TCL")
+    print("    --list_runs                         List all Vivado runs")
+    print()
+    print("  Build Steps (require RUN_NAME):")
+    print("    --syn <RUN_NAME>                    Run synthesis")
+    print("    --impl <RUN_NAME>                   Run implementation")
+    print("    --bit <RUN_NAME>                    Generate bitstream")
+    print("    --all <RUN_NAME>                    Run synthesis, implementation and bitstream generation")
+    print("    --reset_run <RUN_NAME>               Reset a Vivado synth run and all its child impl runs")
+    print()
+    print("  File Management (require --file_path):")
+    print("    --file_add --file_path <PATH>        Add a file to the Vivado project")
+    print("    --file_remove --file_path <PATH>     Remove a file from the Vivado project")
+    print()
+    print("  Other:")
+    print("    --lint                               Run lint")
+    print("    --clean                              Clean build directory")
+    print("    --verbose                            Enable verbose output")
+    print("    -f, --force                          Skip confirmation prompts")
+    print()
+    print("OPTIONS:")
+    print("    --project <PATH>                     Specify project file path (optional)")
+    print("    --step <STEP>                        DEPRECATED: Use direct step flags instead")
+    print()
+    print("=" * 80)
+
+
+def help_verilator():
+    """
+    Show detailed help for Verilator tool
+    """
+    print("=" * 80)
+    print("HDLFORGE VERILATOR - Simulation Tasks")
+    print("=" * 80)
+    print()
+    print("DESCRIPTION:")
+    print("  Compile and run Verilog/SystemVerilog simulations using Verilator compiler with cocotb testbenches.")
+    print()
+    print("USAGE:")
+    print("  hdlforge Verilator <--arg1> <value1> <--arg2> <value2> ...")
+    print()
+    print("REQUIRED ARGUMENTS:")
+    print("    --SimTargetName <TARGET>            Simulation target name (must match target in project config)")
+    print()
+    print("AVAILABLE STEPS:")
+    print("    --step build                         Compile SystemVerilog files to C++ executable")
+    print("    --step sim                           Run Python Cocotb testbench simulation")
+    print()
+    print("OPTIONS:")
+    print("    --project <PATH>                     Specify project file path (optional)")
+    print("    --clean                              Clean build directory before running")
+    print("    --flags <FLAGS>                      Additional Verilator compilation flags")
+    print("    --extra-env <KEY=VAL,KEY2=VAL2>      Additional environment variables")
+    print()
+    print("NOTES:")
+    print("  • SimTargetName must be defined in your project's verilator_settings.sim_targets")
+    print("  • Multiple --step flags can be provided to run multiple steps in sequence")
+    print("  • Build step must be run before sim step")
+    print()
+    print("=" * 80)
+
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='HDLForge - Hardware Development Tool')
+    parser = argparse.ArgumentParser(
+        description='HDLForge - Hardware Development Tool',
+        add_help=False  # We'll handle help manually
+    )
+    parser.add_argument('-h', '--help', action='store_true', help='Show help message')
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
     
     # Verilator subcommand
-    verilator_parser = subparsers.add_parser('Verilator')
+    verilator_parser = subparsers.add_parser('Verilator', add_help=False)
+    verilator_parser.add_argument('-h', '--help', action='store_true', help='Show help message')
     verilator_parser.add_argument('--project', required=False)
     verilator_parser.add_argument('--step', action='append')
     verilator_parser.add_argument('--SimTargetName')
@@ -124,7 +210,8 @@ if __name__ == "__main__":
     verilator_parser.add_argument('--extra-env')
     
     # Vivado subcommand
-    vivado_parser = subparsers.add_parser('vivado')
+    vivado_parser = subparsers.add_parser('vivado', add_help=False)
+    vivado_parser.add_argument('-h', '--help', action='store_true', help='Show help message')
     vivado_parser.add_argument('--project', required=False)
     vivado_parser.add_argument('--step', action='append', help='DEPRECATED: Use direct step flags instead (e.g., --generate_prj_with_external_tcl, --bit)')
     # Add direct step flags
@@ -153,9 +240,31 @@ if __name__ == "__main__":
     # Create invoke Context manually
     c = Context()
     
+    # Handle help at top level
+    if args.help and not args.command:
+        help(c)
+        sys.exit(0)
+    
+    # Handle no command provided - show main help
+    if not args.command:
+        help(c)
+        sys.exit(0)
+    
+    # Handle help for specific tools
     if args.command == 'Verilator':
+        if args.help:
+            help_verilator()
+            sys.exit(0)
+        # Check if required arguments are missing - show help
+        if not args.SimTargetName and not args.help:
+            help_verilator()
+            sys.exit(0)
         Verilator(c, args.project, args.step, args.clean, args.SimTargetName, args.flags, args.extra_env)
     elif args.command == 'vivado':
+        if args.help:
+            help_vivado()
+            sys.exit(0)
+        
         # Collect steps from direct flags and extract run_name
         steps_from_flags = []
         run_name = None
@@ -191,6 +300,11 @@ if __name__ == "__main__":
         # Combine with --step for backward compatibility (--step takes precedence if both are used)
         final_steps = args.step if args.step else steps_from_flags
         
+        # Check if no steps are provided - show help
+        if not final_steps:
+            help_vivado()
+            sys.exit(0)
+        
         # Warn if both are used
         if args.step and steps_from_flags:
             print("[!] Warning: Both --step and direct step flags are specified. Using --step values.")
@@ -223,7 +337,5 @@ if __name__ == "__main__":
         projects(c, getattr(args, 'set_project', None))
     elif args.command == 'help':
         help(c)
-    else:
-        parser.print_help()
 
 

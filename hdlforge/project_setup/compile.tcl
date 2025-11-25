@@ -25,7 +25,9 @@ open_project $project_file
 puts "================== stage = synthesis =================="
 
 if { $stage == "syn"  } {
-  
+    # Get the run object for the synthesis run
+    set run_obj [get_runs $synth_run]
+    
     set progress     [get_property PROGRESS $run_obj ]
     set need_refresh [get_property NEEDS_REFRESH $run_obj ]
     set status       [get_property STATUS $run_obj ]
