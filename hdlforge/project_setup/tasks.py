@@ -22,6 +22,7 @@ import re
 # Import task handlers
 from vivado_tasks import vivado, VivadoStep
 from verilator_tasks import Verilator
+from toolbox_tasks import toolbox
 
 # Import project loader (single source of truth for project data)
 from project_file import ProjectFile
@@ -68,6 +69,11 @@ def help(c):
             "Compile and run Verilog/SystemVerilog simulations",
             "Uses Verilator compiler with cocotb testbenches",
             "Supports multiple simulation targets and environments"
+        ]),
+        ("toolbox", "Network Utilities", [
+            "Send raw network packets",
+            "Support for ARP, ICMP, UDP protocols",
+            "Direct interface access for testing"
         ]),
         ("projects", "Project Management", [
             "Manage HDL project configurations",
@@ -191,6 +197,78 @@ def help_verilator():
     print("=" * 80)
 
 
+def help_toolbox():
+    """
+    Show detailed help for Toolbox tool
+    """
+    print("=" * 80)
+    print("HDLFORGE TOOLBOX - Network Utilities")
+    print("=" * 80)
+    print()
+    print("DESCRIPTION:")
+    print("  Send raw network packets for testing and debugging. Supports ARP, ICMP, and UDP protocols.")
+    print()
+    print("USAGE:")
+    print("  hdlforge toolbox <tool> [--arg1] [<value1>] [--arg2] [<value2>] ...")
+    print()
+    print("AVAILABLE TOOLS:")
+    print()
+    print("  send_raw:")
+    print("    Send raw bytes to network interface")
+    print("    --interface <IFACE>                  Network interface (required)")
+    print("    --data <HEX_STRING>                  Raw data as hex string (required)")
+    print("    --verbose                            Enable verbose output")
+    print()
+    print("  send_arp:")
+    print("    Send ARP packet")
+    print("    --interface <IFACE>                  Network interface (required)")
+    print("    --arp_op <1|2>                       ARP operation: 1=request, 2=reply (default: 1)")
+    print("    --src_mac <MAC>                      Source MAC address (default: 00:00:00:00:00:00)")
+    print("    --src_ip <IP>                        Source IP address (default: 192.168.1.1)")
+    print("    --dst_mac <MAC>                      Destination MAC address (default: 00:00:00:00:00:00)")
+    print("    --dst_ip <IP>                        Destination IP address (default: 192.168.1.2)")
+    print("    --verbose                            Enable verbose output")
+    print()
+    print("  send_icmp:")
+    print("    Send ICMP packet (ping)")
+    print("    --interface <IFACE>                  Network interface (required)")
+    print("    --src_mac <MAC>                      Source MAC address (default: 00:00:00:00:00:00)")
+    print("    --dst_mac <MAC>                      Destination MAC address (default: ff:ff:ff:ff:ff:ff)")
+    print("    --src_ip <IP>                        Source IP address (default: 192.168.1.1)")
+    print("    --dst_ip <IP>                        Destination IP address (default: 192.168.1.2)")
+    print("    --icmp_type <TYPE>                   ICMP type: 8=echo request, 0=echo reply (default: 8)")
+    print("    --icmp_code <CODE>                   ICMP code (default: 0)")
+    print("    --identifier <ID>                    ICMP identifier (default: 0)")
+    print("    --sequence <SEQ>                     ICMP sequence number (default: 0)")
+    print("    --data <HEX_STRING>                   ICMP data payload as hex string")
+    print("    --verbose                            Enable verbose output")
+    print()
+    print("  send_udp:")
+    print("    Send UDP packet")
+    print("    --interface <IFACE>                  Network interface (required)")
+    print("    --src_mac <MAC>                      Source MAC address (default: 00:00:00:00:00:00)")
+    print("    --dst_mac <MAC>                      Destination MAC address (default: ff:ff:ff:ff:ff:ff)")
+    print("    --src_ip <IP>                        Source IP address (default: 192.168.1.1)")
+    print("    --dst_ip <IP>                        Destination IP address (default: 192.168.1.2)")
+    print("    --src_port <PORT>                    Source UDP port (default: 12345)")
+    print("    --dst_port <PORT>                    Destination UDP port (default: 53)")
+    print("    --data <HEX_STRING>                   UDP payload as hex string")
+    print("    --verbose                            Enable verbose output")
+    print()
+    print("EXAMPLES:")
+    print("  hdlforge toolbox send_raw --interface enp175s0f0np0 --data 'deadbeef'")
+    print("  hdlforge toolbox send_arp --interface enp175s0f0np0 --src_ip 192.168.1.10 --dst_ip 192.168.1.1")
+    print("  hdlforge toolbox send_icmp --interface enp175s0f0np0 --src_ip 192.168.1.10 --dst_ip 192.168.1.1")
+    print("  hdlforge toolbox send_udp --interface enp175s0f0np0 --src_ip 192.168.1.10 --dst_ip 192.168.1.1 --dst_port 53")
+    print()
+    print("NOTES:")
+    print("  • Requires root privileges (use sudo)")
+    print("  • Use tcpdump to capture packets: sudo tcpdump -i <interface> -w capture.pcap")
+    print("  • View pcap file: tcpdump -r capture.pcap -X")
+    print()
+    print("=" * 80)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description='HDLForge - Hardware Development Tool',
@@ -230,6 +308,28 @@ if __name__ == "__main__":
     vivado_parser.add_argument('--verbose', action='store_true')
     vivado_parser.add_argument('--clean', action='store_true')
     vivado_parser.add_argument('-f', '--force', action='store_true', help='Skip confirmation prompts')
+    
+    # Toolbox subcommand
+    toolbox_parser = subparsers.add_parser('toolbox', add_help=False)
+    toolbox_parser.add_argument('-h', '--help', action='store_true', help='Show help message')
+    toolbox_parser.add_argument('tool', nargs='?', help='Tool to execute (send_raw, send_arp, send_icmp, send_udp)')
+    toolbox_parser.add_argument('--interface', type=str, help='Network interface name')
+    toolbox_parser.add_argument('--data', type=str, help='Raw data as hex string')
+    toolbox_parser.add_argument('--verbose', action='store_true', help='Enable verbose output')
+    # ARP arguments
+    toolbox_parser.add_argument('--arp_op', type=int, help='ARP operation: 1=request, 2=reply')
+    toolbox_parser.add_argument('--src_mac', type=str, help='Source MAC address')
+    toolbox_parser.add_argument('--dst_mac', type=str, help='Destination MAC address')
+    toolbox_parser.add_argument('--src_ip', type=str, help='Source IP address')
+    toolbox_parser.add_argument('--dst_ip', type=str, help='Destination IP address')
+    # ICMP arguments
+    toolbox_parser.add_argument('--icmp_type', type=int, help='ICMP type: 8=echo request, 0=echo reply')
+    toolbox_parser.add_argument('--icmp_code', type=int, help='ICMP code')
+    toolbox_parser.add_argument('--identifier', type=int, help='ICMP identifier')
+    toolbox_parser.add_argument('--sequence', type=int, help='ICMP sequence number')
+    # UDP arguments
+    toolbox_parser.add_argument('--src_port', type=int, help='Source UDP port')
+    toolbox_parser.add_argument('--dst_port', type=int, help='Destination UDP port')
     
     # Other subcommands
     subparsers.add_parser('projects')
@@ -333,6 +433,32 @@ if __name__ == "__main__":
             exit(1)
         
         vivado(c, args.project, args.verbose, final_steps, args.clean, args.force, run_name, args.file_path)
+    elif args.command == 'toolbox':
+        if args.help:
+            help_toolbox()
+            sys.exit(0)
+        # Check if tool is provided - if not, show help
+        if not args.tool:
+            help_toolbox()
+            sys.exit(0)
+        # Prepare kwargs from args
+        kwargs = {
+            'interface': args.interface,
+            'data': args.data,
+            'verbose': args.verbose,
+            'arp_op': args.arp_op,
+            'src_mac': args.src_mac,
+            'dst_mac': args.dst_mac,
+            'src_ip': args.src_ip,
+            'dst_ip': args.dst_ip,
+            'icmp_type': args.icmp_type,
+            'icmp_code': args.icmp_code,
+            'identifier': args.identifier,
+            'sequence': args.sequence,
+            'src_port': args.src_port,
+            'dst_port': args.dst_port,
+        }
+        toolbox(c, args.tool, **kwargs)
     elif args.command == 'projects':
         projects(c, getattr(args, 'set_project', None))
     elif args.command == 'help':
