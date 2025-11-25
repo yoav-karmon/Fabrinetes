@@ -223,9 +223,11 @@ def help_toolbox():
     print("    Send ARP packet")
     print("    --interface <IFACE>                  Network interface (required)")
     print("    --arp_op <1|2>                       ARP operation: 1=request, 2=reply (default: 1)")
-    print("    --src_mac <MAC>                      Source MAC address (default: 00:00:00:00:00:00)")
+    print("    --eth_dst_mac <MAC>                  Ethernet destination MAC (default: FF:FF:FF:FF:FF:FF for requests)")
+    print("    --eth_src_mac <MAC>                  Ethernet source MAC (default: same as ARP src_mac)")
+    print("    --src_mac <MAC>                      ARP source MAC address (default: 00:00:00:00:00:00)")
     print("    --src_ip <IP>                        Source IP address (default: 192.168.1.1)")
-    print("    --dst_mac <MAC>                      Destination MAC address (default: 00:00:00:00:00:00)")
+    print("    --dst_mac <MAC>                      ARP destination MAC address (default: 00:00:00:00:00:00)")
     print("    --dst_ip <IP>                        Destination IP address (default: 192.168.1.2)")
     print("    --verbose                            Enable verbose output")
     print()
@@ -318,8 +320,10 @@ if __name__ == "__main__":
     toolbox_parser.add_argument('--verbose', action='store_true', help='Enable verbose output')
     # ARP arguments
     toolbox_parser.add_argument('--arp_op', type=int, help='ARP operation: 1=request, 2=reply')
-    toolbox_parser.add_argument('--src_mac', type=str, help='Source MAC address')
-    toolbox_parser.add_argument('--dst_mac', type=str, help='Destination MAC address')
+    toolbox_parser.add_argument('--eth_dst_mac', type=str, help='Ethernet destination MAC address (default: FF:FF:FF:FF:FF:FF for requests)')
+    toolbox_parser.add_argument('--eth_src_mac', type=str, help='Ethernet source MAC address')
+    toolbox_parser.add_argument('--src_mac', type=str, help='ARP source MAC address')
+    toolbox_parser.add_argument('--dst_mac', type=str, help='ARP destination MAC address')
     toolbox_parser.add_argument('--src_ip', type=str, help='Source IP address')
     toolbox_parser.add_argument('--dst_ip', type=str, help='Destination IP address')
     # ICMP arguments
@@ -447,6 +451,8 @@ if __name__ == "__main__":
             'data': args.data,
             'verbose': args.verbose,
             'arp_op': args.arp_op,
+            'eth_dst_mac': args.eth_dst_mac,
+            'eth_src_mac': args.eth_src_mac,
             'src_mac': args.src_mac,
             'dst_mac': args.dst_mac,
             'src_ip': args.src_ip,

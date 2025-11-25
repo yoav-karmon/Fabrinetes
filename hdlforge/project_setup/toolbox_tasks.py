@@ -66,6 +66,42 @@ def print_available_interfaces():
     print()
 
 
+def get_interface_mac(interface: str) -> Optional[str]:
+    """
+    Get MAC address of a network interface
+    
+    Args:
+        interface: Network interface name
+    
+    Returns:
+        MAC address as string (format: "aa:bb:cc:dd:ee:ff") or None if not found
+    """
+    try:
+        # Try reading from /sys/class/net/<interface>/address
+        mac_path = f"/sys/class/net/{interface}/address"
+        if os.path.exists(mac_path):
+            with open(mac_path, 'r') as f:
+                mac = f.read().strip()
+                if mac and len(mac) == 17:  # Valid MAC format: "aa:bb:cc:dd:ee:ff"
+                    return mac.lower()
+        
+        # Fallback: use ip command
+        if subprocess.run(['which', 'ip'], capture_output=True).returncode == 0:
+            result = subprocess.run(['ip', 'link', 'show', interface], capture_output=True, text=True)
+            for line in result.stdout.split('\n'):
+                if 'link/ether' in line:
+                    parts = line.split()
+                    for i, part in enumerate(parts):
+                        if part == 'link/ether' and i + 1 < len(parts):
+                            mac = parts[i + 1]
+                            if len(mac) == 17:
+                                return mac.lower()
+    except Exception:
+        pass
+    
+    return None
+
+
 def send_raw_bytes(interface: str, data: bytes, verbose: bool = False):
     """
     Send raw bytes to a network interface
@@ -351,6 +387,21 @@ def toolbox(c, tool: Optional[str] = None, **kwargs):
         dst_mac = kwargs.get('dst_mac') or "00:00:00:00:00:00"
         dst_ip = kwargs.get('dst_ip') or "192.168.1.2"
         
+        # Ethernet MAC addresses (separate from ARP MAC addresses)
+        # For ARP requests, default to broadcast destination
+        eth_dst_mac = kwargs.get('eth_dst_mac')
+        if not eth_dst_mac:
+            eth_dst_mac = "ff:ff:ff:ff:ff:ff" if op == 1 else dst_mac  # Broadcast for requests, target MAC for replies
+        
+        # Get interface MAC address if eth_src_mac not specified
+        eth_src_mac = kwargs.get('eth_src_mac')
+        if not eth_src_mac:
+            interface_mac = get_interface_mac(interface)
+            if interface_mac:
+                eth_src_mac = interface_mac
+            else:
+                eth_src_mac = src_mac  # Fallback to ARP src_mac if interface MAC not found
+        
         if not interface:
             print("[!x!] Interface must be specified with --interface")
             print_available_interfaces()
@@ -361,6 +412,10 @@ def toolbox(c, tool: Optional[str] = None, **kwargs):
         defaults_used = []
         if kwargs.get('arp_op') is None:
             defaults_used.append(f"arp_op=1 (request)")
+        if not kwargs.get('eth_dst_mac'):
+            defaults_used.append(f"eth_dst_mac={eth_dst_mac} (broadcast for requests)")
+        if not kwargs.get('eth_src_mac'):
+            defaults_used.append(f"eth_src_mac={eth_src_mac} (from interface)")
         if not kwargs.get('src_mac'):
             defaults_used.append(f"src_mac={src_mac}")
         if not kwargs.get('src_ip'):
@@ -379,7 +434,7 @@ def toolbox(c, tool: Optional[str] = None, **kwargs):
         arp_packet = create_arp_packet(op, src_mac, src_ip, dst_mac, dst_ip)
         
         # Create Ethernet header with ARP type
-        eth_header = create_ethernet_header(dst_mac, src_mac, 0x0806)  # 0x0806 = ARP
+        eth_header = create_ethernet_header(eth_dst_mac, eth_src_mac, 0x0806)  # 0x0806 = ARP
         
         # Combine Ethernet header + ARP packet
         full_packet = eth_header + arp_packet
@@ -406,8 +461,24 @@ def toolbox(c, tool: Optional[str] = None, **kwargs):
             print("[i] Usage: hdlforge toolbox send_icmp --interface <interface> [options]")
             sys.exit(1)
         
+        # Get interface MAC address if eth_src_mac not specified
+        eth_src_mac = kwargs.get('eth_src_mac')
+        if not eth_src_mac:
+            interface_mac = get_interface_mac(interface)
+            if interface_mac:
+                eth_src_mac = interface_mac
+            else:
+                eth_src_mac = src_mac  # Fallback to src_mac if interface MAC not found
+        
+        # Ethernet destination MAC
+        eth_dst_mac = kwargs.get('eth_dst_mac') or dst_mac
+        
         # Show defaults if using defaults
         defaults_used = []
+        if not kwargs.get('eth_src_mac'):
+            defaults_used.append(f"eth_src_mac={eth_src_mac} (from interface)")
+        if not kwargs.get('eth_dst_mac'):
+            defaults_used.append(f"eth_dst_mac={eth_dst_mac}")
         if not kwargs.get('src_mac'):
             defaults_used.append(f"src_mac={src_mac}")
         if not kwargs.get('dst_mac'):
@@ -446,7 +517,7 @@ def toolbox(c, tool: Optional[str] = None, **kwargs):
         ip_header = create_ipv4_header(src_ip, dst_ip, 1, len(icmp_packet))  # Protocol 1 = ICMP
         
         # Create Ethernet header
-        eth_header = create_ethernet_header(dst_mac, src_mac, 0x0800)  # 0x0800 = IPv4
+        eth_header = create_ethernet_header(eth_dst_mac, eth_src_mac, 0x0800)  # 0x0800 = IPv4
         
         # Combine all
         full_packet = eth_header + ip_header + icmp_packet
@@ -471,8 +542,24 @@ def toolbox(c, tool: Optional[str] = None, **kwargs):
             print("[i] Usage: hdlforge toolbox send_udp --interface <interface> [options]")
             sys.exit(1)
         
+        # Get interface MAC address if eth_src_mac not specified
+        eth_src_mac = kwargs.get('eth_src_mac')
+        if not eth_src_mac:
+            interface_mac = get_interface_mac(interface)
+            if interface_mac:
+                eth_src_mac = interface_mac
+            else:
+                eth_src_mac = src_mac  # Fallback to src_mac if interface MAC not found
+        
+        # Ethernet destination MAC
+        eth_dst_mac = kwargs.get('eth_dst_mac') or dst_mac
+        
         # Show defaults if using defaults
         defaults_used = []
+        if not kwargs.get('eth_src_mac'):
+            defaults_used.append(f"eth_src_mac={eth_src_mac} (from interface)")
+        if not kwargs.get('eth_dst_mac'):
+            defaults_used.append(f"eth_dst_mac={eth_dst_mac}")
         if not kwargs.get('src_mac'):
             defaults_used.append(f"src_mac={src_mac}")
         if not kwargs.get('dst_mac'):
@@ -507,7 +594,7 @@ def toolbox(c, tool: Optional[str] = None, **kwargs):
         ip_header = create_ipv4_header(src_ip, dst_ip, 17, len(udp_packet))  # Protocol 17 = UDP
         
         # Create Ethernet header
-        eth_header = create_ethernet_header(dst_mac, src_mac, 0x0800)  # 0x0800 = IPv4
+        eth_header = create_ethernet_header(eth_dst_mac, eth_src_mac, 0x0800)  # 0x0800 = IPv4
         
         # Combine all
         full_packet = eth_header + ip_header + udp_packet
