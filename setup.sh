@@ -50,6 +50,18 @@ Notes:
     after successful container start or restart operations
   - Use '--setup-x11' flag to manually run X11 setup for a running container
 
+Troubleshooting:
+  If image pull fails, try the following:
+  1. Enable and start Docker service:
+     sudo systemctl enable docker
+     sudo systemctl start docker
+  2. Check Docker daemon is running:
+     docker ps
+  3. If container exists but is stopped, start it:
+     $0 -f <config_file> --start
+  4. If you need to use an existing local image instead:
+     $0 -f <config_file> --image-reuse --run
+
 Examples:
   # Pull image and run container
   $0 -f config.toml --image-pull --run
