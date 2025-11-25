@@ -28,5 +28,12 @@ _*/
 venv/
 cursor_send_box/
 
+# Vivado temporary files
+.Xil/
+*.jou
+*.backup.jou
+vivado_console_log_*.txt
+vivado_test_log_*.txt
+
 # Git doesn't track empty directories by default
 # To track an empty directory, add a .gitkeep file inside it
