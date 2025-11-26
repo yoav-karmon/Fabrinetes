@@ -22,7 +22,8 @@ import re
 # Import task handlers
 from vivado_tasks import vivado, VivadoStep
 from verilator_tasks import Verilator
-from toolbox_tasks import toolbox
+from network_tasks import network
+from vcd_analyzer_tasks import vcd_analyzer
 
 # Import project loader (single source of truth for project data)
 from project_file import ProjectFile
@@ -70,10 +71,10 @@ def help(c):
             "Uses Verilator compiler with cocotb testbenches",
             "Supports multiple simulation targets and environments"
         ]),
-        ("toolbox", "Network Utilities", [
-            "Send raw network packets",
-            "Support for ARP, ICMP, UDP protocols",
-            "Direct interface access for testing"
+        ("tool", "Utility Tools", [
+            "Network utilities: send raw packets (ARP, ICMP, UDP)",
+            "VCD analyzer: analyze waveform files",
+            "Use --network or --vcd_analyzer to select tool"
         ]),
         ("projects", "Project Management", [
             "Manage HDL project configurations",
@@ -197,74 +198,93 @@ def help_verilator():
     print("=" * 80)
 
 
-def help_toolbox():
+def help_tool():
     """
-    Show detailed help for Toolbox tool
+    Show detailed help for Tool command
     """
     print("=" * 80)
-    print("HDLFORGE TOOLBOX - Network Utilities")
+    print("HDLFORGE TOOL - Utility Tools")
     print("=" * 80)
     print()
     print("DESCRIPTION:")
-    print("  Send raw network packets for testing and debugging. Supports ARP, ICMP, and UDP protocols.")
+    print("  Utility tools for network testing and VCD waveform analysis.")
     print()
     print("USAGE:")
-    print("  hdlforge toolbox <tool> [--arg1] [<value1>] [--arg2] [<value2>] ...")
+    print("  hdlforge tool --network <tool> [--arg1] [<value1>] [--arg2] [<value2>] ...")
+    print("  hdlforge tool --vcd_analyzer [--arg1] [<value1>] [--arg2] [<value2>] ...")
     print()
     print("AVAILABLE TOOLS:")
     print()
-    print("  send_raw:")
-    print("    Send raw bytes to network interface")
-    print("    --interface <IFACE>                  Network interface (required)")
-    print("    --data <HEX_STRING>                  Raw data as hex string (required)")
-    print("    --verbose                            Enable verbose output")
+    print("  --network:")
+    print("    Network utilities for sending raw packets")
     print()
-    print("  send_arp:")
-    print("    Send ARP packet")
-    print("    --interface <IFACE>                  Network interface (required)")
-    print("    --arp_op <1|2>                       ARP operation: 1=request, 2=reply (default: 1)")
-    print("    --eth_dst_mac <MAC>                  Ethernet destination MAC (default: FF:FF:FF:FF:FF:FF for requests)")
-    print("    --eth_src_mac <MAC>                  Ethernet source MAC (default: same as ARP src_mac)")
-    print("    --src_mac <MAC>                      ARP source MAC address (default: 00:00:00:00:00:00)")
-    print("    --src_ip <IP>                        Source IP address (default: 192.168.1.1)")
-    print("    --dst_mac <MAC>                      ARP destination MAC address (default: 00:00:00:00:00:00)")
-    print("    --dst_ip <IP>                        Destination IP address (default: 192.168.1.2)")
-    print("    --verbose                            Enable verbose output")
+    print("    send_raw:")
+    print("      Send raw bytes to network interface")
+    print("      --interface <IFACE>                  Network interface (required)")
+    print("      --data <HEX_STRING>                  Raw data as hex string (required)")
+    print("      --verbose                            Enable verbose output")
     print()
-    print("  send_icmp:")
-    print("    Send ICMP packet (ping)")
-    print("    --interface <IFACE>                  Network interface (required)")
-    print("    --src_mac <MAC>                      Source MAC address (default: 00:00:00:00:00:00)")
-    print("    --dst_mac <MAC>                      Destination MAC address (default: ff:ff:ff:ff:ff:ff)")
-    print("    --src_ip <IP>                        Source IP address (default: 192.168.1.1)")
-    print("    --dst_ip <IP>                        Destination IP address (default: 192.168.1.2)")
-    print("    --icmp_type <TYPE>                   ICMP type: 8=echo request, 0=echo reply (default: 8)")
-    print("    --icmp_code <CODE>                   ICMP code (default: 0)")
-    print("    --identifier <ID>                    ICMP identifier (default: 0)")
-    print("    --sequence <SEQ>                     ICMP sequence number (default: 0)")
-    print("    --data <HEX_STRING>                   ICMP data payload as hex string")
-    print("    --verbose                            Enable verbose output")
+    print("    send_arp:")
+    print("      Send ARP packet")
+    print("      --interface <IFACE>                  Network interface (required)")
+    print("      --arp_op <1|2>                       ARP operation: 1=request, 2=reply (default: 1)")
+    print("      --eth_dst_mac <MAC>                  Ethernet destination MAC (default: FF:FF:FF:FF:FF:FF for requests)")
+    print("      --eth_src_mac <MAC>                  Ethernet source MAC (default: interface MAC)")
+    print("      --src_mac <MAC>                      ARP source MAC address (default: 00:00:00:00:00:00)")
+    print("      --src_ip <IP>                        Source IP address (default: 192.168.1.1)")
+    print("      --dst_mac <MAC>                      ARP destination MAC address (default: 00:00:00:00:00:00)")
+    print("      --dst_ip <IP>                        Destination IP address (default: 192.168.1.2)")
+    print("      --verbose                            Enable verbose output")
     print()
-    print("  send_udp:")
-    print("    Send UDP packet")
-    print("    --interface <IFACE>                  Network interface (required)")
-    print("    --src_mac <MAC>                      Source MAC address (default: 00:00:00:00:00:00)")
-    print("    --dst_mac <MAC>                      Destination MAC address (default: ff:ff:ff:ff:ff:ff)")
-    print("    --src_ip <IP>                        Source IP address (default: 192.168.1.1)")
-    print("    --dst_ip <IP>                        Destination IP address (default: 192.168.1.2)")
-    print("    --src_port <PORT>                    Source UDP port (default: 12345)")
-    print("    --dst_port <PORT>                    Destination UDP port (default: 53)")
-    print("    --data <HEX_STRING>                   UDP payload as hex string")
-    print("    --verbose                            Enable verbose output")
+    print("    send_icmp:")
+    print("      Send ICMP packet (ping)")
+    print("      --interface <IFACE>                  Network interface (required)")
+    print("      --eth_dst_mac <MAC>                  Ethernet destination MAC (default: FF:FF:FF:FF:FF:FF)")
+    print("      --eth_src_mac <MAC>                  Ethernet source MAC (default: interface MAC)")
+    print("      --src_ip <IP>                        Source IP address (default: 192.168.1.1)")
+    print("      --dst_ip <IP>                        Destination IP address (default: 192.168.1.2)")
+    print("      --icmp_type <TYPE>                   ICMP type: 8=echo request, 0=echo reply (default: 8)")
+    print("      --icmp_code <CODE>                   ICMP code (default: 0)")
+    print("      --identifier <ID>                    ICMP identifier (default: 0)")
+    print("      --sequence <SEQ>                     ICMP sequence number (default: 0)")
+    print("      --data <HEX_STRING>                   ICMP data payload as hex string")
+    print("      --verbose                            Enable verbose output")
+    print()
+    print("    send_udp:")
+    print("      Send UDP packet")
+    print("      --interface <IFACE>                  Network interface (required)")
+    print("      --eth_dst_mac <MAC>                  Ethernet destination MAC (default: FF:FF:FF:FF:FF:FF)")
+    print("      --eth_src_mac <MAC>                  Ethernet source MAC (default: interface MAC)")
+    print("      --src_ip <IP>                        Source IP address (default: 192.168.1.1)")
+    print("      --dst_ip <IP>                        Destination IP address (default: 192.168.1.2)")
+    print("      --src_port <PORT>                    Source UDP port (default: 12345)")
+    print("      --dst_port <PORT>                    Destination UDP port (default: 53)")
+    print("      --data <HEX_STRING>                   UDP payload as hex string")
+    print("      --verbose                            Enable verbose output")
+    print()
+    print("  --vcd_analyzer:")
+    print("    VCD waveform analysis tool")
+    print("    --vcd <FILE>                           VCD file to analyze (required)")
+    print("    --timestamps                           List all timestamps")
+    print("    --signalnames [PATTERN]                List signal names (optionally filter with wildcard pattern)")
+    print("    --signal <SIGNAL>                      Signal name (supports wildcards)")
+    print("    --time <TIMESTAMP> [TIMESTAMP ...]     Filter signal results by timestamp(s)")
+    print("    --edge [N]                             Show signal edges after --time timestamp (optional N limits edges)")
+    print("    --count <N>                            Show N values starting from --time timestamp")
+    print("    --verbose                              Show all VCD data including var_id and signal definition")
+    print("    --radix <hex|int|bin>                  Output format for calc_value")
     print()
     print("EXAMPLES:")
-    print("  hdlforge toolbox send_raw --interface enp175s0f0np0 --data 'deadbeef'")
-    print("  hdlforge toolbox send_arp --interface enp175s0f0np0 --src_ip 192.168.1.10 --dst_ip 192.168.1.1")
-    print("  hdlforge toolbox send_icmp --interface enp175s0f0np0 --src_ip 192.168.1.10 --dst_ip 192.168.1.1")
-    print("  hdlforge toolbox send_udp --interface enp175s0f0np0 --src_ip 192.168.1.10 --dst_ip 192.168.1.1 --dst_port 53")
+    print("  hdlforge tool --network send_raw --interface enp175s0f0np0 --data 'deadbeef'")
+    print("  hdlforge tool --network send_arp --interface enp175s0f0np0 --src_ip 192.168.1.10 --dst_ip 192.168.1.1")
+    print("  hdlforge tool --network send_icmp --interface enp175s0f0np0 --src_ip 192.168.1.10 --dst_ip 192.168.1.1")
+    print("  hdlforge tool --network send_udp --interface enp175s0f0np0 --src_ip 192.168.1.10 --dst_ip 192.168.1.1 --dst_port 53")
+    print("  hdlforge tool --vcd_analyzer --vcd waveform.vcd --timestamps")
+    print("  hdlforge tool --vcd_analyzer --vcd waveform.vcd --signalnames")
+    print("  hdlforge tool --vcd_analyzer --vcd waveform.vcd --signal 'top.signal' --time 1000")
     print()
     print("NOTES:")
-    print("  • Requires root privileges (use sudo)")
+    print("  • Network tools require root privileges (use sudo)")
     print("  • Use tcpdump to capture packets: sudo tcpdump -i <interface> -w capture.pcap")
     print("  • View pcap file: tcpdump -r capture.pcap -X")
     print()
@@ -311,29 +331,40 @@ if __name__ == "__main__":
     vivado_parser.add_argument('--clean', action='store_true')
     vivado_parser.add_argument('-f', '--force', action='store_true', help='Skip confirmation prompts')
     
-    # Toolbox subcommand
-    toolbox_parser = subparsers.add_parser('toolbox', add_help=False)
-    toolbox_parser.add_argument('-h', '--help', action='store_true', help='Show help message')
-    toolbox_parser.add_argument('tool', nargs='?', help='Tool to execute (send_raw, send_arp, send_icmp, send_udp)')
-    toolbox_parser.add_argument('--interface', type=str, help='Network interface name')
-    toolbox_parser.add_argument('--data', type=str, help='Raw data as hex string')
-    toolbox_parser.add_argument('--verbose', action='store_true', help='Enable verbose output')
+    # Tool subcommand
+    tool_parser = subparsers.add_parser('tool', add_help=False)
+    tool_parser.add_argument('-h', '--help', action='store_true', help='Show help message')
+    tool_parser.add_argument('--network', type=str, nargs='?', const='', help='Network tool (send_raw, send_arp, send_icmp, send_udp)')
+    tool_parser.add_argument('--vcd_analyzer', action='store_true', help='VCD analyzer tool')
+    # Network arguments
+    tool_parser.add_argument('--interface', type=str, help='Network interface name')
+    tool_parser.add_argument('--data', type=str, help='Raw data as hex string')
+    tool_parser.add_argument('--verbose', action='store_true', help='Enable verbose output')
     # ARP arguments
-    toolbox_parser.add_argument('--arp_op', type=int, help='ARP operation: 1=request, 2=reply')
-    toolbox_parser.add_argument('--eth_dst_mac', type=str, help='Ethernet destination MAC address (default: FF:FF:FF:FF:FF:FF for requests)')
-    toolbox_parser.add_argument('--eth_src_mac', type=str, help='Ethernet source MAC address')
-    toolbox_parser.add_argument('--src_mac', type=str, help='ARP source MAC address')
-    toolbox_parser.add_argument('--dst_mac', type=str, help='ARP destination MAC address')
-    toolbox_parser.add_argument('--src_ip', type=str, help='Source IP address')
-    toolbox_parser.add_argument('--dst_ip', type=str, help='Destination IP address')
+    tool_parser.add_argument('--arp_op', type=int, help='ARP operation: 1=request, 2=reply')
+    tool_parser.add_argument('--eth_dst_mac', type=str, help='Ethernet destination MAC address (default: FF:FF:FF:FF:FF:FF for requests)')
+    tool_parser.add_argument('--eth_src_mac', type=str, help='Ethernet source MAC address')
+    tool_parser.add_argument('--src_mac', type=str, help='ARP source MAC address')
+    tool_parser.add_argument('--dst_mac', type=str, help='ARP destination MAC address')
+    tool_parser.add_argument('--src_ip', type=str, help='Source IP address')
+    tool_parser.add_argument('--dst_ip', type=str, help='Destination IP address')
     # ICMP arguments
-    toolbox_parser.add_argument('--icmp_type', type=int, help='ICMP type: 8=echo request, 0=echo reply')
-    toolbox_parser.add_argument('--icmp_code', type=int, help='ICMP code')
-    toolbox_parser.add_argument('--identifier', type=int, help='ICMP identifier')
-    toolbox_parser.add_argument('--sequence', type=int, help='ICMP sequence number')
+    tool_parser.add_argument('--icmp_type', type=int, help='ICMP type: 8=echo request, 0=echo reply')
+    tool_parser.add_argument('--icmp_code', type=int, help='ICMP code')
+    tool_parser.add_argument('--identifier', type=int, help='ICMP identifier')
+    tool_parser.add_argument('--sequence', type=int, help='ICMP sequence number')
     # UDP arguments
-    toolbox_parser.add_argument('--src_port', type=int, help='Source UDP port')
-    toolbox_parser.add_argument('--dst_port', type=int, help='Destination UDP port')
+    tool_parser.add_argument('--src_port', type=int, help='Source UDP port')
+    tool_parser.add_argument('--dst_port', type=int, help='Destination UDP port')
+    # VCD analyzer arguments
+    tool_parser.add_argument('--vcd', type=str, help='VCD file to analyze')
+    tool_parser.add_argument('--timestamps', action='store_true', help='List all timestamps')
+    tool_parser.add_argument('--signalnames', nargs='?', const='*', help='List signal names (optionally filter with wildcard pattern)')
+    tool_parser.add_argument('--signal', type=str, help='Signal name (supports wildcards)')
+    tool_parser.add_argument('--time', nargs='+', help='Filter signal results by timestamp(s)')
+    tool_parser.add_argument('--edge', nargs='?', const=True, type=int, help='Show signal edges after --time timestamp')
+    tool_parser.add_argument('--radix', choices=['hex', 'int', 'bin'], help='Output format for calc_value')
+    tool_parser.add_argument('--count', type=int, help='Show count number of values starting from --time timestamp')
     
     # Other subcommands
     subparsers.add_parser('projects')
@@ -437,34 +468,56 @@ if __name__ == "__main__":
             exit(1)
         
         vivado(c, args.project, args.verbose, final_steps, args.clean, args.force, run_name, args.file_path)
-    elif args.command == 'toolbox':
+    elif args.command == 'tool':
         if args.help:
-            help_toolbox()
+            help_tool()
             sys.exit(0)
-        # Check if tool is provided - if not, show help
-        if not args.tool:
-            help_toolbox()
+        
+        # Check which tool is selected
+        if args.network is not None:
+            # Network tool selected
+            network_tool = args.network if args.network else None
+            if not network_tool:
+                help_tool()
+                sys.exit(0)
+            # Prepare kwargs from args
+            kwargs = {
+                'interface': args.interface,
+                'data': args.data,
+                'verbose': args.verbose,
+                'arp_op': args.arp_op,
+                'eth_dst_mac': args.eth_dst_mac,
+                'eth_src_mac': args.eth_src_mac,
+                'src_mac': args.src_mac,
+                'dst_mac': args.dst_mac,
+                'src_ip': args.src_ip,
+                'dst_ip': args.dst_ip,
+                'icmp_type': args.icmp_type,
+                'icmp_code': args.icmp_code,
+                'identifier': args.identifier,
+                'sequence': args.sequence,
+                'src_port': args.src_port,
+                'dst_port': args.dst_port,
+            }
+            network(c, network_tool, **kwargs)
+        elif args.vcd_analyzer:
+            # VCD analyzer tool selected
+            kwargs = {
+                'vcd': args.vcd,
+                'timestamps': args.timestamps,
+                'signalnames': args.signalnames,
+                'signal': args.signal,
+                'time': args.time,
+                'edge': args.edge,
+                'verbose': args.verbose,
+                'radix': args.radix,
+                'count': args.count,
+            }
+            vcd_analyzer(c, **kwargs)
+        else:
+            # No tool selected, show help
+            help_tool()
             sys.exit(0)
-        # Prepare kwargs from args
-        kwargs = {
-            'interface': args.interface,
-            'data': args.data,
-            'verbose': args.verbose,
-            'arp_op': args.arp_op,
-            'eth_dst_mac': args.eth_dst_mac,
-            'eth_src_mac': args.eth_src_mac,
-            'src_mac': args.src_mac,
-            'dst_mac': args.dst_mac,
-            'src_ip': args.src_ip,
-            'dst_ip': args.dst_ip,
-            'icmp_type': args.icmp_type,
-            'icmp_code': args.icmp_code,
-            'identifier': args.identifier,
-            'sequence': args.sequence,
-            'src_port': args.src_port,
-            'dst_port': args.dst_port,
-        }
-        toolbox(c, args.tool, **kwargs)
     elif args.command == 'projects':
         projects(c, getattr(args, 'set_project', None))
     elif args.command == 'help':
