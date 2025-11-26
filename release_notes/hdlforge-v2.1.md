@@ -2,7 +2,7 @@
 
 **Release Date:** 2025-11-25  
 **Git Tag:** hdlforge-v2.1  
-**Commit:** ee94b1e4cd53860c3f5135e44b580ba4c0a43570
+**Commit:** 312cf2bc9f8bc1689011487180c735fd53de807f
 
 ## Summary
 This release focuses on improving the HDLForge help system, enhancing Vivado task handling, and adding a new toolbox tool for network packet testing. The help system now provides consistent, comprehensive documentation across all commands. Vivado tasks have been improved with better output handling, progress indicators, and bug fixes for run management. A new toolbox tool has been added for sending raw network packets (ARP, ICMP, UDP) for testing and debugging purposes.
@@ -51,6 +51,7 @@ This release focuses on improving the HDLForge help system, enhancing Vivado tas
 - Fixed JSON file merging and saving after Vivado property updates
 - Improved XPR to JSON update logic to preserve HDLForge properties and handle files not in XPR
 - Fixed table display formatting in `print_task_args`
+- Fixed symlink path resolution in bash wrapper to work correctly when called via symlink (e.g., `/usr/local/bin/hdlforge`)
 
 ## Removed
 - Removed emojis from code output (replaced with text markers: `[+]`, `[!]`, `[-]`, `[i]`)
@@ -84,6 +85,7 @@ None - this is a backward-compatible release.
 - Network interface detection reads from `/proc/net/dev` or uses `ip` command
 - Interface MAC address detection reads from `/sys/class/net/<interface>/address` or uses `ip` command
 - Toolbox requires root privileges for raw socket operations
+- Bash wrapper uses `readlink -f` to resolve symlinks for correct path detection when called via symlink
 
 ## Related Commits
 - ad68080 - Update HDLForge help system and improve Vivado task handling
@@ -103,7 +105,7 @@ None - this is a backward-compatible release.
 - `hdlforge/project_setup/vivado_tasks.py` - Vivado task improvements and fixes
 - `hdlforge/project_setup/toolbox_tasks.py` - New toolbox tool for network packet sending
 - `hdlforge/project_setup/display.py` - Compact table display improvements
-- `hdlforge/project_setup/hdlforge` - Bash wrapper with updated help format (includes toolbox)
+- `hdlforge/project_setup/hdlforge` - Bash wrapper with updated help format (includes toolbox) and symlink resolution fix
 - `hdlforge/project_setup/compile.tcl` - Fixed run_obj variable initialization
 - `hdlforge/project_setup/test_toolbox.sh` - Test script for toolbox functionality
 
