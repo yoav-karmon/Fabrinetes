@@ -105,7 +105,34 @@ if [ -z "$REPO_TOP" ]; then
     exit 1
 fi
 
-TASKS_DIR="$(dirname "$0")"
+# Resolve script path even if called via symlink
+# $0 might be a symlink (e.g., /usr/local/bin/hdlforge -> /path/to/actual/script)
+SCRIPT_PATH="$0"
+# Try to resolve symlink using readlink -f (canonicalize path)
+if command -v readlink >/dev/null 2>&1; then
+    # readlink -f resolves all symlinks and gives absolute path
+    RESOLVED="$(readlink -f "$SCRIPT_PATH" 2>/dev/null)"
+    if [ -n "$RESOLVED" ] && [ -f "$RESOLVED" ]; then
+        SCRIPT_PATH="$RESOLVED"
+    else
+        # Fallback: try readlink without -f (may be relative)
+        RESOLVED="$(readlink "$SCRIPT_PATH" 2>/dev/null)"
+        if [ -n "$RESOLVED" ]; then
+            # If relative, make it absolute based on symlink location
+            if [ "${RESOLVED#/}" = "$RESOLVED" ]; then
+                RESOLVED="$(dirname "$SCRIPT_PATH")/$RESOLVED"
+            fi
+            if [ -f "$RESOLVED" ]; then
+                SCRIPT_PATH="$RESOLVED"
+            fi
+        fi
+    fi
+fi
+# Get absolute path if not already absolute
+if [ "${SCRIPT_PATH#/}" = "$SCRIPT_PATH" ]; then
+    SCRIPT_PATH="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)/$(basename "$SCRIPT_PATH")"
+fi
+TASKS_DIR="$(dirname "$SCRIPT_PATH")"
 shell_id="$PPID"
 timestamp=$(date +%Y%m%d)
 time=$(date +%H%M%S)
