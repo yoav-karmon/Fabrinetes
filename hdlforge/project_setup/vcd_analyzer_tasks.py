@@ -28,8 +28,8 @@ def vcd_analyzer(c, **kwargs):
     
     # Validate required arguments
     if not hasattr(args, 'vcd') or not args.vcd:
-        print("[!x!] VCD file must be specified with --vcd")
-        print("[i] Usage: hdlforge tool --vcd_analyzer --vcd <vcd_file> [options]")
+        print("[!x!] VCD file must be specified with --vcdfilename")
+        print("[i] Usage: hdlforge --tool vcd_analyzer --vcdfilename <vcd_file> [options]")
         sys.exit(1)
     
     try:
@@ -40,9 +40,9 @@ def vcd_analyzer(c, **kwargs):
             for timestamp in analyzer.get_all_timestamps():
                 print(timestamp)
         
-        if hasattr(args, 'signalnames') and args.signalnames is not None:
+        if hasattr(args, 'find_signal_names') and args.find_signal_names is not None:
             # Filter signal names with wildcard pattern using cache
-            pattern = args.signalnames
+            pattern = args.find_signal_names
             filtered_signals = analyzer.find_signals(pattern)
             
             if filtered_signals:

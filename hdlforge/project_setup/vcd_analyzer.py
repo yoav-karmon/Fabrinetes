@@ -617,7 +617,7 @@ def verify_arguments(args: argparse.Namespace, analyzer: VCDAnalyzer) -> None:
     active_commands: int = 0
     if args.timestamps:
         active_commands += 1
-    if args.signalnames is not None:
+    if args.find_signal_names is not None:
         active_commands += 1
     if args.signal is not None:
         active_commands += 1
@@ -627,8 +627,8 @@ def verify_arguments(args: argparse.Namespace, analyzer: VCDAnalyzer) -> None:
         conflicting_args: List[str] = []
         if args.timestamps:
             conflicting_args.append('--timestamps')
-        if args.signalnames is not None:
-            conflicting_args.append('--signalnames')
+        if args.find_signal_names is not None:
+            conflicting_args.append('--find_signal_names')
         if args.signal is not None:
             conflicting_args.append('--signal')
         
@@ -676,9 +676,9 @@ def main() -> None:
     """Main function with argparse setup and command dispatch."""
     parser: argparse.ArgumentParser = argparse.ArgumentParser(description='VCD Analysis Tool')
     
-    parser.add_argument('--vcd', required=True, help='VCD file to analyze')
+    parser.add_argument('--vcdfilename', required=True, help='VCD file to analyze')
     parser.add_argument('--timestamps', action='store_true', help='List all timestamps')
-    parser.add_argument('--signalnames', nargs='?', const='*', help='List signal names (optionally filter with wildcard pattern)')
+    parser.add_argument('--find_signal_names', nargs='?', const='*', help='List signal names (optionally filter with wildcard pattern)')
     parser.add_argument('--signal', help='Signal name (supports wildcards)')
     parser.add_argument('--time', nargs='+', help='Filter signal results by timestamp(s) - can specify multiple timestamps')
     parser.add_argument('--edge', nargs='?', const=True, type=int, help='Show signal edges after the --time timestamp (requires --time). Optional number limits edges shown (must be >0)')
@@ -689,7 +689,7 @@ def main() -> None:
     args: argparse.Namespace = parser.parse_args()
     
     try:
-        analyzer: VCDAnalyzer = VCDAnalyzer(args.vcd)
+        analyzer: VCDAnalyzer = VCDAnalyzer(args.vcdfilename)
         verify_arguments(args, analyzer)
         
         
@@ -697,9 +697,9 @@ def main() -> None:
             for timestamp in analyzer.get_all_timestamps():
                 print(timestamp)
         
-        if args.signalnames is not None:
+        if args.find_signal_names is not None:
             # Filter signal names with wildcard pattern using cache
-            pattern: str = args.signalnames
+            pattern: str = args.find_signal_names
             filtered_signals: List[str] = analyzer.find_signals(pattern)
             
             if filtered_signals:
@@ -819,7 +819,7 @@ def main() -> None:
             pass
     
     except FileNotFoundError:
-        print(f"Error: File '{args.vcd}' not found")
+        print(f"Error: File '{args.vcdfilename}' not found")
         sys.exit(1)
     except Exception as e:
         print(f"Error: {e}")
