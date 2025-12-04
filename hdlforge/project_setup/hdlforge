@@ -11,23 +11,27 @@ if [ $# -lt 1 ]; then
     if [ -n "$hdlforge_files" ] && [ $(echo "$hdlforge_files" | wc -l) -eq 1 ]; then
         # Exactly one file found - use it in the example
         example_file=$(echo "$hdlforge_files" | head -1)
-        echo "Usage: hdlforge [--project <project_file>] <tool> [--arg value --arg value...]"
+        echo "Usage: hdlforge [--project <project_file>] --tool <tool_name> [--arg value --arg value...]"
         echo ""
         echo "Available Tools:"
-        echo "  vivado      - FPGA Development Tasks (synthesis, implementation, bitstream)"
-        echo "  Verilator   - Simulation Tasks (build, sim)"
-        echo "  tool        - Utility Tools (network, VCD analyzer)"
-        echo "  projects    - Project Management"
+        echo "  vivado        - FPGA Development Tasks (synthesis, implementation, bitstream)"
+        echo "  Verilator     - Simulation Tasks (build, sim)"
+        echo "  network       - Network Utilities (raw packet sending)"
+        echo "  vcd_analyzer  - VCD Waveform Analysis"
+        echo "  tsharkWrapper - tshark Command Wrapper"
+        echo "  projects      - Project Management"
         echo ""
         echo "hdlforge auto-detected project file in the current directory: $example_file"
     else
-        echo "Usage: hdlforge [--project <project_file>] <tool> [--arg value --arg value...]"
+        echo "Usage: hdlforge [--project <project_file>] --tool <tool_name> [--arg value --arg value...]"
         echo ""
         echo "Available Tools:"
-        echo "  vivado      - FPGA Development Tasks (synthesis, implementation, bitstream)"
-        echo "  Verilator   - Simulation Tasks (build, sim)"
-        echo "  tool        - Utility Tools (network, VCD analyzer)"
-        echo "  projects    - Project Management"
+        echo "  vivado        - FPGA Development Tasks (synthesis, implementation, bitstream)"
+        echo "  Verilator     - Simulation Tasks (build, sim)"
+        echo "  network       - Network Utilities (raw packet sending)"
+        echo "  vcd_analyzer  - VCD Waveform Analysis"
+        echo "  tsharkWrapper - tshark Command Wrapper"
+        echo "  projects      - Project Management"
         echo ""
         echo "Note: --project is optional. If omitted, hdlforge will auto-detect *.hdlforge.json or *.hdlforge.toml files in the current directory."
     fi
@@ -87,6 +91,33 @@ else
         PROJECT_FILENAME=""
     fi
 fi
+
+# Resolve --vcdfilename path to absolute BEFORE changing directories
+# This ensures relative paths work from the invocation location
+ORIG_DIR="$(pwd)"
+args_resolved=()
+skip_next=false
+for i in $(seq 1 $#); do
+    if [ "$skip_next" = true ]; then
+        skip_next=false
+        continue
+    fi
+    arg="${!i}"
+    next_i=$((i + 1))
+    if [[ "$arg" == "--vcdfilename" && $next_i -le $# ]]; then
+        vcd_arg="${!next_i}"
+        skip_next=true
+        # Resolve to absolute path if relative
+        if [[ "$vcd_arg" != /* ]]; then
+            vcd_arg="$(cd "$ORIG_DIR" && realpath "$vcd_arg" 2>/dev/null || echo "$ORIG_DIR/$vcd_arg")"
+        fi
+        args_resolved+=("--vcdfilename" "$vcd_arg")
+    else
+        args_resolved+=("$arg")
+    fi
+done
+# Replace positional parameters with resolved args
+set -- "${args_resolved[@]}"
 
 # Change to project directory (only if PROJECT_DIR is set)
 if [ -n "$PROJECT_DIR" ]; then
@@ -159,7 +190,110 @@ if [ $# -eq 0 ]; then
     set -- --list
 fi
 
+# Check if --tool is in arguments (LLM orchestration mode detection)
+has_tool_flag=false
+for arg in "$@"; do
+    if [[ "$arg" == "--tool" ]]; then
+        has_tool_flag=true
+        break
+    fi
+done
+
+# If --tool is not present, enter LLM orchestration mode
+if [ "$has_tool_flag" = false ]; then
+    # Find project JSON file
+    PROJECT_JSON=""
+    
+    # First, try to use PROJECT_FILE_PATH if it was set
+    if [ -n "$PROJECT_FILE_PATH" ] && [[ "$PROJECT_FILE_PATH" == *.hdlforge.json ]]; then
+        PROJECT_JSON="$PROJECT_FILE_PATH"
+    else
+        # Look for project files in current directory or PROJECT_DIR
+        SEARCH_DIR="${PROJECT_DIR:-$(pwd)}"
+        cd "$SEARCH_DIR" || {
+            echo "[!x!] Failed to cd into directory: $SEARCH_DIR"
+            exit 1
+        }
+        
+        hdlforge_json_files=$(ls *.hdlforge.json 2>/dev/null | head -1)
+        if [ -n "$hdlforge_json_files" ]; then
+            PROJECT_JSON="$(realpath "$hdlforge_json_files")"
+        fi
+    fi
+    
+    if [ -z "$PROJECT_JSON" ] || [ ! -f "$PROJECT_JSON" ]; then
+        echo "[!x!] Error: --tool is required or project JSON file not found"
+        echo "[i] Usage: hdlforge --tool <tool_name> [options...]"
+        echo "[i] Or provide a project JSON file (*.hdlforge.json) with LLM_orch configuration"
+        exit 1
+    fi
+    
+    # Check if jq is available
+    if ! command -v jq >/dev/null 2>&1; then
+        echo "[!x!] Error: jq is required for LLM orchestration mode"
+        echo "[i] Install jq: sudo apt-get install jq (or equivalent for your system)"
+        exit 1
+    fi
+    
+    # Build JSON path from remaining arguments (skip flags like --project)
+    # Convert args to JSON path: LLM_orch.arg1.arg2.arg3...
+    JSON_PATH_PARTS=()
+    skip_next=false
+    for arg in "$@"; do
+        # Skip --project and its value if present
+        if [[ "$arg" == "--project" ]]; then
+            skip_next=true
+            continue
+        fi
+        if [ "$skip_next" = true ]; then
+            skip_next=false
+            continue
+        fi
+        # Only add non-flag arguments (those that don't start with --)
+        if [[ "$arg" != --* ]]; then
+            JSON_PATH_PARTS+=("$arg")
+        fi
+    done
+    
+    # Build final JSON path
+    if [ ${#JSON_PATH_PARTS[@]} -eq 0 ]; then
+        echo "[!x!] Error: No command path provided"
+        echo "[i] Usage: hdlforge <path> [path...] (e.g., hdlforge arp_test sim build)"
+        exit 1
+    fi
+    
+    JSON_PATH="LLM_orch.$(IFS='.'; echo "${JSON_PATH_PARTS[*]}")"
+    
+    # Fetch command from JSON using jq
+    COMMAND=$(jq -r ".${JSON_PATH}" "$PROJECT_JSON" 2>/dev/null)
+    
+    if [ -z "$COMMAND" ] || [ "$COMMAND" = "null" ] || [ "$COMMAND" = "" ]; then
+        echo "[!x!] Error: Command not found at JSON path: ${JSON_PATH}"
+        echo "[i] Available paths in LLM_orch:"
+        jq -r '.LLM_orch | paths(scalars) as $p | "  LLM_orch." + ($p | join("."))' "$PROJECT_JSON" 2>/dev/null | head -20 || echo "  (unable to parse JSON structure)"
+        exit 1
+    fi
+    
+    # Execute the fetched command recursively
+    echo "[i] LLM Orchestration Mode: ${JSON_PATH}"
+    echo "[i] Executing: ${COMMAND}"
+    echo ""
+    
+    # Change to project directory (where JSON file is located) before executing
+    PROJECT_JSON_DIR="$(dirname "$PROJECT_JSON")"
+    cd "$PROJECT_JSON_DIR" || {
+        echo "[!x!] Failed to cd into project directory: $PROJECT_JSON_DIR"
+        exit 1
+    }
+    
+    # Execute the command (recursive call to hdlforge)
+    # Use eval to properly handle quoted arguments in the command
+    eval "$COMMAND"
+    exit $?
+fi
+
 echo "--------$(pwd): $Date: $timestamp Time $time------" >> "$log_file"
 
 # Execute the command
+exec python3 "$TASKS_DIR/tasks.py" "$@" | tee -a "$log_file"
 exec python3 "$TASKS_DIR/tasks.py" "$@" | tee -a "$log_file"

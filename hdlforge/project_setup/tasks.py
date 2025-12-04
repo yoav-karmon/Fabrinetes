@@ -24,23 +24,88 @@ from vivado_tasks import vivado, VivadoStep
 from verilator_tasks import Verilator
 from network_tasks import network
 from vcd_analyzer_tasks import vcd_analyzer
+from tshark_wrapper_tasks import tshark_wrapper, help_tshark_wrapper
 
 # Import project loader (single source of truth for project data)
 from project_file import ProjectFile
 
 
-def projects(c, set_project=None):
-    """List available projects in the current directory."""
-    # Use ProjectFile to detect project files
-    try:
-        project_file = ProjectFile(None)
-        print(f"Found project: {project_file.project_file_path.name}")
-        print(f"  Path: {project_file.project_file_path}")
-        print(f"  Project Name: {project_file.project_name}")
-        print(f"  Working Path: {project_file.working_path}")
-    except SystemExit:
-        # ProjectFile will handle error messages
-        pass
+def projects(c, set_project=None, list_projects=False):
+    """
+    List available projects recursively from the current directory.
+    
+    Args:
+        c: Invoke context
+        set_project: Optional project to set (not currently used)
+        list_projects: If True, recursively search and list all projects. If False, show single detected project.
+    """
+    ROOT_FOLDER = Path(os.environ.get("ROOT_FOLDER", os.getcwd()))
+    
+    if list_projects:
+        # Recursively search for all project files
+        json_files = list(ROOT_FOLDER.rglob("*.hdlforge.json"))
+        toml_files = list(ROOT_FOLDER.rglob("*.hdlforge.toml"))
+        project_files = json_files + toml_files
+        
+        if len(project_files) == 0:
+            print("❌ No .hdlforge.json or .hdlforge.toml files found recursively from current directory")
+            print(f"  Searched from: {ROOT_FOLDER}")
+            return
+        
+        # Collect project information
+        projects_data = []
+        for project_file_path in project_files:
+            try:
+                # Temporarily set ROOT_FOLDER to project file directory for ProjectFile to work
+                original_root = os.environ.get("ROOT_FOLDER")
+                os.environ["ROOT_FOLDER"] = str(project_file_path.parent)
+                
+                project_file = ProjectFile(project_file_path)
+                projects_data.append({
+                    'file': project_file_path.name,
+                    'name': project_file.project_name or '(unnamed)',
+                    'path': str(project_file_path),
+                    'working_path': str(project_file.working_path)
+                })
+                
+                # Restore original ROOT_FOLDER
+                if original_root:
+                    os.environ["ROOT_FOLDER"] = original_root
+                else:
+                    os.environ.pop("ROOT_FOLDER", None)
+            except (SystemExit, Exception) as e:
+                # If we can't load the project, still show the file
+                projects_data.append({
+                    'file': project_file_path.name,
+                    'name': '(error loading)',
+                    'path': str(project_file_path),
+                    'working_path': str(project_file_path.parent)
+                })
+        
+        # Display in formatted table
+        if projects_data:
+            print(f"Found {len(projects_data)} project(s) recursively from {ROOT_FOLDER}:\n")
+            headers = ['Project File', 'Project Name', 'Path', 'Working Directory']
+            rows = []
+            for proj in projects_data:
+                rows.append([
+                    proj['file'],
+                    proj['name'],
+                    proj['path'],
+                    proj['working_path']
+                ])
+            print(tabulate(rows, headers=headers, tablefmt='grid'))
+    else:
+        # Show single detected project (current behavior)
+        try:
+            project_file = ProjectFile(None)
+            print(f"Found project: {project_file.project_file_path.name}")
+            print(f"  Path: {project_file.project_file_path}")
+            print(f"  Project Name: {project_file.project_name}")
+            print(f"  Working Path: {project_file.working_path}")
+        except SystemExit:
+            # ProjectFile will handle error messages
+            pass
 
 
 def help(c):
@@ -74,7 +139,8 @@ def help(c):
         ("tool", "Utility Tools", [
             "Network utilities: send raw packets (ARP, ICMP, UDP)",
             "VCD analyzer: analyze waveform files",
-            "Use --network or --vcd_analyzer to select tool"
+            "tshark wrapper: wrapper for tshark commands",
+            "Use --network, --vcd_analyzer, or --tsharkWrapper to select tool"
         ]),
         ("projects", "Project Management", [
             "Manage HDL project configurations",
@@ -89,16 +155,15 @@ def help(c):
         print()
     
     print("QUICK START:")
-    print("  1. Set up your project: hdlforge projects")
-    print("  2. Generate project with external TCL: hdlforge vivado --generate_prj_with_external_tcl")
-    print("  3. Run synthesis: hdlforge vivado --syn <synth_run_name>")
-    print("  4. Run simulation: hdlforge Verilator --step build --step sim --SimTargetName <target>")
+    print("  1. Set up your project: hdlforge --tool projects")
+    print("  2. Generate project with external TCL: hdlforge --tool vivado --generate_prj_with_external_tcl")
+    print("  3. Run synthesis: hdlforge --tool vivado --syn <synth_run_name>")
+    print("  4. Run simulation: hdlforge --tool Verilator --step build --step sim --SimTargetName <target>")
     print()
     print("GETTING HELP:")
     print("  hdlforge                          # Show this help")
     print("  hdlforge --help                   # Show this help")
-    print("  hdlforge <tool>                   # Show help for specific tool")
-    print("  hdlforge <tool> --help             # Show detailed help for specific tool")
+    print("  hdlforge --tool <tool> --help      # Show detailed help for specific tool")
     print()
     print("PROJECT CONFIGURATION:")
     print("  Projects are configured using *.hdlforge.json (or *.hdlforge.toml) files in your working directory.")
@@ -130,7 +195,7 @@ def help_vivado():
     print("  Manage Xilinx Vivado projects, run synthesis, implementation, and bitstream generation.")
     print()
     print("USAGE:")
-    print("  hdlforge vivado <--arg1> <value1> <--arg2> <value2> ...")
+    print("  hdlforge --tool vivado <--arg1> <value1> <--arg2> <value2> ...")
     print()
     print("AVAILABLE STEPS:")
     print()
@@ -158,7 +223,6 @@ def help_vivado():
     print()
     print("OPTIONS:")
     print("    --project <PATH>                     Specify project file path (optional)")
-    print("    --step <STEP>                        DEPRECATED: Use direct step flags instead")
     print()
     print("=" * 80)
 
@@ -175,7 +239,7 @@ def help_verilator():
     print("  Compile and run Verilog/SystemVerilog simulations using Verilator compiler with cocotb testbenches.")
     print()
     print("USAGE:")
-    print("  hdlforge Verilator <--arg1> <value1> <--arg2> <value2> ...")
+    print("  hdlforge --tool Verilator <--arg1> <value1> <--arg2> <value2> ...")
     print()
     print("REQUIRED ARGUMENTS:")
     print("    --SimTargetName <TARGET>            Simulation target name (must match target in project config)")
@@ -198,20 +262,19 @@ def help_verilator():
     print("=" * 80)
 
 
-def help_tool():
+def help_network():
     """
-    Show detailed help for Tool command
+    Show detailed help for Network tool
     """
     print("=" * 80)
-    print("HDLFORGE TOOL - Utility Tools")
+    print("HDLFORGE NETWORK - Network Utilities")
     print("=" * 80)
     print()
     print("DESCRIPTION:")
-    print("  Utility tools for network testing and VCD waveform analysis.")
+    print("  Network utilities for sending raw packets (ARP, ICMP, UDP).")
     print()
     print("USAGE:")
-    print("  hdlforge tool --network <tool> [--arg1] [<value1>] [--arg2] [<value2>] ...")
-    print("  hdlforge tool --vcd_analyzer [--arg1] [<value1>] [--arg2] [<value2>] ...")
+    print("  hdlforge --tool network --cmd <command> [--arg1] [<value1>] [--arg2] [<value2>] ...")
     print()
     print("AVAILABLE TOOLS:")
     print()
@@ -262,11 +325,32 @@ def help_tool():
     print("      --data <HEX_STRING>                   UDP payload as hex string")
     print("      --verbose                            Enable verbose output")
     print()
-    print("  --vcd_analyzer:")
-    print("    VCD waveform analysis tool")
-    print("    --vcd <FILE>                           VCD file to analyze (required)")
+    print("NOTES:")
+    print("  • Network tools require root privileges (use sudo)")
+    print("  • Use tcpdump to capture packets: sudo tcpdump -i <interface> -w capture.pcap")
+    print("  • View pcap file: tcpdump -r capture.pcap -X")
+    print()
+    print("=" * 80)
+
+
+def help_vcd_analyzer():
+    """
+    Show detailed help for VCD Analyzer tool
+    """
+    print("=" * 80)
+    print("HDLFORGE VCD_ANALYZER - VCD Waveform Analysis")
+    print("=" * 80)
+    print()
+    print("DESCRIPTION:")
+    print("  Professional VCD waveform analysis tool with signal hierarchy support.")
+    print()
+    print("USAGE:")
+    print("  hdlforge --tool vcd_analyzer [--arg1] [<value1>] [--arg2] [<value2>] ...")
+    print()
+    print("ARGUMENTS:")
+    print("    --vcdfilename <FILE>                   VCD file to analyze (required)")
     print("    --timestamps                           List all timestamps")
-    print("    --signalnames [PATTERN]                List signal names (optionally filter with wildcard pattern)")
+    print("    --find_signal_names [PATTERN]                List signal names (optionally filter with wildcard pattern)")
     print("    --signal <SIGNAL>                      Signal name (supports wildcards)")
     print("    --time <TIMESTAMP> [TIMESTAMP ...]     Filter signal results by timestamp(s)")
     print("    --edge [N]                             Show signal edges after --time timestamp (optional N limits edges)")
@@ -275,18 +359,38 @@ def help_tool():
     print("    --radix <hex|int|bin>                  Output format for calc_value")
     print()
     print("EXAMPLES:")
-    print("  hdlforge tool --network send_raw --interface enp175s0f0np0 --data 'deadbeef'")
-    print("  hdlforge tool --network send_arp --interface enp175s0f0np0 --src_ip 192.168.1.10 --dst_ip 192.168.1.1")
-    print("  hdlforge tool --network send_icmp --interface enp175s0f0np0 --src_ip 192.168.1.10 --dst_ip 192.168.1.1")
-    print("  hdlforge tool --network send_udp --interface enp175s0f0np0 --src_ip 192.168.1.10 --dst_ip 192.168.1.1 --dst_port 53")
-    print("  hdlforge tool --vcd_analyzer --vcd waveform.vcd --timestamps")
-    print("  hdlforge tool --vcd_analyzer --vcd waveform.vcd --signalnames")
-    print("  hdlforge tool --vcd_analyzer --vcd waveform.vcd --signal 'top.signal' --time 1000")
+    print("  hdlforge --tool vcd_analyzer --vcdfilename waveform.vcd --timestamps")
+    print("  hdlforge --tool vcd_analyzer --vcdfilename waveform.vcd --find_signal_names")
+    print("  hdlforge --tool vcd_analyzer --vcdfilename waveform.vcd --signal 'top.signal' --time 1000")
+    print()
+    print("=" * 80)
+
+
+def help_projects():
+    """
+    Show detailed help for Projects tool
+    """
+    print("=" * 80)
+    print("HDLFORGE PROJECTS - Project Management")
+    print("=" * 80)
+    print()
+    print("DESCRIPTION:")
+    print("  List all HDL project configurations recursively from the current directory.")
+    print()
+    print("USAGE:")
+    print("  hdlforge --tool projects --list")
+    print()
+    print("OPTIONS:")
+    print("    --list                                 List all available projects recursively from current directory")
+    print("    --verbose                              Enable verbose output")
+    print()
+    print("EXAMPLES:")
+    print("  hdlforge --tool projects --list          List all projects recursively from current directory")
     print()
     print("NOTES:")
-    print("  • Network tools require root privileges (use sudo)")
-    print("  • Use tcpdump to capture packets: sudo tcpdump -i <interface> -w capture.pcap")
-    print("  • View pcap file: tcpdump -r capture.pcap -X")
+    print("  • Searches recursively for all *.hdlforge.json and *.hdlforge.toml files")
+    print("  • Displays results in a formatted table with project file, name, and path")
+    print("  • Projects are configured using *.hdlforge.json or *.hdlforge.toml files")
     print()
     print("=" * 80)
 
@@ -297,78 +401,80 @@ if __name__ == "__main__":
         add_help=False  # We'll handle help manually
     )
     parser.add_argument('-h', '--help', action='store_true', help='Show help message')
-    subparsers = parser.add_subparsers(dest='command', help='Available commands')
+    parser.add_argument('--project', required=False, help='Project file path')
+    parser.add_argument('--tool', required=False, choices=['vivado', 'Verilator', 'network', 'vcd_analyzer', 'tsharkWrapper', 'projects'], 
+                       help='Tool to execute: vivado, Verilator, network, vcd_analyzer, tsharkWrapper, or projects (required)')
     
-    # Verilator subcommand
-    verilator_parser = subparsers.add_parser('Verilator', add_help=False)
-    verilator_parser.add_argument('-h', '--help', action='store_true', help='Show help message')
-    verilator_parser.add_argument('--project', required=False)
-    verilator_parser.add_argument('--step', action='append')
-    verilator_parser.add_argument('--SimTargetName')
-    verilator_parser.add_argument('--clean', action='store_true')
-    verilator_parser.add_argument('--flags')
-    verilator_parser.add_argument('--extra-env')
+    # Common arguments for all tools
+    parser.add_argument('--verbose', action='store_true', help='Enable verbose output')
     
-    # Vivado subcommand
-    vivado_parser = subparsers.add_parser('vivado', add_help=False)
-    vivado_parser.add_argument('-h', '--help', action='store_true', help='Show help message')
-    vivado_parser.add_argument('--project', required=False)
-    vivado_parser.add_argument('--step', action='append', help='DEPRECATED: Use direct step flags instead (e.g., --generate_prj_with_external_tcl, --bit)')
-    # Add direct step flags
-    vivado_parser.add_argument('--list_runs', action='store_true', help='List all Vivado runs')
-    vivado_parser.add_argument('--reset_run', type=str, metavar='RUN_NAME', help='Reset a Vivado synth run and all its child impl runs')
-    vivado_parser.add_argument('--syn', type=str, metavar='RUN_NAME', help='Run synthesis')
-    vivado_parser.add_argument('--impl', type=str, metavar='RUN_NAME', help='Run implementation')
-    vivado_parser.add_argument('--bit', type=str, metavar='RUN_NAME', help='Generate bitstream')
-    vivado_parser.add_argument('--lint', action='store_true', help='Run lint')
-    vivado_parser.add_argument('--all', type=str, metavar='RUN_NAME', help='Run synthesis, implementation and bitstream generation')
-    vivado_parser.add_argument('--generate_prj_with_external_tcl', action='store_true', help='Generate Vivado project using external TCL script')
-    vivado_parser.add_argument('--write_tcl', action='store_true', help='Export Vivado project to TCL')
-    vivado_parser.add_argument('--file_remove', action='store_true', help='Remove a file from the Vivado project')
-    vivado_parser.add_argument('--file_add', action='store_true', help='Add a file to the Vivado project')
-    vivado_parser.add_argument('--file_path', type=str, help='File path (required for file_remove and file_add)')
-    vivado_parser.add_argument('--verbose', action='store_true')
-    vivado_parser.add_argument('--clean', action='store_true')
-    vivado_parser.add_argument('-f', '--force', action='store_true', help='Skip confirmation prompts')
+    # Verilator arguments
+    parser.add_argument('--step', action='append', help='Verilator step (build, sim)')
+    parser.add_argument('--SimTargetName', help='Simulation target name')
+    parser.add_argument('--clean', action='store_true', help='Clean before building')
+    parser.add_argument('--flags', help='Additional flags')
+    parser.add_argument('--extra-env', help='Extra environment variables')
     
-    # Tool subcommand
-    tool_parser = subparsers.add_parser('tool', add_help=False)
-    tool_parser.add_argument('-h', '--help', action='store_true', help='Show help message')
-    tool_parser.add_argument('--network', type=str, nargs='?', const='', help='Network tool (send_raw, send_arp, send_icmp, send_udp)')
-    tool_parser.add_argument('--vcd_analyzer', action='store_true', help='VCD analyzer tool')
-    # Network arguments
-    tool_parser.add_argument('--interface', type=str, help='Network interface name')
-    tool_parser.add_argument('--data', type=str, help='Raw data as hex string')
-    tool_parser.add_argument('--verbose', action='store_true', help='Enable verbose output')
+    # Vivado arguments
+    parser.add_argument('--list_runs', action='store_true', help='List all Vivado runs')
+    parser.add_argument('--reset_run', type=str, metavar='RUN_NAME', help='Reset a Vivado synth run and all its child impl runs')
+    parser.add_argument('--syn', type=str, metavar='RUN_NAME', help='Run synthesis')
+    parser.add_argument('--impl', type=str, metavar='RUN_NAME', help='Run implementation')
+    parser.add_argument('--bit', type=str, metavar='RUN_NAME', help='Generate bitstream')
+    parser.add_argument('--lint', action='store_true', help='Run lint')
+    parser.add_argument('--all', type=str, metavar='RUN_NAME', help='Run synthesis, implementation and bitstream generation')
+    parser.add_argument('--generate_prj_with_external_tcl', action='store_true', help='Generate Vivado project using external TCL script')
+    parser.add_argument('--write_tcl', action='store_true', help='Export Vivado project to TCL')
+    parser.add_argument('--file_remove', action='store_true', help='Remove a file from the Vivado project')
+    parser.add_argument('--file_add', action='store_true', help='Add a file to the Vivado project')
+    parser.add_argument('--file_path', type=str, help='File path (required for file_remove and file_add)')
+    parser.add_argument('-f', '--force', action='store_true', help='Skip confirmation prompts')
+    
+    # Network tool arguments
+    parser.add_argument('--cmd', type=str, choices=['send_raw', 'send_arp', 'send_icmp', 'send_udp'], 
+                       help='Network command: send_raw, send_arp, send_icmp, send_udp')
+    parser.add_argument('--interface', type=str, help='Network interface name')
+    parser.add_argument('--data', type=str, help='Raw data as hex string')
     # ARP arguments
-    tool_parser.add_argument('--arp_op', type=int, help='ARP operation: 1=request, 2=reply')
-    tool_parser.add_argument('--eth_dst_mac', type=str, help='Ethernet destination MAC address (default: FF:FF:FF:FF:FF:FF for requests)')
-    tool_parser.add_argument('--eth_src_mac', type=str, help='Ethernet source MAC address')
-    tool_parser.add_argument('--src_mac', type=str, help='ARP source MAC address')
-    tool_parser.add_argument('--dst_mac', type=str, help='ARP destination MAC address')
-    tool_parser.add_argument('--src_ip', type=str, help='Source IP address')
-    tool_parser.add_argument('--dst_ip', type=str, help='Destination IP address')
+    parser.add_argument('--arp_op', type=int, help='ARP operation: 1=request, 2=reply')
+    parser.add_argument('--eth_dst_mac', type=str, help='Ethernet destination MAC address (default: FF:FF:FF:FF:FF:FF for requests)')
+    parser.add_argument('--eth_src_mac', type=str, help='Ethernet source MAC address')
+    parser.add_argument('--src_mac', type=str, help='ARP source MAC address')
+    parser.add_argument('--dst_mac', type=str, help='ARP destination MAC address')
+    parser.add_argument('--src_ip', type=str, help='Source IP address')
+    parser.add_argument('--dst_ip', type=str, help='Destination IP address')
     # ICMP arguments
-    tool_parser.add_argument('--icmp_type', type=int, help='ICMP type: 8=echo request, 0=echo reply')
-    tool_parser.add_argument('--icmp_code', type=int, help='ICMP code')
-    tool_parser.add_argument('--identifier', type=int, help='ICMP identifier')
-    tool_parser.add_argument('--sequence', type=int, help='ICMP sequence number')
+    parser.add_argument('--icmp_type', type=int, help='ICMP type: 8=echo request, 0=echo reply')
+    parser.add_argument('--icmp_code', type=int, help='ICMP code')
+    parser.add_argument('--identifier', type=int, help='ICMP identifier')
+    parser.add_argument('--sequence', type=int, help='ICMP sequence number')
     # UDP arguments
-    tool_parser.add_argument('--src_port', type=int, help='Source UDP port')
-    tool_parser.add_argument('--dst_port', type=int, help='Destination UDP port')
-    # VCD analyzer arguments
-    tool_parser.add_argument('--vcd', type=str, help='VCD file to analyze')
-    tool_parser.add_argument('--timestamps', action='store_true', help='List all timestamps')
-    tool_parser.add_argument('--signalnames', nargs='?', const='*', help='List signal names (optionally filter with wildcard pattern)')
-    tool_parser.add_argument('--signal', type=str, help='Signal name (supports wildcards)')
-    tool_parser.add_argument('--time', nargs='+', help='Filter signal results by timestamp(s)')
-    tool_parser.add_argument('--edge', nargs='?', const=True, type=int, help='Show signal edges after --time timestamp')
-    tool_parser.add_argument('--radix', choices=['hex', 'int', 'bin'], help='Output format for calc_value')
-    tool_parser.add_argument('--count', type=int, help='Show count number of values starting from --time timestamp')
+    parser.add_argument('--src_port', type=int, help='Source UDP port')
+    parser.add_argument('--dst_port', type=int, help='Destination UDP port')
     
-    # Other subcommands
-    subparsers.add_parser('projects')
-    subparsers.add_parser('help')
+    # VCD analyzer arguments
+    parser.add_argument('--vcdfilename', type=str, help='VCD file to analyze')
+    parser.add_argument('--timestamps', action='store_true', help='List all timestamps')
+    parser.add_argument('--find_signal_names', nargs='?', const='*', help='List signal names (optionally filter with wildcard pattern)')
+    parser.add_argument('--signal', type=str, help='Signal name (supports wildcards)')
+    parser.add_argument('--time', nargs='+', help='Filter signal results by timestamp(s)')
+    parser.add_argument('--edge', nargs='?', const=True, type=int, help='Show signal edges after --time timestamp')
+    parser.add_argument('--radix', choices=['hex', 'int', 'bin'], help='Output format for calc_value')
+    parser.add_argument('--count', type=int, help='Show count number of values starting from --time timestamp')
+    
+    # tshark wrapper arguments
+    parser.add_argument('--pcap', type=str, help='PCAP file to analyze')
+    parser.add_argument('--format', type=str, choices=['to_plain_text'], default='to_plain_text',
+                       help='Output format (default: to_plain_text)')
+    parser.add_argument('--frame', type=int, help='Display only this frame number')
+    parser.add_argument('--frame_start', type=int, help='Start frame number for range (requires --frame_end)')
+    parser.add_argument('--frame_end', type=int, help='End frame number for range (requires --frame_start)')
+    parser.add_argument('--frame_list', type=str, help='Comma-separated list of frame numbers to display')
+    parser.add_argument('--skip', type=int, help='Skip this many packets before displaying')
+    parser.add_argument('--tsharkArgsAppend', type=str, help='Additional raw tshark arguments to append')
+    
+    # Projects tool arguments
+    parser.add_argument('--list', action='store_true', help='List all available projects recursively from current directory')
     
     args = parser.parse_args()
     
@@ -376,29 +482,54 @@ if __name__ == "__main__":
     c = Context()
     
     # Handle help at top level
-    if args.help and not args.command:
-        help(c)
-        sys.exit(0)
-    
-    # Handle no command provided - show main help
-    if not args.command:
-        help(c)
-        sys.exit(0)
-    
-    # Handle help for specific tools
-    if args.command == 'Verilator':
-        if args.help:
-            help_verilator()
+    if args.help:
+        if args.tool:
+            # Show tool-specific help
+            if args.tool == 'vivado':
+                help_vivado()
+            elif args.tool == 'Verilator':
+                help_verilator()
+            elif args.tool == 'network':
+                help_network()
+            elif args.tool == 'vcd_analyzer':
+                help_vcd_analyzer()
+            elif args.tool == 'tsharkWrapper':
+                help_tshark_wrapper()
+            elif args.tool == 'projects':
+                help_projects()
             sys.exit(0)
+        else:
+            help(c)
+            sys.exit(0)
+    
+    # Handle no tool provided - show main help and exit
+    if not args.tool:
+        print("[!x!] Error: --tool is required")
+        print()
+        help(c)
+        sys.exit(1)
+    
+    # Handle command dispatch based on --tool
+    if args.tool == 'Verilator':
         # Check if required arguments are missing - show help
         if not args.SimTargetName and not args.help:
             help_verilator()
             sys.exit(0)
         Verilator(c, args.project, args.step, args.clean, args.SimTargetName, args.flags, args.extra_env)
-    elif args.command == 'vivado':
-        if args.help:
+    elif args.tool == 'vivado':
+        # Check if deprecated --step is used with vivado
+        if args.step:
+            print("[!x!] Error: --step is deprecated for vivado tool")
+            print("[i] Use direct flags instead:")
+            print("    --syn <RUN_NAME>     Run synthesis")
+            print("    --impl <RUN_NAME>    Run implementation")
+            print("    --bit <RUN_NAME>     Generate bitstream")
+            print("    --all <RUN_NAME>     Run all steps")
+            print("    --lint               Run lint")
+            print("    --list_runs          List all runs")
+            print()
             help_vivado()
-            sys.exit(0)
+            sys.exit(1)
         
         # Collect steps from direct flags and extract run_name
         steps_from_flags = []
@@ -432,30 +563,23 @@ if __name__ == "__main__":
         if args.file_add:
             steps_from_flags.append('file_add')
         
-        # Combine with --step for backward compatibility (--step takes precedence if both are used)
-        final_steps = args.step if args.step else steps_from_flags
+        final_steps = steps_from_flags
         
         # Check if no steps are provided - show help
         if not final_steps:
             help_vivado()
             sys.exit(0)
         
-        # Warn if both are used
-        if args.step and steps_from_flags:
-            print("[!] Warning: Both --step and direct step flags are specified. Using --step values.")
-            # If using --step, we still need run_name from positional args for backward compatibility
-            # But for now, let's require it to be passed via --step syntax or flag values
-        
         # Validate that run_name is provided when needed
         requires_run_name = any(step in ['reset_run', 'syn', 'impl', 'bit', 'all'] for step in final_steps)
         if requires_run_name and not run_name:
             print("[!x!] Run name is required for reset_run, syn, impl, bit, or all commands")
             print("[i] Usage examples:")
-            print("    hdlforge vivado --reset_run <synth_run_name>")
-            print("    hdlforge vivado --syn <synth_run_name>")
-            print("    hdlforge vivado --impl <synth_run_name>")
-            print("    hdlforge vivado --bit <synth_run_name>")
-            print("    hdlforge vivado --all <synth_run_name>")
+            print("    hdlforge --tool vivado --reset_run <synth_run_name>")
+            print("    hdlforge --tool vivado --syn <synth_run_name>")
+            print("    hdlforge --tool vivado --impl <synth_run_name>")
+            print("    hdlforge --tool vivado --bit <synth_run_name>")
+            print("    hdlforge --tool vivado --all <synth_run_name>")
             exit(1)
         
         # Validate that file_path is provided when needed
@@ -463,64 +587,112 @@ if __name__ == "__main__":
         if requires_file_path and not args.file_path:
             print("[!x!] File path is required for file_remove and file_add commands")
             print("[i] Usage examples:")
-            print("    hdlforge vivado --file_remove --file_path <file_path>")
-            print("    hdlforge vivado --file_add --file_path <file_path>")
+            print("    hdlforge --tool vivado --file_remove --file_path <file_path>")
+            print("    hdlforge --tool vivado --file_add --file_path <file_path>")
             exit(1)
         
         vivado(c, args.project, args.verbose, final_steps, args.clean, args.force, run_name, args.file_path)
-    elif args.command == 'tool':
-        if args.help:
-            help_tool()
+    elif args.tool == 'network':
+        # Network tool selected
+        if not args.cmd:
+            help_network()
+            sys.exit(0)
+        # Prepare kwargs from args
+        kwargs = {
+            'interface': args.interface,
+            'data': args.data,
+            'verbose': args.verbose,
+            'arp_op': args.arp_op,
+            'eth_dst_mac': args.eth_dst_mac,
+            'eth_src_mac': args.eth_src_mac,
+            'src_mac': args.src_mac,
+            'dst_mac': args.dst_mac,
+            'src_ip': args.src_ip,
+            'dst_ip': args.dst_ip,
+            'icmp_type': args.icmp_type,
+            'icmp_code': args.icmp_code,
+            'identifier': args.identifier,
+            'sequence': args.sequence,
+            'src_port': args.src_port,
+            'dst_port': args.dst_port,
+        }
+        network(c, args.cmd, **kwargs)
+    elif args.tool == 'vcd_analyzer':
+        # VCD analyzer tool selected
+        kwargs = {
+            'vcd': args.vcdfilename,
+            'timestamps': args.timestamps,
+            'find_signal_names': args.find_signal_names,
+            'signal': args.signal,
+            'time': args.time,
+            'edge': args.edge,
+            'verbose': args.verbose,
+            'radix': args.radix,
+            'count': args.count,
+        }
+        vcd_analyzer(c, **kwargs)
+    elif args.tool == 'tsharkWrapper':
+        # tshark wrapper tool
+        if not args.pcap:
+            help_tshark_wrapper()
             sys.exit(0)
         
-        # Check which tool is selected
-        if args.network is not None:
-            # Network tool selected
-            network_tool = args.network if args.network else None
-            if not network_tool:
-                help_tool()
-                sys.exit(0)
-            # Prepare kwargs from args
-            kwargs = {
-                'interface': args.interface,
-                'data': args.data,
-                'verbose': args.verbose,
-                'arp_op': args.arp_op,
-                'eth_dst_mac': args.eth_dst_mac,
-                'eth_src_mac': args.eth_src_mac,
-                'src_mac': args.src_mac,
-                'dst_mac': args.dst_mac,
-                'src_ip': args.src_ip,
-                'dst_ip': args.dst_ip,
-                'icmp_type': args.icmp_type,
-                'icmp_code': args.icmp_code,
-                'identifier': args.identifier,
-                'sequence': args.sequence,
-                'src_port': args.src_port,
-                'dst_port': args.dst_port,
-            }
-            network(c, network_tool, **kwargs)
-        elif args.vcd_analyzer:
-            # VCD analyzer tool selected
-            kwargs = {
-                'vcd': args.vcd,
-                'timestamps': args.timestamps,
-                'signalnames': args.signalnames,
-                'signal': args.signal,
-                'time': args.time,
-                'edge': args.edge,
-                'verbose': args.verbose,
-                'radix': args.radix,
-                'count': args.count,
-            }
-            vcd_analyzer(c, **kwargs)
-        else:
-            # No tool selected, show help
-            help_tool()
+        # Parse frame_list if provided
+        frame_list = None
+        if args.frame_list:
+            frame_list = [int(x.strip()) for x in args.frame_list.split(',')]
+        
+        tshark_wrapper(c, 
+                       pcap_file=args.pcap,
+                       output_format=args.format,
+                       frame_number=args.frame,
+                       frame_start=args.frame_start,
+                       frame_end=args.frame_end,
+                       frame_list=frame_list,
+                       count=args.count,
+                       skip=args.skip,
+                       tshark_args_append=args.tsharkArgsAppend,
+                       verbose=args.verbose)
+    elif args.tool == 'projects':
+        # Projects tool requires --list option
+        if not getattr(args, 'list', False):
+            help_projects()
             sys.exit(0)
-    elif args.command == 'projects':
-        projects(c, getattr(args, 'set_project', None))
-    elif args.command == 'help':
-        help(c)
+        projects(c, getattr(args, 'set_project', None), list_projects=True)
 
+
+            'edge': args.edge,
+            'verbose': args.verbose,
+            'radix': args.radix,
+            'count': args.count,
+        }
+        vcd_analyzer(c, **kwargs)
+    elif args.tool == 'tsharkWrapper':
+        # tshark wrapper tool
+        if not args.pcap:
+            help_tshark_wrapper()
+            sys.exit(0)
+        
+        # Parse frame_list if provided
+        frame_list = None
+        if args.frame_list:
+            frame_list = [int(x.strip()) for x in args.frame_list.split(',')]
+        
+        tshark_wrapper(c, 
+                       pcap_file=args.pcap,
+                       output_format=args.format,
+                       frame_number=args.frame,
+                       frame_start=args.frame_start,
+                       frame_end=args.frame_end,
+                       frame_list=frame_list,
+                       count=args.count,
+                       skip=args.skip,
+                       tshark_args_append=args.tsharkArgsAppend,
+                       verbose=args.verbose)
+    elif args.tool == 'projects':
+        # Projects tool requires --list option
+        if not getattr(args, 'list', False):
+            help_projects()
+            sys.exit(0)
+        projects(c, getattr(args, 'set_project', None), list_projects=True)
 
