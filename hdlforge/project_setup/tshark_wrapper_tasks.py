@@ -15,7 +15,8 @@ from pathlib import Path
 def tshark_wrapper(c, pcap_file: str, output_format: str = 'to_plain_text',
                    frame_number: int = None, frame_start: int = None, frame_end: int = None,
                    frame_list: list = None, count: int = None, skip: int = None,
-                   tshark_args_append: str = None, verbose: bool = False):
+                   tshark_args_append: str = None, disable_heuristics: bool = False,
+                   disable_protocols: str = None, verbose: bool = False):
     """
     Wrapper for tshark with convenience options and checksum verification.
     
@@ -30,6 +31,8 @@ def tshark_wrapper(c, pcap_file: str, output_format: str = 'to_plain_text',
         count: Number of packets to display (use with skip for pagination)
         skip: Number of packets to skip before displaying (use with count)
         tshark_args_append: Additional tshark arguments to append (raw string)
+        disable_heuristics: If True, disable UDP heuristic protocol dissectors
+        disable_protocols: Comma-separated list of protocols to disable (e.g., "mndp,ssdp")
         verbose: Enable verbose output
     """
     # Verify pcap file exists
@@ -83,6 +86,18 @@ def tshark_wrapper(c, pcap_file: str, output_format: str = 'to_plain_text',
     
     # Add checksum options
     cmd.extend(checksum_opts)
+    
+    # Disable heuristic protocol dissectors (prevents false protocol detection)
+    if disable_heuristics:
+        # Disable UDP heuristic dissectors to prevent false detection like MNDP
+        cmd.extend(['-o', 'udp.try_heuristic_first:FALSE'])
+    
+    # Disable specific protocols
+    if disable_protocols:
+        for proto in disable_protocols.split(','):
+            proto = proto.strip()
+            if proto:
+                cmd.extend(['--disable-protocol', proto])
     
     # Append any additional tshark arguments
     if tshark_args_append:
@@ -138,6 +153,12 @@ def help_tshark_wrapper():
     print("RAW TSHARK ARGUMENTS:")
     print("    --tsharkArgsAppend '<ARGS>'            Append raw tshark arguments to command")
     print("                                           Quote the entire argument string")
+    print()
+    print("PROTOCOL CONTROL:")
+    print("    --disable_heuristics                   Disable UDP heuristic protocol dissectors")
+    print("                                           Prevents false protocol detection (e.g., MNDP)")
+    print("    --disable_protocols '<PROTOS>'         Disable specific protocols (comma-separated)")
+    print("                                           Example: --disable_protocols 'mndp,ssdp'")
     print()
     print("OPTIONS:")
     print("    --verbose                              Show tshark command being executed")
