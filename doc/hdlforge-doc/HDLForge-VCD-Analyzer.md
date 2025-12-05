@@ -9,20 +9,79 @@ The VCD (Value Change Dump) analyzer is an HDLForge tool for debugging FPGA simu
 ## Quick Start
 
 ```bash
-# Via hdlforge
-hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --find_signal_names
-hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --signal "*clk*" --time 5000
+# Find signals
+hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --find_signal_names "*clk*"
 
-# Direct Python (from fpga repo root)
-python3 tools/vcd_analyzer.py --vcdfilename <vcd_file> [options]
+# Show values (clock-aligned sampling)
+hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --signal "top.clk" --value --count 10
+
+# Show edges (actual value changes)
+hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --signal "top.data" --edge --count 5
 ```
 
-## Basic Operations
+## Command Structure
 
-### List Timestamps
 ```bash
-hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --timestamps
+hdlforge --tool vcd_analyzer --vcdfilename <file> [action] [options]
 ```
+
+### Actions (choose one)
+
+| Action | Description |
+|--------|-------------|
+| `--timestamps` | List all timestamps in VCD |
+| `--find_signal_names [pattern]` | Find signals (supports wildcards) |
+| `--signal <name> --value` | Show signal values at timestamps |
+| `--signal <name> --edge` | Show signal value changes only |
+
+### Signal Query Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--time <ps>` | `0` | Start timestamp (picoseconds) |
+| `--count <n>` | all | Number of values/edges to show |
+| `--radix hex/int/bin` | all | Output format |
+| `--verbose` | off | Show full VCD details |
+| `--no-clock` | off | Disable clock-aligned sampling |
+| `--rebuild-index` | off | Force rebuild VCD index |
+
+## Clock Analysis
+
+The tool automatically analyzes VCD timestamps to detect the simulation clock:
+
+```
+[Clock Analysis]
+  Timestamps uniformly spaced: 5000ps between edges
+  Clock period: 10000ps (10.0ns)
+  Frequency: 100.00MHz
+  Using tick = 10000ps for value sampling
+```
+
+- **With clock (default)**: Samples at clock-aligned timestamps (skips falling edges)
+- **With `--no-clock`**: Samples at every timestamp
+
+## Value Mode vs Edge Mode
+
+### `--value` Mode
+Shows signal values at consecutive timestamps (including unchanged values):
+
+```bash
+hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --signal "top.counter" --value --count 5
+```
+Output shows values at times 0, 10000, 20000, 30000, 40000 (clock-aligned).
+
+### `--edge` Mode  
+Shows only actual value changes (edges):
+
+```bash
+hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --signal "top.counter" --edge --count 5
+```
+Output:
+- Initial value at time 0
+- Value at `--time` (if not 0)
+- Next 5 actual value changes
+
+## Examples
 
 ### Find Signals
 ```bash
@@ -34,45 +93,45 @@ hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --find_signal_names "*clk*"
 hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --find_signal_names "*state*"
 ```
 
-### Get Signal Values
+### Signal Values
 ```bash
-# At specific time
-hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --signal init_clk --time 5000
+# 10 values starting from time 0 (clock-aligned)
+hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --signal "top.data" --value --count 10
 
-# Multiple timestamps
-hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --signal init_clk --time 5000 10000 15000
+# Values starting from specific time
+hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --signal "top.data" --value --time 50000 --count 10
 
-# All value changes
-hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --signal init_clk
+# All timestamps (no clock alignment)
+hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --signal "top.data" --value --count 10 --no-clock
 ```
 
-### Signal Edges (Transitions)
+### Signal Edges
 ```bash
-# All edges after timestamp
-hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --signal init_clk --time 5000 --edge
+# First 5 edges
+hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --signal "top.state" --edge --count 5
 
-# First N edges
-hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --signal init_clk --time 5000 --edge 5
+# Edges after specific time
+hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --signal "top.state" --edge --time 100000 --count 10
 ```
 
-### Count Values
-```bash
-# Show 10 values starting from timestamp
-hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --signal init_clk --time 5000 --count 10
-```
-
-## Output Format Options
-
-### Radix
+### Output Format
 ```bash
 --radix hex    # Hexadecimal (0x00000004)
 --radix int    # Integer (4)
 --radix bin    # Binary (00000100)
 ```
 
-### Verbose
+## VCD Indexing
+
+The tool automatically creates an index for fast queries:
+- Index stored in `.dump.vcd.idx/` folder next to VCD file
+- First query builds index (~2-5 seconds)
+- Subsequent queries use cached index (~0.3 seconds)
+- Index auto-invalidates when VCD file changes
+
+Force rebuild:
 ```bash
---verbose      # Show all VCD data including var_id and signal definition
+hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --rebuild-index --find_signal_names
 ```
 
 ## Output Structure
@@ -84,10 +143,10 @@ hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --signal init_clk --time 500
     "calc_value": {
       "hex": "0x00000004",
       "int": 4,
-      "bin": "00000100",
-      "raw_vcd": "4"
+      "bin": "00000100"
     },
-    "width": 8
+    "width": 8,
+    "note": {"status": "sampled value"}
   }
 }
 ```
@@ -97,51 +156,32 @@ hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --signal init_clk --time 500
 ### Reset Sequence
 ```bash
 hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --find_signal_names "*rst*"
-hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --signal "*rst*" --time 10000 --edge
+hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --signal "*rst*" --edge --count 10
 ```
 
 ### Clock Domain
 ```bash
 hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --find_signal_names "*clk*"
-hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --signal "*clk*" --time 0 --edge 20
+hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --signal "top.clk" --edge --count 20
 ```
 
 ### State Machine
 ```bash
 hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --find_signal_names "*state*"
-hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --signal "*state*" --time 5000 --edge
+hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --signal "*state*" --edge --time 5000 --count 20
 ```
 
 ### Packet Data
 ```bash
-hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --signal "*data*" --time 50000 --radix hex
+hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --signal "*data*" --value --time 50000 --count 20 --radix hex
 ```
-
-## Key Features
-
-### Last-Known Value
-When querying timestamps where signal didn't change, returns last known value before that timestamp (VCD files only record changes).
-
-### Closest Timestamp
-When requested timestamp doesn't exist, finds closest available timestamp and reports it.
-
-### Wildcard Matching
-Uses Python `fnmatch`: `*` matches any sequence, `?` matches single character.
 
 ## Debugging Workflow
 
 1. **Run simulation**: `hdlforge --tool Verilator --step sim --SimTargetName <test>`
 2. **Find signals**: `--find_signal_names "*pattern*"`
-3. **Analyze values**: `--signal "name" --time <timestamp> --count 20`
-4. **Track transitions**: `--signal "name" --time <timestamp> --edge`
-
-## Best Practices
-
-1. **Start broad**: Use wildcards to find relevant signals first
-2. **Narrow down**: Focus on specific signals once identified
-3. **Use time ranges**: Query multiple timestamps to see evolution
-4. **Check edges**: Use `--edge` to see when signals transition
-5. **Use appropriate radix**: `hex` for multi-bit, `int` for counters
+3. **Check edges**: `--signal "name" --edge --count 20`
+4. **Analyze values**: `--signal "name" --value --time <timestamp> --count 20`
 
 ## Troubleshooting
 
@@ -150,13 +190,17 @@ Uses Python `fnmatch`: `*` matches any sequence, `?` matches single character.
 - Use wildcards to find similar signals
 - Verify signal exists with `--find_signal_names`
 
+### Slow First Query
+- Normal - building VCD index
+- Subsequent queries will be fast (~0.3s)
+- Use `--rebuild-index` if index seems stale
+
+### Unexpected Sampling
+- Default uses clock-aligned sampling
+- Use `--no-clock` to see all timestamps
+- Check clock analysis message for deduced period
+
 ### No Value at Timestamp
 - VCD files only record value changes
 - Use `--edge` to see when signal changed
 - Check if timestamp is within simulation range
-
-### Unexpected Values
-- Verify signal width matches expectations
-- Check for X (unknown) or Z (high-impedance)
-- Use `--verbose` to see raw VCD data
-

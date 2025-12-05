@@ -4,11 +4,17 @@ VCD Analysis Tool with ArgParse
 
 Professional VCD analysis tool with clean function separation, argparse for command-line handling,
 and functions that return dictionaries or lists for easy integration.
+
+Supports indexed mode for fast queries on large VCD files.
+Index files are stored in .<vcd_filename>.idx/ folder.
 """
 
 import argparse
+import os
+import pickle
 import re
 import sys
+from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple, Union
 from fnmatch import fnmatch
 from typeguard import typechecked
@@ -99,347 +105,499 @@ class LazyProperty:
         return value
 
 
-class VCDAnalyzer:
-    """Professional VCD analyzer with modular query functions."""
+def _sanitize_filename(signal_name: str) -> str:
+    """Convert signal name to safe filename."""
+    # Replace problematic characters with underscores
+    safe_name = signal_name.replace('[', '_').replace(']', '_').replace('.', '_')
+    safe_name = safe_name.replace('/', '_').replace('\\', '_').replace(':', '_')
+    # Limit length to avoid filesystem issues
+    if len(safe_name) > 200:
+        safe_name = safe_name[:200]
+    return safe_name + '.pkl'
+
+
+def _analyze_global_clock(timestamps: List[str]) -> Dict[str, Any]:
+    """
+    Analyze global timestamps to deduce the design's clock period.
     
-    def __init__(self, vcd_file: str) -> None:
-        """Initialize analyzer and parse VCD file."""
-        self.vcd_file: str = vcd_file
-        self.signals: Dict[str, Dict[str, Any]] = {}  # {var_id: signal_info}
-        self.signal_hierarchy: Dict[str, str] = {}  # {var_id: full_path}
-        self.scope_stack: List[str] = []
-        self.timestamps: List[Tuple[str, Dict[str, Dict[str, Any]]]] = []  # List of (time, changes_dict)
-        self.vcd_dict: Dict[str, List[Dict[str, Any]]] = {}  # {timestamp: [signal_changes]}
-        
-        self._parse_vcd()
-        self._build_vcd_dict()
+    VCD files record both rising and falling edges of clocks.
+    If timestamps are evenly spaced (e.g., 0, 5000, 10000, 15000...),
+    the actual clock period is 2x the spacing (e.g., 10000ps = 10ns).
     
-    @typechecked
-    def _parse_vcd(self) -> None:
-        """Parse VCD file completely."""
-        with open(self.vcd_file, 'r') as f:
-            lines: List[str] = f.readlines()
-        
-        # Parse header section
-        self._parse_header(lines)
-        
-        # Parse data section
-        self._parse_data(lines)
+    Returns:
+        Dict with clock_period_ps, half_period_ps, frequency_mhz, is_uniform, analysis_msg
+    """
+    result = {
+        'clock_period_ps': None,
+        'half_period_ps': None,
+        'frequency_mhz': None,
+        'is_uniform': False,
+        'analysis_msg': ''
+    }
     
-    @typechecked
-    def _build_vcd_dict(self) -> None:
-        """Build VCD dictionary with timestamps as keys and signal changes as values."""
-        for timestamp, changes_dict in self.timestamps:
-            signal_changes: List[Dict[str, Any]] = []
-            
-            for signal_name, signal_data in changes_dict.items():
-                signal_change: Dict[str, Any] = {
-                    'signal_name': signal_name,
-                    **signal_data  # Include raw_vcd, hex, int, binary_value
-                }
-                signal_changes.append(signal_change)
-            
-            self.vcd_dict[timestamp] = signal_changes
-    
-    @LazyProperty
-    def all_timestamps_cache(self) -> List[str]:
-        """Lazy load timestamps cache."""
-        return sorted(self.vcd_dict.keys(), key=int)
-    
-    @LazyProperty
-    def all_signal_names_cache(self) -> List[str]:
-        """Lazy load signal names cache."""
-        return list(self.signal_hierarchy.values())
-    
-    @LazyProperty
-    def timestamps_with_signals_cache(self) -> List[Dict[str, Any]]:
-        """Lazy load timestamps with signals cache."""
-        result: List[Dict[str, Any]] = []
-        for timestamp, signal_changes in self.vcd_dict.items():
-            signal_names: List[str] = [change['signal_name'] for change in signal_changes]
-            result.append({
-                'time': timestamp,
-                'signals': signal_names
-            })
+    if len(timestamps) < 3:
+        result['analysis_msg'] = "[Clock Analysis] Not enough timestamps to analyze"
         return result
     
-    def _parse_header(self, lines: List[str]) -> None:
-        """Parse VCD header section line by line."""
-        in_header: bool = True
-        i: int = 0
-        
-        while i < len(lines) and in_header:
-            line: str = lines[i].strip()
-            
-            if line.startswith('$scope'):
-                # Enter scope - parse: $scope module <name> $end
-                parts = line.split()
-                if len(parts) >= 4 and parts[0] == '$scope' and parts[1] == 'module' and parts[-1] == '$end':
-                    scope_name = parts[2]
-                    self.scope_stack.append(scope_name)
-            
-            elif line.startswith('$upscope'):
-                # Exit scope
-                if self.scope_stack:
-                    self.scope_stack.pop()
-            
-            elif line.startswith('$var'):
-                # Parse variable definition line by line
-                self._parse_var_definition_line_by_line(line)
-            
-            elif line.startswith('$enddefinitions'):
-                in_header = False
-            
-            i += 1
+    # Sample first 100 timestamps
+    ts_ints = [int(ts) for ts in timestamps[:100]]
+    diffs = [ts_ints[i+1] - ts_ints[i] for i in range(len(ts_ints)-1)]
     
-    def _parse_var_definition_line_by_line(self, line: str) -> None:
-        """Parse a $var definition line by splitting and parsing components."""
-        # Format: $var wire <width> <var_id> <signal_name> [<range>] $end
-        # Example: $var wire 32 :! parser_filter_sip[0] [31:0] $end
+    if not diffs:
+        result['analysis_msg'] = "[Clock Analysis] No timestamp differences"
+        return result
+    
+    unique_diffs = set(diffs)
+    
+    if len(unique_diffs) == 1:
+        half_period = diffs[0]
+        clock_period = half_period * 2
+        frequency_mhz = 1e12 / clock_period / 1e6
         
-        parts = line.split()
-        if len(parts) < 6:  # Minimum: $var wire width var_id signal_name $end
-            return
+        result['clock_period_ps'] = clock_period
+        result['half_period_ps'] = half_period
+        result['frequency_mhz'] = frequency_mhz
+        result['is_uniform'] = True
+        result['analysis_msg'] = (
+            f"[Clock Analysis]\n"
+            f"  Timestamps uniformly spaced: {half_period}ps between edges\n"
+            f"  Clock period: {clock_period}ps ({clock_period/1000}ns)\n"
+            f"  Frequency: {frequency_mhz:.2f}MHz\n"
+            f"  Using tick = {clock_period}ps for value sampling"
+        )
+    else:
+        min_diff = min(diffs)
+        max_diff = max(diffs)
+        common_diff = max(set(diffs), key=diffs.count)
+        result['analysis_msg'] = (
+            f"[Clock Analysis]\n"
+            f"  Non-uniform timestamp spacing\n"
+            f"  Min: {min_diff}ps, Max: {max_diff}ps, Common: {common_diff}ps\n"
+            f"  Using all timestamps"
+        )
+    
+    return result
+
+
+class VCDIndexedAnalyzer:
+    """
+    VCD analyzer with per-signal pickle index for fast queries.
+    
+    Index structure:
+    .<vcd_filename>.idx/
+        _meta.pkl       - metadata (vcd mtime, timescale)
+        _signals.pkl    - list of all signal names
+        _index.pkl      - signal_name -> {filename, width, var_id, msb, lsb}
+        _timestamps.pkl - sorted list of all timestamps
+        <signal>.pkl    - list of (timestamp, raw_value, hex, int, bin) tuples
+    """
+    
+    def __init__(self, vcd_file: str) -> None:
+        """Initialize analyzer - load from index or build new index."""
+        self.vcd_file: str = vcd_file
+        self.vcd_path: Path = Path(vcd_file).resolve()
+        self.index_dir: Path = self.vcd_path.parent / f".{self.vcd_path.name}.idx"
+        
+        # Cached data (loaded on demand)
+        self._meta: Optional[Dict[str, Any]] = None
+        self._signals_list: Optional[List[str]] = None
+        self._index: Optional[Dict[str, Dict[str, Any]]] = None
+        self._timestamps: Optional[List[str]] = None
+        self._loaded_signals: Dict[str, List[Tuple]] = {}  # Cache for loaded signal data
+        
+        # Check if index is valid
+        if self._is_index_valid():
+            self._load_index_metadata()
+        else:
+            self._build_index()
+    
+    def _is_index_valid(self) -> bool:
+        """Check if index exists and is up-to-date with VCD file."""
+        meta_file = self.index_dir / '_meta.pkl'
+        if not meta_file.exists():
+            return False
+        
+        try:
+            with open(meta_file, 'rb') as f:
+                meta = pickle.load(f)
             
+            # Check if VCD file modification time matches
+            vcd_mtime = os.path.getmtime(self.vcd_file)
+            if meta.get('vcd_mtime') != vcd_mtime:
+                return False
+            
+            # Check all required files exist
+            required_files = ['_signals.pkl', '_index.pkl', '_timestamps.pkl']
+            for fname in required_files:
+                if not (self.index_dir / fname).exists():
+                    return False
+            
+            return True
+        except Exception:
+            return False
+    
+    def _load_index_metadata(self) -> None:
+        """Load index metadata files (not signal data)."""
+        with open(self.index_dir / '_meta.pkl', 'rb') as f:
+            self._meta = pickle.load(f)
+        with open(self.index_dir / '_signals.pkl', 'rb') as f:
+            self._signals_list = pickle.load(f)
+        with open(self.index_dir / '_index.pkl', 'rb') as f:
+            self._index = pickle.load(f)
+        with open(self.index_dir / '_timestamps.pkl', 'rb') as f:
+            self._timestamps = pickle.load(f)
+    
+    def _load_signal_data(self, signal_name: str) -> List[Tuple]:
+        """Load signal data from its pickle file."""
+        if signal_name in self._loaded_signals:
+            return self._loaded_signals[signal_name]
+        
+        if self._index is None:
+            self._load_index_metadata()
+        
+        if signal_name not in self._index:
+            return []
+        
+        signal_info = self._index[signal_name]
+        signal_file = self.index_dir / signal_info['filename']
+        
+        if not signal_file.exists():
+            return []
+        
+        with open(signal_file, 'rb') as f:
+            data = pickle.load(f)
+        
+        self._loaded_signals[signal_name] = data
+        return data
+    
+    def _build_index(self) -> None:
+        """Build index from VCD file."""
+        print(f"Building VCD index for {self.vcd_file}...", file=sys.stderr)
+        
+        # Create index directory
+        self.index_dir.mkdir(exist_ok=True)
+        
+        # Parse VCD file
+        signals_info: Dict[str, Dict[str, Any]] = {}  # var_id -> {name, width, msb, lsb, full_path}
+        signal_hierarchy: Dict[str, str] = {}  # var_id -> full_path
+        scope_stack: List[str] = []
+        
+        # Per-signal change data: signal_name -> [(timestamp, raw, hex, int, bin), ...]
+        signal_changes: Dict[str, List[Tuple]] = {}
+        all_timestamps: set = set()
+        
+        with open(self.vcd_file, 'r') as f:
+            # Parse header
+            in_header = True
+            for line in f:
+                line = line.strip()
+                
+                if line.startswith('$scope'):
+                    parts = line.split()
+                    if len(parts) >= 4 and parts[1] == 'module' and parts[-1] == '$end':
+                        scope_stack.append(parts[2])
+                
+                elif line.startswith('$upscope'):
+                    if scope_stack:
+                        scope_stack.pop()
+                
+                elif line.startswith('$var'):
+                    self._parse_var_line(line, scope_stack, signals_info, signal_hierarchy)
+                
+                elif line.startswith('$enddefinitions'):
+                    in_header = False
+                    break
+            
+            # Initialize signal_changes for all signals
+            for var_id, info in signals_info.items():
+                signal_changes[info['full_path']] = []
+            
+            # Parse data section
+            current_timestamp: Optional[str] = None
+            
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                
+                if line.startswith('#'):
+                    current_timestamp = line[1:]
+                    all_timestamps.add(current_timestamp)
+                else:
+                    if current_timestamp is None:
+                        continue
+                    
+                    var_id, value = self._parse_value_change(line)
+                    if var_id and var_id in signals_info:
+                        signal_info = signals_info[var_id]
+                        signal_path = signal_info['full_path']
+                        converted = self._convert_value(value, signal_info['width'])
+                        
+                        signal_changes[signal_path].append((
+                            current_timestamp,
+                            value,
+                            converted['hex'],
+                            converted['int'],
+                            converted['bin']
+                        ))
+        
+        # Sort timestamps
+        sorted_timestamps = sorted(all_timestamps, key=int)
+        
+        # Analyze global clock from timestamps (ONE clock for entire design)
+        global_clock = _analyze_global_clock(sorted_timestamps)
+        
+        # Build index mapping
+        index_mapping: Dict[str, Dict[str, Any]] = {}
+        signals_list: List[str] = []
+        
+        for var_id, info in signals_info.items():
+            signal_name = info['full_path']
+            signals_list.append(signal_name)
+            
+            # Get and sort signal data
+            signal_data = signal_changes[signal_name]
+            signal_data.sort(key=lambda x: int(x[0]))
+            
+            filename = _sanitize_filename(signal_name)
+            index_mapping[signal_name] = {
+                'filename': filename,
+                'var_id': var_id,
+                'width': info['width'],
+                'msb': info['msb'],
+                'lsb': info['lsb']
+            }
+            
+            # Save signal data
+            with open(self.index_dir / filename, 'wb') as f:
+                pickle.dump(signal_data, f, protocol=pickle.HIGHEST_PROTOCOL)
+        
+        # Save metadata with global clock analysis
+        meta = {
+            'vcd_file': str(self.vcd_path),
+            'vcd_mtime': os.path.getmtime(self.vcd_file),
+            'num_signals': len(signals_list),
+            'num_timestamps': len(sorted_timestamps),
+            'clock': global_clock  # ONE global clock for entire design
+        }
+        
+        with open(self.index_dir / '_meta.pkl', 'wb') as f:
+            pickle.dump(meta, f, protocol=pickle.HIGHEST_PROTOCOL)
+        
+        with open(self.index_dir / '_signals.pkl', 'wb') as f:
+            pickle.dump(signals_list, f, protocol=pickle.HIGHEST_PROTOCOL)
+        
+        with open(self.index_dir / '_index.pkl', 'wb') as f:
+            pickle.dump(index_mapping, f, protocol=pickle.HIGHEST_PROTOCOL)
+        
+        with open(self.index_dir / '_timestamps.pkl', 'wb') as f:
+            pickle.dump(sorted_timestamps, f, protocol=pickle.HIGHEST_PROTOCOL)
+        
+        # Store in memory
+        self._meta = meta
+        self._signals_list = signals_list
+        self._index = index_mapping
+        self._timestamps = sorted_timestamps
+        
+        print(f"Index built: {len(signals_list)} signals, {len(sorted_timestamps)} timestamps", file=sys.stderr)
+    
+    def _parse_var_line(self, line: str, scope_stack: List[str], 
+                        signals_info: Dict, signal_hierarchy: Dict) -> None:
+        """Parse a $var definition line."""
+        parts = line.split()
+        if len(parts) < 6:
+            return
         if parts[0] != '$var' or parts[1] != 'wire' or parts[-1] != '$end':
             return
-            
+        
         try:
             width = int(parts[2])
             var_id = parts[3]
             
-            # Find signal name - everything between var_id and the range or $end
-            signal_name_parts = []
+            # Find signal name and range
             range_start_idx = -1
-            
-            # Look for range pattern [msb:lsb]
             for i in range(4, len(parts) - 1):
                 if parts[i].startswith('[') and parts[i].endswith(']'):
                     range_start_idx = i
                     break
             
             if range_start_idx > 0:
-                # Signal name is everything between var_id and range
                 signal_name_parts = parts[4:range_start_idx]
-                # Parse range
-                range_str = parts[range_start_idx][1:-1]  # Remove [ and ]
+                range_str = parts[range_start_idx][1:-1]
                 if ':' in range_str:
                     msb, lsb = map(int, range_str.split(':'))
                 else:
                     msb = lsb = int(range_str)
             else:
-                # No range, signal name is everything until $end
                 signal_name_parts = parts[4:-1]
                 msb = width - 1
                 lsb = 0
             
             signal_name = ' '.join(signal_name_parts)
+            full_path = '.'.join(scope_stack + [signal_name])
             
-            # Build hierarchical path
-            full_path: str = '.'.join(self.scope_stack + [signal_name])
-            
-            # Store signal info
-            self.signals[var_id] = {
+            signals_info[var_id] = {
                 'name': signal_name,
                 'width': width,
                 'msb': msb,
                 'lsb': lsb,
                 'full_path': full_path
             }
-            self.signal_hierarchy[var_id] = full_path
+            signal_hierarchy[var_id] = full_path
             
-        except (ValueError, IndexError) as e:
-            # Skip malformed lines
+        except (ValueError, IndexError):
             pass
-    
-    def _parse_data(self, lines: List[str]) -> None:
-        """Parse VCD data section."""
-        # Find start of data section
-        data_start: int = 0
-        for i, line in enumerate(lines):
-            if line.strip() == '$enddefinitions $end':
-                data_start = i + 1
-                break
-        
-        # Skip empty lines at start of data section
-        while data_start < len(lines) and not lines[data_start].strip():
-            data_start += 1
-        
-        # Parse timestamps and value changes
-        i: int = data_start
-        
-        while i < len(lines):
-            line: str = lines[i].strip()
-            
-            if line.startswith('#'):
-                # New timestamp
-                timestamp: str = line[1:]  # Remove '#' prefix
-                changes: Dict[str, Dict[str, Any]] = {}
-                
-                # Parse value changes for this timestamp
-                i += 1
-                while i < len(lines) and not lines[i].strip().startswith('#'):
-                    value_line: str = lines[i].strip()
-                    if value_line:
-                        var_id: str
-                        value: str
-                        var_id, value = self._parse_value_change(value_line)
-                        if var_id and var_id in self.signals:
-                            signal_path: str = self.signal_hierarchy[var_id]
-                            converted_value: Dict[str, Any] = self._convert_value(value, self.signals[var_id])
-                            changes[signal_path] = converted_value
-                    i += 1
-                
-                if changes:  # Only add timestamp if there are changes
-                    self.timestamps.append((timestamp, changes))
-            else:
-                i += 1
     
     def _parse_value_change(self, line: str) -> Tuple[str, str]:
         """Parse a value change line and return (var_id, value)."""
         if line.startswith('0') or line.startswith('1'):
-            # Single bit
-            value: str = line[0]
-            var_id: str = line[1:]
-            return var_id, value
+            return line[1:], line[0]
         elif line.startswith('b'):
-            # Binary value
-            match: Optional[re.Match[str]] = re.match(r'b([01]+)\s+(\S+)', line)
+            match = re.match(r'b([01]+)\s+(\S+)', line)
             if match:
-                value: str
-                var_id: str
-                value, var_id = match.groups()
-                return var_id, value
+                return match.group(2), match.group(1)
         elif line.startswith('r'):
-            # Real value
-            match: Optional[re.Match[str]] = re.match(r'r([0-9.+-eE]+)\s+(\S+)', line)
+            match = re.match(r'r([0-9.+-eE]+)\s+(\S+)', line)
             if match:
-                value: str
-                var_id: str
-                value, var_id = match.groups()
-                return var_id, value
-        
+                return match.group(2), match.group(1)
         return '', ''
     
-    def _convert_value(self, raw_value: str, signal_info: Dict[str, Any]) -> Dict[str, Any]:
+    def _convert_value(self, raw_value: str, width: int) -> Dict[str, Any]:
         """Convert raw VCD value to multiple representations."""
-        width: int = signal_info['width']
+        binary_value = raw_value
         
-        # Ensure binary value is properly formatted
-        if raw_value.startswith('b'):
-            binary_value: str = raw_value[1:]
-        else:
-            binary_value = raw_value
-        
-        # Pad binary value to signal width
         if len(binary_value) < width:
             binary_value = binary_value.zfill(width)
         elif len(binary_value) > width:
             binary_value = binary_value[-width:]
         
-        # Convert to integer
         try:
-            int_value: int = int(binary_value, 2)
+            int_value = int(binary_value, 2)
         except ValueError:
             int_value = 0
         
-        # Convert to hex with leading zeros and 0x prefix
-        hex_width: int = (width + 3) // 4  # Calculate hex width needed
-        hex_value: str = f"0x{int_value:0{hex_width}x}"
+        hex_width = (width + 3) // 4
+        hex_value = f"0x{int_value:0{hex_width}x}"
         
         return {
-            'raw_vcd': raw_value,
             'hex': hex_value,
             'int': int_value,
-            'binary_value': binary_value
+            'bin': binary_value
         }
     
-    # Query Functions (Each Returns Dict/List)
+    # Public API - same as original VCDAnalyzer
     
-    @typechecked
     def get_all_timestamps(self) -> List[str]:
         """Get all timestamps in VCD file."""
-        return self.all_timestamps_cache
+        if self._timestamps is None:
+            self._load_index_metadata()
+        return self._timestamps
     
-    @typechecked
     def get_all_signal_names(self) -> List[str]:
         """Get all signal names in design."""
-        return self.all_signal_names_cache
+        if self._signals_list is None:
+            self._load_index_metadata()
+        return self._signals_list
     
-    @typechecked
     def find_signals(self, pattern: str) -> List[str]:
         """Find signals matching pattern using wildcard matching."""
+        if self._signals_list is None:
+            self._load_index_metadata()
+        
         matching_signals: List[str] = []
-        for signal_name in self.all_signal_names_cache:
+        for signal_name in self._signals_list:
             if fnmatch(signal_name, pattern):
                 matching_signals.append(signal_name)
         return matching_signals
     
+    def get_clock_info(self) -> Dict[str, Any]:
+        """Get global clock analysis for the design."""
+        if self._meta is None:
+            self._load_index_metadata()
+        return self._meta.get('clock', {})
     
-    @typechecked
+    def get_clock_msg(self) -> str:
+        """Get formatted clock analysis message."""
+        clock = self.get_clock_info()
+        return clock.get('analysis_msg', '[Clock Analysis] No clock info available')
+    
     def _get_signal_metadata(self, signal_name: str) -> Dict[str, Any]:
-        """Get all metadata for a signal by its full path."""
-        for var_id, signal_info in self.signals.items():
-            if signal_info['full_path'] == signal_name:
-                return {
-                    'var_id': var_id,
-                    'width': signal_info['width'],
-                    'msb': signal_info['msb'],
-                    'lsb': signal_info['lsb'],
-                    'signal_definition': f"$var wire {signal_info['width']} {var_id} {signal_info['name']} [{signal_info['msb']}:{signal_info['lsb']}] $end"
-                }
+        """Get metadata for a signal."""
+        if self._index is None:
+            self._load_index_metadata()
+        
+        if signal_name not in self._index:
+            return {
+                'var_id': None,
+                'width': None,
+                'msb': None,
+                'lsb': None,
+                'signal_definition': None
+            }
+        
+        info = self._index[signal_name]
         return {
-            'var_id': None,
-            'width': None,
-            'msb': None,
-            'lsb': None,
-            'signal_definition': None
+            'var_id': info['var_id'],
+            'width': info['width'],
+            'msb': info['msb'],
+            'lsb': info['lsb'],
+            'signal_definition': f"$var wire {info['width']} {info['var_id']} {signal_name.split('.')[-1]} [{info['msb']}:{info['lsb']}] $end"
         }
     
-    @typechecked
-    def _get_signal_value_from_edges(self, signal_edges: List[SignalResult], timestamp: str, signal_name: str, verbose: bool = False) -> SignalResult:
-        """Get signal value at specific timestamp from pre-loaded edges (optimized version)."""
-        # Validate arguments
-        if not isinstance(signal_edges, list):
-            raise TypeError(f"signal_edges must be a list, got {type(signal_edges).__name__}")
+    def get_signal_edges(self, signal: str, verbose: bool = False) -> List[SignalResult]:
+        """Get all edges for a signal with timestamps and values."""
+        if not isinstance(signal, str):
+            raise TypeError(f"signal must be a string, got {type(signal).__name__}")
+        if not signal.strip():
+            raise ValueError("signal cannot be empty or whitespace only")
         
-        if not isinstance(timestamp, str):
-            raise TypeError(f"timestamp must be a string, got {type(timestamp).__name__}")
+        signal_data = self._load_signal_data(signal)
+        signal_metadata = self._get_signal_metadata(signal)
         
-        if not isinstance(signal_name, str):
-            raise TypeError(f"signal_name must be a string, got {type(signal_name).__name__}")
-        
-        if not isinstance(verbose, bool):
-            raise TypeError(f"verbose must be a boolean, got {type(verbose).__name__}")
-        
+        edges: List[SignalResult] = []
+        for timestamp, raw, hex_val, int_val, bin_val in signal_data:
+            edge = SignalResult(
+                signal_name=signal,
+                time=timestamp,
+                calc_value={"hex": hex_val, "int": int_val, "bin": bin_val},
+                raw_vcd=raw,
+                width=signal_metadata['width'],
+                last_vcd_time=timestamp,
+                last_vcd_value=raw,
+                note={"status": "exact timestamp in VCD"},
+                var_id=signal_metadata['var_id'] if verbose else None,
+                vcd_line=f"{raw}{signal_metadata['var_id']}" if verbose and signal_metadata['var_id'] else None,
+                signal_definition=signal_metadata['signal_definition'] if verbose else None,
+                msb=signal_metadata['msb'] if verbose else None,
+                lsb=signal_metadata['lsb'] if verbose else None
+            )
+            edges.append(edge)
+        return edges
+    
+    def _get_signal_value_from_edges(self, signal_edges: List[SignalResult], timestamp: str, 
+                                      signal_name: str, verbose: bool = False) -> SignalResult:
+        """Get signal value at specific timestamp from pre-loaded edges."""
         if not timestamp.strip():
             raise ValueError("timestamp cannot be empty or whitespace only")
-        
         if not signal_name.strip():
             raise ValueError("signal_name cannot be empty or whitespace only")
         
-        # Validate signal_edges list contents
-        for i, edge in enumerate(signal_edges):
-            if not isinstance(edge, SignalResult):
-                raise TypeError(f"signal_edges[{i}] must be a SignalResult object, got {type(edge).__name__}")
-        
         try:
-            target_time_int: int = int(timestamp)
+            target_time_int = int(timestamp)
         except ValueError:
             raise ValueError(f"Invalid timestamp format: '{timestamp}'. Must be a number.")
         
-        # Find closest edge before or at target time
+        # Binary search for closest edge before or at target time
         closest_edge: Optional[SignalResult] = None
         for edge in signal_edges:
-            edge_time_int: int = int(edge.time)
+            edge_time_int = int(edge.time)
             if edge_time_int <= target_time_int:
                 closest_edge = edge
             else:
                 break
         
         if closest_edge is None:
-            # No edge found, return None values
-            signal_metadata: Dict[str, Any] = self._get_signal_metadata(signal_name)
+            signal_metadata = self._get_signal_metadata(signal_name)
             return SignalResult(
                 signal_name=signal_name,
                 time=timestamp,
@@ -456,16 +614,10 @@ class VCDAnalyzer:
                 lsb=signal_metadata['lsb'] if verbose else None
             )
         
-        # Return the signal data from the closest edge
-        signal_metadata: Dict[str, Any] = self._get_signal_metadata(signal_name)
-        
-        # Handle calc_value - it might be a dict or a single value depending on radix usage
-        if isinstance(closest_edge.calc_value, dict):
-            calc_value = {"hex": closest_edge.calc_value["hex"], "int": closest_edge.calc_value["int"], "bin": closest_edge.calc_value["bin"]}
-        else:
-            # If calc_value is a single value (from radix), we need to reconstruct the dict
-            # This shouldn't happen in normal flow, but let's handle it gracefully
-            calc_value = {"hex": "0x0", "int": 0, "bin": "0"}
+        signal_metadata = self._get_signal_metadata(signal_name)
+        calc_value = {"hex": closest_edge.calc_value["hex"], 
+                      "int": closest_edge.calc_value["int"], 
+                      "bin": closest_edge.calc_value["bin"]}
         
         return SignalResult(
             signal_name=signal_name,
@@ -483,137 +635,47 @@ class VCDAnalyzer:
             lsb=signal_metadata['lsb'] if verbose else None
         )
     
-    
-    
-    def get_timestamps(self) -> List[Dict[str, Any]]:
-        """
-        Extract all timestamps with signals that changed at each timestamp.
-        Returns: [{time: str, signals: [signal_names]}, ...]
-        No values included, just which signals changed.
-        """
-        return self.timestamps_with_signals_cache
-    
-    def get_edges_at_timestamp(self, timestamp: str) -> Dict[str, Dict[str, Any]]:
-        """
-        Get all signal changes at specific timestamp.
-        Returns: {signal_name: {raw, hex, int}}
-        """
-        if timestamp in self.vcd_dict:
-            result: Dict[str, Dict[str, Any]] = {}
-            for signal_change in self.vcd_dict[timestamp]:
-                signal_name: str = signal_change['signal_name']
-                result[signal_name] = {
-                    'raw_vcd': signal_change['raw_vcd'],
-                    'hex': signal_change['hex'],
-                    'int': signal_change['int'],
-                    'binary_value': signal_change['binary_value']
-                }
-            return result
-        return {}
-    
-    def get_edge_for_signal_at_timestamp(self, timestamp: str, signal: str) -> Optional[Dict[str, Any]]:
-        """
-        Filter edges by signal at specific timestamp.
-        Returns: {raw, hex, int} or None if no change.
-        """
-        edges: Dict[str, Dict[str, Any]] = self.get_edges_at_timestamp(timestamp)
-        return edges.get(signal)
-    
-    def get_signal_edges(self, signal: str, verbose: bool = False) -> List[SignalResult]:
-        """
-        Get all edges for a signal with timestamps and values.
-        Returns: List[SignalResult]
-        """
-        # Validate arguments
-        if not isinstance(signal, str):
-            raise TypeError(f"signal must be a string, got {type(signal).__name__}")
-        
-        if not isinstance(verbose, bool):
-            raise TypeError(f"verbose must be a boolean, got {type(verbose).__name__}")
-        
-        if not signal.strip():
-            raise ValueError("signal cannot be empty or whitespace only")
-        
-        # Build edges for this specific signal only (not entire cache)
-        edges: List[SignalResult] = []
-        for timestamp, signal_changes in self.vcd_dict.items():
-            for signal_change in signal_changes:
-                if signal_change['signal_name'] == signal:
-                    signal_metadata: Dict[str, Any] = self._get_signal_metadata(signal)
-                    edge_data = SignalResult(
-                        signal_name=signal,
-                        time=timestamp,
-                        calc_value={"hex": signal_change['hex'], "int": signal_change['int'], "bin": signal_change['binary_value']},
-                        raw_vcd=signal_change['raw_vcd'],
-                        width=signal_metadata['width'],
-                        last_vcd_time=timestamp,
-                        last_vcd_value=signal_change['raw_vcd'],
-                        note={"status": "exact timestamp in VCD"},
-                        var_id=signal_metadata['var_id'] if verbose else None,
-                        vcd_line=f"{signal_change['raw_vcd']}{signal_metadata['var_id']}" if verbose and signal_metadata['var_id'] else None,
-                        signal_definition=signal_metadata['signal_definition'] if verbose else None,
-                        msb=signal_metadata['msb'] if verbose else None,
-                        lsb=signal_metadata['lsb'] if verbose else None
-                    )
-                    edges.append(edge_data)
-        return edges
-    
-    @typechecked
     def get_signal_edges_from_timestamp(self, signal: str, timestamp: str, verbose: bool = False) -> List[SignalResult]:
-        """
-        Get all signal edges after the specified timestamp (not including the timestamp itself).
-        Returns: List[SignalResult]
-        """
-        # Validate arguments
-        if not isinstance(signal, str):
-            raise TypeError(f"signal must be a string, got {type(signal).__name__}")
-        
-        if not isinstance(timestamp, str):
-            raise TypeError(f"timestamp must be a string, got {type(timestamp).__name__}")
-        
-        if not isinstance(verbose, bool):
-            raise TypeError(f"verbose must be a boolean, got {type(verbose).__name__}")
-        
+        """Get all signal edges after the specified timestamp."""
         if not signal.strip():
             raise ValueError("signal cannot be empty or whitespace only")
-        
         if not timestamp.strip():
             raise ValueError("timestamp cannot be empty or whitespace only")
         
         try:
-            target_time_int: int = int(timestamp)
+            target_time_int = int(timestamp)
         except ValueError:
             raise ValueError(f"Invalid timestamp format: '{timestamp}'. Must be a number.")
         
-        # Get all edges for this signal
-        signal_edges: List[SignalResult] = self.get_signal_edges(signal, verbose)
+        signal_edges = self.get_signal_edges(signal, verbose)
         
         if not signal_edges:
             raise ValueError(f'No data found for signal "{signal}"')
         
-        # Filter edges after the target timestamp (not including the timestamp itself)
         filtered_edges: List[SignalResult] = []
         for edge in signal_edges:
-            edge_time_int: int = int(edge.time)
+            edge_time_int = int(edge.time)
             if edge_time_int > target_time_int:
                 filtered_edges.append(edge)
         
         return filtered_edges
     
-    @typechecked
     def validate_signal_exists(self, signal: str) -> None:
-        """
-        Validate that a signal exists in the design.
-        Raises ValueError if signal is not found.
-        """
-        if signal not in self.signal_hierarchy.values():
-            available_signals: List[str] = list(self.signal_hierarchy.values())[:10]
-            raise ValueError(f'Signal "{signal}" not found in design. Available signals: {available_signals}')
+        """Validate that a signal exists in the design."""
+        if self._signals_list is None:
+            self._load_index_metadata()
+        
+        if signal not in self._signals_list:
+            available = self._signals_list[:10] if self._signals_list else []
+            raise ValueError(f'Signal "{signal}" not found in design. Available signals: {available}')
 
 
-def verify_arguments(args: argparse.Namespace, analyzer: VCDAnalyzer) -> None:
+# Keep original class as alias for backward compatibility
+VCDAnalyzer = VCDIndexedAnalyzer
+
+
+def verify_arguments(args: argparse.Namespace, analyzer: VCDIndexedAnalyzer) -> None:
     """Verify command-line arguments for consistency and validity."""
-    # Count active commands (--edge is not a separate command, it works with --signal)
     active_commands: int = 0
     if args.timestamps:
         active_commands += 1
@@ -622,7 +684,6 @@ def verify_arguments(args: argparse.Namespace, analyzer: VCDAnalyzer) -> None:
     if args.signal is not None:
         active_commands += 1
     
-    # Check for conflicting commands
     if active_commands > 1:
         conflicting_args: List[str] = []
         if args.timestamps:
@@ -634,7 +695,6 @@ def verify_arguments(args: argparse.Namespace, analyzer: VCDAnalyzer) -> None:
         
         raise ValueError(f"Conflicting arguments provided. Only one command allowed at a time: {', '.join(conflicting_args)}")
     
-    # Validate --time usage
     if args.time is not None:
         if args.signal is None:
             raise ValueError("--time can only be used with --signal")
@@ -644,29 +704,26 @@ def verify_arguments(args: argparse.Namespace, analyzer: VCDAnalyzer) -> None:
         except ValueError:
             raise ValueError(f"Invalid timestamp format for --time: '{args.time}'. All timestamps must be numbers.")
     
-    # Validate --edge usage
     if args.edge is not None:
         if args.signal is None:
             raise ValueError("--edge can only be used with --signal")
         if args.time is None:
             raise ValueError("--edge requires --time to be specified")
-        if isinstance(args.edge, int) and args.edge <= 0:
-            raise ValueError("--edge number must be > 0")
+        if args.count is None:
+            raise ValueError("--edge requires --count to specify number of edges to show.\n"
+                           "Usage: --signal <name> --time <timestamp> --edge --count <N>\n"
+                           "Example: --signal 'top.clk' --time 0 --edge --count 10")
     
-    # Validate --count usage
     if args.count is not None:
         if args.signal is None:
             raise ValueError("--count can only be used with --signal")
         if args.time is None:
             raise ValueError("--count requires --time to be specified")
-        if args.edge is not None:
-            raise ValueError("--count cannot be used with --edge")
         if args.count <= 0:
             raise ValueError("--count must be > 0")
         if len(args.time) > 1:
             raise ValueError("--count can only be used with a single --time timestamp")
     
-    # Validate signals exist in design (only for exact signal names, not wildcards)
     if args.signal is not None and '*' not in args.signal and '?' not in args.signal:
         analyzer.validate_signal_exists(args.signal)
 
@@ -685,20 +742,28 @@ def main() -> None:
     parser.add_argument('--verbose', action='store_true', help='Show all VCD data including var_id, signal definition, and complete VCD metadata')
     parser.add_argument('--radix', choices=['hex', 'int', 'bin'], help='Output format for calc_value: hex, int, or bin. Without this flag, shows all formats in a dictionary')
     parser.add_argument('--count', type=int, help='Show count number of values starting from --time timestamp (requires --time, not allowed with --edge)')
+    parser.add_argument('--rebuild-index', action='store_true', help='Force rebuild of VCD index')
     
     args: argparse.Namespace = parser.parse_args()
     
     try:
-        analyzer: VCDAnalyzer = VCDAnalyzer(args.vcdfilename)
-        verify_arguments(args, analyzer)
+        # Handle rebuild-index flag
+        if args.rebuild_index:
+            vcd_path = Path(args.vcdfilename).resolve()
+            index_dir = vcd_path.parent / f".{vcd_path.name}.idx"
+            if index_dir.exists():
+                import shutil
+                shutil.rmtree(index_dir)
+                print(f"Removed existing index: {index_dir}", file=sys.stderr)
         
+        analyzer: VCDIndexedAnalyzer = VCDIndexedAnalyzer(args.vcdfilename)
+        verify_arguments(args, analyzer)
         
         if args.timestamps:    
             for timestamp in analyzer.get_all_timestamps():
                 print(timestamp)
         
         if args.find_signal_names is not None:
-            # Filter signal names with wildcard pattern using cache
             pattern: str = args.find_signal_names
             filtered_signals: List[str] = analyzer.find_signals(pattern)
             
@@ -709,105 +774,99 @@ def main() -> None:
                 print("None")
         
         if args.signal is not None:
-            # First run find_signals to get matching signals
-            
             matching_signals: List[str] = analyzer.find_signals(args.signal)
             
             if args.time is not None:
-                # Filter signal results by time(s) - can be multiple timestamps
                 for signal_name in matching_signals:
-                    # Get signal edges once to avoid repeated expensive calls
                     signal_edges: List[SignalResult] = analyzer.get_signal_edges(signal_name)
+                    all_timestamps: List[str] = analyzer.get_all_timestamps()
+                    has_edge = args.edge is not None
+                    has_count = args.count is not None
                     
-                    if args.count is not None:
-                        # --count mode: show count number of values starting from --time timestamp
-                        start_timestamp = args.time[0]  # Only single timestamp allowed with --count
-                        all_timestamps: List[str] = analyzer.get_all_timestamps()
+                    if has_edge:
+                        # --edge mode: show N edges (value changes) after timestamp
+                        # Validation ensures --count is provided with --edge
+                        timestamp = args.time[0]
                         
-                        # Find the starting timestamp index
+                        # Always show value at time 0 first
+                        print(f"\n=== value @ 0ns ===")
+                        value_at_0: SignalResult = analyzer._get_signal_value_from_edges(signal_edges, '0', signal_name, args.verbose)
+                        value_at_0.note = {"status": "initial value"}
+                        print(value_at_0.to_string(args.verbose, args.radix))
+                        
+                        # Show value at selected time (if not 0)
+                        if timestamp != '0':
+                            print(f"\n=== value @ {timestamp}ns ===")
+                            value_at_time: SignalResult = analyzer._get_signal_value_from_edges(signal_edges, timestamp, signal_name, args.verbose)
+                            if timestamp in all_timestamps:
+                                value_at_time.note = {"status": "exact timestamp in VCD"}
+                            print(value_at_time.to_string(args.verbose, args.radix))
+                        
+                        # Show edges after the selected time
+                        edges_after: List[SignalResult] = analyzer.get_signal_edges_from_timestamp(signal_name, timestamp, args.verbose)
+                        
+                        # Limit number of edges using --count
+                        edges_after = edges_after[:args.count]
+                        print(f"\n=== {args.count} edges after {timestamp}ns ===")
+                        
+                        for edge in edges_after:
+                            edge.note = {"status": "exact timestamp in VCD"}
+                            print(edge.to_string(args.verbose, args.radix))
+                    
+                    elif has_count:
+                        # --count mode (without --edge): show value at N consecutive timestamps
+                        start_timestamp = args.time[0]
+                        
                         try:
                             start_time_int: int = int(start_timestamp)
                         except ValueError:
                             raise ValueError(f"Invalid timestamp format: '{start_timestamp}'. Must be a number.")
                         
-                        # Always start with the requested timestamp
                         timestamps_to_show: List[str] = [start_timestamp]
                         
-                        # Get additional timestamps > start_timestamp, sorted
                         for ts in all_timestamps:
                             if int(ts) > start_time_int:
                                 timestamps_to_show.append(ts)
                         
-                        # Sort by timestamp value
                         timestamps_to_show.sort(key=int)
-                        
-                        # Limit to count
                         timestamps_to_show = timestamps_to_show[:args.count]
                         
-                        # Print header
                         print(f"\n=== {args.count} values starting from {start_timestamp}ns ===")
                         
-                        # Show values for each timestamp
                         for timestamp in timestamps_to_show:
                             value: SignalResult = analyzer._get_signal_value_from_edges(signal_edges, timestamp, signal_name, args.verbose)
                             if timestamp == start_timestamp:
-                                # First timestamp is always the requested one
                                 if timestamp in all_timestamps:
                                     value.note = {"status": "exact timestamp in VCD"}
                                 else:
                                     value.note = {"status": f"calculated from last value at timestamp {start_timestamp}"}
                             else:
-                                # Subsequent timestamps are from VCD
                                 value.note = {"status": "exact timestamp in VCD"}
                             print(value.to_string(args.verbose, args.radix))
                     
                     else:
-                        # Normal --time mode: show values for specified timestamps
-                        # Print combined header for all timestamps
-                        timestamps_str = ",".join([f"{ts}ns" for ts in args.time])
-                        print(f"\n=== value @ {timestamps_str} ===")
-                        
-                        # Process each requested timestamp
+                        # Normal --time mode: just show value at specified timestamps
                         for timestamp in args.time:
-                            # Check if exact timestamp exists in VCD
-                            all_timestamps: List[str] = analyzer.get_all_timestamps()
+                            timestamps_str = ",".join([f"{ts}ns" for ts in args.time])
+                            print(f"\n=== value @ {timestamps_str} ===")
+                            
                             exact_timestamp_exists: bool = timestamp in all_timestamps
                             
                             if exact_timestamp_exists:
-                                # Exact timestamp found, show normally
                                 value: SignalResult = analyzer._get_signal_value_from_edges(signal_edges, timestamp, signal_name, args.verbose)
-                                # Override status for exact timestamp
                                 value.note = {"status": "exact timestamp in VCD"}
                                 print(value.to_string(args.verbose, args.radix))
                             else:
-                                # Exact timestamp not found, show calculated value for requested timestamp
                                 calculated_value = analyzer._get_signal_value_from_edges(signal_edges, timestamp, signal_name, args.verbose)
                                 print(calculated_value.to_string(args.verbose, args.radix))
-                            
-                            # If --edge flag is used, show edges after this timestamp
-                            if args.edge is not None:
-                                edges_after: List[SignalResult] = analyzer.get_signal_edges_from_timestamp(signal_name, timestamp, args.verbose)
-                                
-                                # Limit number of edges if specified and update header accordingly
-                                if isinstance(args.edge, int) and not isinstance(args.edge, bool):
-                                    edges_after = edges_after[:args.edge]
-                                    print(f"\n=== '{args.edge}' edges after {timestamp}ns ===")
-                                else:
-                                    print(f"\n=== all edges after {timestamp}ns ===")
-                                
-                                for edge in edges_after:
-                                    edge.note = {"status": "exact timestamp in VCD"}
-                                    print(edge.to_string(args.verbose, args.radix))
                     
-                    # Add newline after each signal
                     print()
-            if(args.time is None):
-                # Get signal values at all timestamps
+            
+            if args.time is None:
                 all_timestamps: List[str] = analyzer.get_all_timestamps()
                 
                 for signal_name in matching_signals:
                     print(f"=== {signal_name} ===")
-                    # Get signal edges once to avoid repeated expensive calls
                     signal_edges: List[SignalResult] = analyzer.get_signal_edges(signal_name, args.verbose)
                     
                     for timestamp in all_timestamps:
@@ -815,7 +874,6 @@ def main() -> None:
                         print(value.to_string(args.verbose, args.radix))
         
         else:
-            # No command specified, do nothing
             pass
     
     except FileNotFoundError:
@@ -828,4 +886,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
