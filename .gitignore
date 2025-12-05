@@ -37,3 +37,4 @@ vivado_test_log_*.txt
 
 # Git doesn't track empty directories by default
 # To track an empty directory, add a .gitkeep file inside it
+hdlforge/project_setup/test_dir/test_packets.pcap.tshark_output.txt
