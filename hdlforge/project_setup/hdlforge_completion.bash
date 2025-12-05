@@ -10,16 +10,24 @@ _hdlforge_completions() {
     local all_words="${COMP_WORDS[*]}"
 
     # Available tools
-    local tools="vivado verilator network vcd_analyzer tsharkWrapper projects"
+    local tools="vivado verilator network vcd_analyzer tsharkWrapper hw_manager projects"
 
     # Network commands
     local network_cmds="send_raw send_arp send_icmp send_udp"
+
+    # hw_manager commands
+    local hw_manager_cmds="program read_dna read_ila"
 
     # Network command-specific parameters
     local network_send_raw_params="--interface --data --verbose"
     local network_send_arp_params="--interface --arp_op --eth_dst_mac --eth_src_mac --src_mac --src_ip --dst_mac --dst_ip --verbose"
     local network_send_icmp_params="--interface --eth_dst_mac --eth_src_mac --src_ip --dst_ip --icmp_type --icmp_code --identifier --sequence --data --verbose"
     local network_send_udp_params="--interface --eth_dst_mac --eth_src_mac --src_ip --dst_ip --src_port --dst_port --data --verbose"
+
+    # hw_manager command-specific parameters
+    local hw_manager_program_params="--server_ip --bitstream --probes --verbose"
+    local hw_manager_read_dna_params="--server_ip --verbose"
+    local hw_manager_read_ila_params="--server_ip --bitstream --probes --verbose"
 
     # Vivado steps (--step is deprecated, use direct flags like --syn, --impl, --bit)
     local vivado_steps="syn impl bit all lint list_runs reset_run generate_prj_with_external_tcl write_tcl file_remove file_add"
@@ -68,8 +76,16 @@ _hdlforge_completions() {
             return
             ;;
         --cmd)
-            # After --cmd (network tool), suggest network commands
-            COMPREPLY=($(compgen -W "$network_cmds" -- "$cur"))
+            # After --cmd, suggest commands based on selected tool
+            local tool=$(_get_flag_value "--tool")
+            if [[ "$tool" == "network" ]]; then
+                COMPREPLY=($(compgen -W "$network_cmds" -- "$cur"))
+            elif [[ "$tool" == "hw_manager" ]]; then
+                COMPREPLY=($(compgen -W "$hw_manager_cmds" -- "$cur"))
+            else
+                # If tool not yet selected, suggest all commands
+                COMPREPLY=($(compgen -W "$network_cmds $hw_manager_cmds" -- "$cur"))
+            fi
             return
             ;;
         --interface)
@@ -169,14 +185,30 @@ _hdlforge_completions() {
             return
             ;;
         --edge)
-            # VCD analyzer edge types
-            COMPREPLY=($(compgen -W "rising falling both" -- "$cur"))
+            # --edge is a flag, no values needed (use with --count for number of edges)
             return
             ;;
         --pcap)
             # After --pcap, suggest .pcap files
             COMPREPLY=($(compgen -f -X '!*.pcap' -- "$cur"))
             compopt -o filenames 2>/dev/null
+            return
+            ;;
+        --bitstream)
+            # After --bitstream, suggest .bit files
+            COMPREPLY=($(compgen -f -X '!*.bit' -- "$cur"))
+            compopt -o filenames 2>/dev/null
+            return
+            ;;
+        --probes)
+            # After --probes, suggest .ltx files
+            COMPREPLY=($(compgen -f -X '!*.ltx' -- "$cur"))
+            compopt -o filenames 2>/dev/null
+            return
+            ;;
+        --server_ip)
+            # Suggest common server IPs
+            COMPREPLY=($(compgen -W "10.1.130.74 192.168.1.100 localhost" -- "$cur"))
             return
             ;;
         --format)
@@ -200,7 +232,7 @@ _hdlforge_completions() {
 
     # Check which tool is selected to provide context-specific completions
     local tool=$(_get_flag_value "--tool")
-    local network_cmd=$(_get_flag_value "--cmd")
+    local cmd=$(_get_flag_value "--cmd")
 
     # Provide completions based on the selected tool
     case "$tool" in
@@ -268,7 +300,7 @@ _hdlforge_completions() {
             ;;
         network)
             # First, check if --cmd is already specified
-            if [[ -z "$network_cmd" ]]; then
+            if [[ -z "$cmd" ]]; then
                 # No command yet, suggest --cmd
                 if [[ "$cur" == -* || -z "$cur" ]]; then
                     COMPREPLY=($(compgen -W "--cmd --verbose" -- "$cur"))
@@ -276,7 +308,7 @@ _hdlforge_completions() {
             else
                 # Command specified, suggest command-specific parameters
                 local cmd_params=""
-                case "$network_cmd" in
+                case "$cmd" in
                     send_raw)
                         cmd_params="$network_send_raw_params"
                         ;;
@@ -319,14 +351,23 @@ _hdlforge_completions() {
                     # First, require --vcdfilename
                     available_flags="--vcdfilename"
                 elif _word_in_args "--signal"; then
-                    # After --signal, show signal-related modifiers
-                    local signal_modifiers="--time --count --edge --radix --verbose"
-                    for flag in $signal_modifiers; do
-                        _word_in_args "$flag" || available_flags="$available_flags $flag"
-                    done
+                    # After --signal, need --value or --edge (mutually exclusive)
+                    local has_value_or_edge=false
+                    (_word_in_args "--value" || _word_in_args "--edge") && has_value_or_edge=true
+                    
+                    if [ "$has_value_or_edge" = false ]; then
+                        # Must choose --value or --edge first
+                        available_flags="--value --edge"
+                    else
+                        # After --value/--edge, show modifiers
+                        local signal_modifiers="--time --count --radix --verbose --no-clock"
+                        for flag in $signal_modifiers; do
+                            _word_in_args "$flag" || available_flags="$available_flags $flag"
+                        done
+                    fi
                 else
                     # Show action flags (after --vcdfilename is set)
-                    local action_flags="--timestamps --find_signal_names --signal"
+                    local action_flags="--timestamps --find_signal_names --signal --rebuild-index"
                     for flag in $action_flags; do
                         _word_in_args "$flag" || available_flags="$available_flags $flag"
                     done
@@ -357,48 +398,36 @@ _hdlforge_completions() {
                 COMPREPLY=($(compgen -W "$available_flags" -- "$cur"))
             fi
             ;;
-        projects)
-            # --list is the only option, don't suggest if already used
-            if ! _word_in_args "--list"; then
+        hw_manager)
+            # First, check if --cmd is already specified
+            if [[ -z "$cmd" ]]; then
+                # No command yet, suggest --cmd
                 if [[ "$cur" == -* || -z "$cur" ]]; then
-                    COMPREPLY=($(compgen -W "--list" -- "$cur"))
+                    COMPREPLY=($(compgen -W "--cmd --verbose" -- "$cur"))
                 fi
-            fi
-            ;;
-        *)
-            # No tool selected yet, suggest --tool only
-            if [[ "$cur" == -* || -z "$cur" ]]; then
-                COMPREPLY=($(compgen -W "--tool" -- "$cur"))
-            fi
-            ;;
-    esac
-}
-
-# Register the completion function for hdlforge
-complete -F _hdlforge_completions hdlforge
-                COMPREPLY=($(compgen -W "$available_flags" -- "$cur"))
-            fi
-            ;;
-        tsharkWrapper)
-            # Check if --pcap is provided
-            local has_pcap=false
-            _word_in_args "--pcap" && has_pcap=true
-            
-            if [[ "$cur" == -* || -z "$cur" ]]; then
-                local available_flags=""
+            else
+                # Command specified, suggest command-specific parameters
+                local cmd_params=""
+                case "$cmd" in
+                    program)
+                        cmd_params="$hw_manager_program_params"
+                        ;;
+                    read_dna)
+                        cmd_params="$hw_manager_read_dna_params"
+                        ;;
+                    read_ila)
+                        cmd_params="$hw_manager_read_ila_params"
+                        ;;
+                esac
                 
-                if [ "$has_pcap" = false ]; then
-                    # First, require --pcap
-                    available_flags="--pcap"
-                else
-                    # Show frame selection, format options, and tshark args append
-                    local tshark_flags="--format --frame --frame_start --frame_end --frame_list --count --skip --tsharkArgsAppend --verbose"
-                    for flag in $tshark_flags; do
+                if [[ "$cur" == -* || -z "$cur" ]]; then
+                    # Filter out already used flags
+                    local available_flags=""
+                    for flag in $cmd_params; do
                         _word_in_args "$flag" || available_flags="$available_flags $flag"
                     done
+                    COMPREPLY=($(compgen -W "$available_flags" -- "$cur"))
                 fi
-                
-                COMPREPLY=($(compgen -W "$available_flags" -- "$cur"))
             fi
             ;;
         projects)
