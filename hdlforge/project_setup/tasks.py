@@ -25,6 +25,7 @@ from verilator_tasks import Verilator
 from network_tasks import network
 from vcd_analyzer_tasks import vcd_analyzer
 from tshark_wrapper_tasks import tshark_wrapper, help_tshark_wrapper
+from hw_manager_tasks import hw_manager, help_hw_manager
 
 # Import project loader (single source of truth for project data)
 from project_file import ProjectFile
@@ -136,11 +137,21 @@ def help(c):
             "Uses Verilator compiler with cocotb testbenches",
             "Supports multiple simulation targets and environments"
         ]),
-        ("tool", "Utility Tools", [
-            "Network utilities: send raw packets (ARP, ICMP, UDP)",
-            "VCD analyzer: analyze waveform files",
-            "tshark wrapper: wrapper for tshark commands",
-            "Use --network, --vcd_analyzer, or --tsharkWrapper to select tool"
+        ("network", "Network Utilities", [
+            "Send raw packets (ARP, ICMP, UDP)",
+            "Use --tool network --cmd <command>"
+        ]),
+        ("vcd_analyzer", "VCD Analyzer", [
+            "Analyze waveform files",
+            "Use --tool vcd_analyzer"
+        ]),
+        ("tsharkWrapper", "Tshark Wrapper", [
+            "Wrapper for tshark commands",
+            "Use --tool tsharkWrapper"
+        ]),
+        ("hw_manager", "Hardware Manager", [
+            "Program FPGA, read chip DNA, read ILA values",
+            "Use --tool hw_manager --cmd <command>"
         ]),
         ("projects", "Project Management", [
             "Manage HDL project configurations",
@@ -342,26 +353,42 @@ def help_vcd_analyzer():
     print("=" * 80)
     print()
     print("DESCRIPTION:")
-    print("  Professional VCD waveform analysis tool with signal hierarchy support.")
+    print("  VCD waveform analysis tool with automatic clock detection and indexing.")
     print()
     print("USAGE:")
-    print("  hdlforge --tool vcd_analyzer [--arg1] [<value1>] [--arg2] [<value2>] ...")
+    print("  hdlforge --tool vcd_analyzer --vcdfilename <file> [action] [options]")
     print()
-    print("ARGUMENTS:")
+    print("ACTIONS (choose one):")
+    print("    --timestamps                           List all timestamps in VCD")
+    print("    --find_signal_names [PATTERN]          Find signals (supports wildcards)")
+    print("    --signal <NAME> --value                Show signal values at timestamps")
+    print("    --signal <NAME> --edge                 Show signal value changes only")
+    print()
+    print("OPTIONS:")
     print("    --vcdfilename <FILE>                   VCD file to analyze (required)")
-    print("    --timestamps                           List all timestamps")
-    print("    --find_signal_names [PATTERN]                List signal names (optionally filter with wildcard pattern)")
-    print("    --signal <SIGNAL>                      Signal name (supports wildcards)")
-    print("    --time <TIMESTAMP> [TIMESTAMP ...]     Filter signal results by timestamp(s)")
-    print("    --edge [N]                             Show signal edges after --time timestamp (optional N limits edges)")
-    print("    --count <N>                            Show N values starting from --time timestamp")
-    print("    --verbose                              Show all VCD data including var_id and signal definition")
-    print("    --radix <hex|int|bin>                  Output format for calc_value")
+    print("    --time <TIMESTAMP>                     Start timestamp in ps (default: 0)")
+    print("    --count <N>                            Number of values/edges to show (default: all)")
+    print("    --radix <hex|int|bin>                  Output format")
+    print("    --no-clock                             Disable clock-aligned sampling")
+    print("    --rebuild-index                        Force rebuild VCD index")
+    print("    --verbose                              Show full VCD details")
+    print()
+    print("CLOCK ANALYSIS:")
+    print("  Tool auto-detects clock from timestamps. Default samples at clock period.")
+    print("  Use --no-clock to sample at every timestamp.")
     print()
     print("EXAMPLES:")
-    print("  hdlforge --tool vcd_analyzer --vcdfilename waveform.vcd --timestamps")
-    print("  hdlforge --tool vcd_analyzer --vcdfilename waveform.vcd --find_signal_names")
-    print("  hdlforge --tool vcd_analyzer --vcdfilename waveform.vcd --signal 'top.signal' --time 1000")
+    print("  # Find signals")
+    print("  hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --find_signal_names '*clk*'")
+    print()
+    print("  # Show 10 values (clock-aligned)")
+    print("  hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --signal 'top.data' --value --count 10")
+    print()
+    print("  # Show 5 edges (value changes)")
+    print("  hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --signal 'top.state' --edge --count 5")
+    print()
+    print("  # All timestamps (no clock alignment)")
+    print("  hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --signal 'top.data' --value --count 10 --no-clock")
     print()
     print("=" * 80)
 
@@ -402,8 +429,8 @@ if __name__ == "__main__":
     )
     parser.add_argument('-h', '--help', action='store_true', help='Show help message')
     parser.add_argument('--project', required=False, help='Project file path')
-    parser.add_argument('--tool', required=False, choices=['vivado', 'Verilator', 'network', 'vcd_analyzer', 'tsharkWrapper', 'projects'], 
-                       help='Tool to execute: vivado, Verilator, network, vcd_analyzer, tsharkWrapper, or projects (required)')
+    parser.add_argument('--tool', required=False, choices=['vivado', 'Verilator', 'network', 'vcd_analyzer', 'tsharkWrapper', 'hw_manager', 'projects'], 
+                       help='Tool to execute: vivado, Verilator, network, vcd_analyzer, tsharkWrapper, hw_manager, or projects (required)')
     
     # Common arguments for all tools
     parser.add_argument('--verbose', action='store_true', help='Enable verbose output')
@@ -430,9 +457,9 @@ if __name__ == "__main__":
     parser.add_argument('--file_path', type=str, help='File path (required for file_remove and file_add)')
     parser.add_argument('-f', '--force', action='store_true', help='Skip confirmation prompts')
     
-    # Network tool arguments
-    parser.add_argument('--cmd', type=str, choices=['send_raw', 'send_arp', 'send_icmp', 'send_udp'], 
-                       help='Network command: send_raw, send_arp, send_icmp, send_udp')
+    # Network and hw_manager tool arguments (shared --cmd)
+    parser.add_argument('--cmd', type=str, choices=['send_raw', 'send_arp', 'send_icmp', 'send_udp', 'program', 'read_dna', 'read_ila'], 
+                       help='Command: network (send_raw, send_arp, send_icmp, send_udp) or hw_manager (program, read_dna, read_ila)')
     parser.add_argument('--interface', type=str, help='Network interface name')
     parser.add_argument('--data', type=str, help='Raw data as hex string')
     # ARP arguments
@@ -457,10 +484,13 @@ if __name__ == "__main__":
     parser.add_argument('--timestamps', action='store_true', help='List all timestamps')
     parser.add_argument('--find_signal_names', nargs='?', const='*', help='List signal names (optionally filter with wildcard pattern)')
     parser.add_argument('--signal', type=str, help='Signal name (supports wildcards)')
-    parser.add_argument('--time', nargs='+', help='Filter signal results by timestamp(s)')
-    parser.add_argument('--edge', nargs='?', const=True, type=int, help='Show signal edges after --time timestamp')
+    parser.add_argument('--value', action='store_true', help='Show signal values at timestamps (tick by tick)')
+    parser.add_argument('--edge', action='store_true', help='Show signal edges (value changes only)')
+    parser.add_argument('--time', type=str, default='0', help='Start timestamp (default: 0)')
+    parser.add_argument('--count', type=int, help='Number of values/edges to show (default: all)')
     parser.add_argument('--radix', choices=['hex', 'int', 'bin'], help='Output format for calc_value')
-    parser.add_argument('--count', type=int, help='Show count number of values starting from --time timestamp')
+    parser.add_argument('--rebuild-index', action='store_true', help='Force rebuild of VCD index')
+    parser.add_argument('--no-clock', action='store_true', help='Disable clock-aligned sampling, use all timestamps')
     
     # tshark wrapper arguments
     parser.add_argument('--pcap', type=str, help='PCAP file to analyze')
@@ -472,6 +502,13 @@ if __name__ == "__main__":
     parser.add_argument('--frame_list', type=str, help='Comma-separated list of frame numbers to display')
     parser.add_argument('--skip', type=int, help='Skip this many packets before displaying')
     parser.add_argument('--tsharkArgsAppend', type=str, help='Additional raw tshark arguments to append')
+    parser.add_argument('--disable_heuristics', action='store_true', help='Disable UDP heuristic protocol dissectors')
+    parser.add_argument('--disable_protocols', type=str, help='Comma-separated list of protocols to disable (e.g., "mndp,ssdp")')
+    
+    # hw_manager arguments (--cmd is shared with network tool above)
+    parser.add_argument('--server_ip', type=str, help='Hardware server IP address (default: 10.1.130.74)')
+    parser.add_argument('--bitstream', type=str, help='Path to bitstream file (.bit file)')
+    parser.add_argument('--probes', type=str, help='Path to probes file (.ltx file)')
     
     # Projects tool arguments
     parser.add_argument('--list', action='store_true', help='List all available projects recursively from current directory')
@@ -495,6 +532,8 @@ if __name__ == "__main__":
                 help_vcd_analyzer()
             elif args.tool == 'tsharkWrapper':
                 help_tshark_wrapper()
+            elif args.tool == 'hw_manager':
+                help_hw_manager()
             elif args.tool == 'projects':
                 help_projects()
             sys.exit(0)
@@ -597,6 +636,12 @@ if __name__ == "__main__":
         if not args.cmd:
             help_network()
             sys.exit(0)
+        # Validate cmd is a network command
+        if args.cmd not in ['send_raw', 'send_arp', 'send_icmp', 'send_udp']:
+            print(f"[!x!] Invalid command for network tool: {args.cmd}")
+            print("[i] Network commands: send_raw, send_arp, send_icmp, send_udp")
+            help_network()
+            sys.exit(1)
         # Prepare kwargs from args
         kwargs = {
             'interface': args.interface,
@@ -624,11 +669,14 @@ if __name__ == "__main__":
             'timestamps': args.timestamps,
             'find_signal_names': args.find_signal_names,
             'signal': args.signal,
+            'value': args.value,
+            'edge': args.edge,
             'time': args.time,
-            'edge': args.edge,
+            'count': args.count,
             'verbose': args.verbose,
             'radix': args.radix,
-            'count': args.count,
+            'rebuild_index': getattr(args, 'rebuild_index', False),
+            'no_clock': getattr(args, 'no_clock', False),
         }
         vcd_analyzer(c, **kwargs)
     elif args.tool == 'tsharkWrapper':
@@ -652,43 +700,27 @@ if __name__ == "__main__":
                        count=args.count,
                        skip=args.skip,
                        tshark_args_append=args.tsharkArgsAppend,
+                       disable_heuristics=args.disable_heuristics,
+                       disable_protocols=args.disable_protocols,
                        verbose=args.verbose)
-    elif args.tool == 'projects':
-        # Projects tool requires --list option
-        if not getattr(args, 'list', False):
-            help_projects()
+    elif args.tool == 'hw_manager':
+        # hw_manager tool
+        if not args.cmd:
+            help_hw_manager()
             sys.exit(0)
-        projects(c, getattr(args, 'set_project', None), list_projects=True)
-
-
-            'edge': args.edge,
-            'verbose': args.verbose,
-            'radix': args.radix,
-            'count': args.count,
-        }
-        vcd_analyzer(c, **kwargs)
-    elif args.tool == 'tsharkWrapper':
-        # tshark wrapper tool
-        if not args.pcap:
-            help_tshark_wrapper()
-            sys.exit(0)
+        # Validate cmd is an hw_manager command
+        if args.cmd not in ['program', 'read_dna', 'read_ila']:
+            print(f"[!x!] Invalid command for hw_manager tool: {args.cmd}")
+            print("[i] hw_manager commands: program, read_dna, read_ila")
+            help_hw_manager()
+            sys.exit(1)
         
-        # Parse frame_list if provided
-        frame_list = None
-        if args.frame_list:
-            frame_list = [int(x.strip()) for x in args.frame_list.split(',')]
-        
-        tshark_wrapper(c, 
-                       pcap_file=args.pcap,
-                       output_format=args.format,
-                       frame_number=args.frame,
-                       frame_start=args.frame_start,
-                       frame_end=args.frame_end,
-                       frame_list=frame_list,
-                       count=args.count,
-                       skip=args.skip,
-                       tshark_args_append=args.tsharkArgsAppend,
-                       verbose=args.verbose)
+        hw_manager(c,
+                   cmd=args.cmd,
+                   server_ip=args.server_ip,
+                   bitstream_path=args.bitstream,
+                   probes_path=args.probes,
+                   verbose=args.verbose)
     elif args.tool == 'projects':
         # Projects tool requires --list option
         if not getattr(args, 'list', False):

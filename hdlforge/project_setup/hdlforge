@@ -19,6 +19,7 @@ if [ $# -lt 1 ]; then
         echo "  network       - Network Utilities (raw packet sending)"
         echo "  vcd_analyzer  - VCD Waveform Analysis"
         echo "  tsharkWrapper - tshark Command Wrapper"
+        echo "  hw_manager    - Hardware Manager (FPGA programming)"
         echo "  projects      - Project Management"
         echo ""
         echo "hdlforge auto-detected project file in the current directory: $example_file"
@@ -31,6 +32,7 @@ if [ $# -lt 1 ]; then
         echo "  network       - Network Utilities (raw packet sending)"
         echo "  vcd_analyzer  - VCD Waveform Analysis"
         echo "  tsharkWrapper - tshark Command Wrapper"
+        echo "  hw_manager    - Hardware Manager (FPGA programming)"
         echo "  projects      - Project Management"
         echo ""
         echo "Note: --project is optional. If omitted, hdlforge will auto-detect *.hdlforge.json or *.hdlforge.toml files in the current directory."
@@ -295,5 +297,4 @@ fi
 echo "--------$(pwd): $Date: $timestamp Time $time------" >> "$log_file"
 
 # Execute the command
-exec python3 "$TASKS_DIR/tasks.py" "$@" | tee -a "$log_file"
 exec python3 "$TASKS_DIR/tasks.py" "$@" | tee -a "$log_file"
