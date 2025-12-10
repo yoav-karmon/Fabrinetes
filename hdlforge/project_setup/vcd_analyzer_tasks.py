@@ -7,8 +7,7 @@ Wrapper around vcd_analyzer.py for integration with hdlforge tool command
 import sys
 import shutil
 from pathlib import Path
-from typing import Optional, List, Tuple
-from vcd_analyzer import VCDAnalyzer, SignalResult
+from vcd_analyzer import VCDIndexedAnalyzer
 
 
 def vcd_analyzer(c, **kwargs):
@@ -42,149 +41,118 @@ def vcd_analyzer(c, **kwargs):
             print(f"Removed existing index: {index_dir}", file=sys.stderr)
     
     try:
-        analyzer = VCDAnalyzer(args.vcd)
+        analyzer = VCDIndexedAnalyzer(args.vcd)
         
-        # Handle --timestamps
-        if getattr(args, 'timestamps', False):
-            for timestamp in analyzer.get_all_timestamps():
-                print(timestamp)
+        # Handle --get_modules_list
+        if getattr(args, 'get_modules_list', False):
+            modules = analyzer.get_all_modules()
+            for module in modules:
+                print(module)
             return
         
-        # Handle --find_signal_names
-        if getattr(args, 'find_signal_names', None) is not None:
-            pattern = args.find_signal_names
-            filtered_signals = analyzer.find_signals(pattern)
-            if filtered_signals:
-                for signal_name in filtered_signals:
-                    print(signal_name)
-            else:
-                print("None")
-            return
-        
-        # Handle signal queries with --value or --edge
-        signal = getattr(args, 'signal', None)
-        if signal is None:
-            return
-        
-        has_value = getattr(args, 'value', False)
-        has_edge = getattr(args, 'edge', False)
-        
-        # Validate: --value or --edge must be specified
-        if not has_value and not has_edge:
-            print("[!x!] Either --value or --edge must be specified with --signal")
-            print("[i] Usage:")
-            print("[i]   --signal <name> --value [--time <t>] [--count <n>]  # Show values at timestamps")
-            print("[i]   --signal <name> --edge [--time <t>] [--count <n>]   # Show value changes only")
-            sys.exit(1)
-        
-        if has_value and has_edge:
-            print("[!x!] --value and --edge are mutually exclusive")
-            sys.exit(1)
-        
-        # Get parameters with defaults
-        start_time = getattr(args, 'time', '0') or '0'
-        count = getattr(args, 'count', None)  # None means all
-        verbose = getattr(args, 'verbose', False)
-        radix = getattr(args, 'radix', None)
-        
-        # Find matching signals
-        matching_signals = analyzer.find_signals(signal)
-        if not matching_signals:
-            print(f"[!x!] No signals match pattern: {signal}")
-            sys.exit(1)
-        
-        # Get all timestamps and global clock info (cached in index)
-        all_timestamps = analyzer.get_all_timestamps()
-        clock_info = analyzer.get_clock_info()
-        no_clock = getattr(args, 'no_clock', False)
-        clock_period = None if no_clock else clock_info.get('clock_period_ps')
-        
-        # Print global clock analysis (once)
-        if no_clock:
-            print("[Clock Analysis] Disabled (--no-clock)")
-        else:
-            print(analyzer.get_clock_msg())
-        print()
-        
-        # Process each matching signal
-        for signal_name in matching_signals:
-            signal_edges = analyzer.get_signal_edges(signal_name)
+        # Handle --get_values_pins (mapped from list_value_changes_in_module for backward compatibility)
+        module_path = getattr(args, 'list_value_changes_in_module', None)
+        if module_path is not None:
+            use_all = getattr(args, 'all', False)
             
-            if has_edge:
-                # --edge mode: show actual value changes
-                print(f"=== {signal_name} edges ===")
+            if use_all:
+                signals = analyzer.find_signals_in_module(module_path)
+            else:
+                signals = analyzer.find_pins_in_module(module_path)
+            
+            if not signals:
+                print("None")
+                return
+            
+            start_time = '0'
+            all_timestamps = analyzer.get_all_timestamps()
+            clock_info = analyzer.get_clock_info()
+            clock_period = clock_info.get('clock_period_ps')
+            human = getattr(args, 'human', False)
+            
+            module_prefix = module_path + '.'
+            
+            # First pass: collect all signal ranges and values
+            signal_data = []
+            for signal_name in signals:
+                signal_metadata = analyzer._get_signal_metadata(signal_name)
+                width = signal_metadata.get('width', 1)
+                if width == 0:
+                    width = 1
                 
-                # Show value at time 0
-                print(f"\n--- Initial value @ 0ns ---")
-                value_at_0 = analyzer._get_signal_value_from_edges(signal_edges, '0', signal_name, verbose)
-                value_at_0.note = {"status": "initial value"}
-                print(value_at_0.to_string(verbose, radix))
+                # Remove module prefix from signal name for display
+                if signal_name.startswith(module_prefix):
+                    display_name = signal_name[len(module_prefix):]
+                else:
+                    display_name = signal_name
                 
-                # Show value at start time (if not 0)
+                if width == 1:
+                    signal_range = f"{display_name}[0]"
+                else:
+                    signal_range = f"{display_name}[{width-1}:0]"
+                
+                signal_edges = analyzer.get_signal_edges(signal_name)
+                value_at_0 = analyzer._get_signal_value_from_edges(signal_edges, '0', signal_name, False)
+                hex_val_0 = value_at_0.calc_value.get('hex', '0x0')
+                time_ps_0 = int('0')
+                if clock_period:
+                    time_ns_0 = time_ps_0 / 1000.0
+                    if time_ns_0 == int(time_ns_0):
+                        time_str_0 = f"{hex_val_0}@{int(time_ns_0)}"
+                    else:
+                        time_str_0 = f"{hex_val_0}@{time_ns_0}"
+                else:
+                    time_str_0 = f"{hex_val_0}@{time_ps_0}"
+                
+                values = [time_str_0]
+                
                 if start_time != '0':
-                    print(f"\n--- Value @ {start_time}ns ---")
-                    value_at_start = analyzer._get_signal_value_from_edges(signal_edges, start_time, signal_name, verbose)
-                    if start_time in all_timestamps:
-                        value_at_start.note = {"status": "exact timestamp in VCD"}
-                    print(value_at_start.to_string(verbose, radix))
+                    value_at_start = analyzer._get_signal_value_from_edges(signal_edges, start_time, signal_name, False)
+                    hex_val_start = value_at_start.calc_value.get('hex', '0x0')
+                    time_ps_start = int(start_time)
+                    if clock_period:
+                        time_ns_start = time_ps_start / 1000.0
+                        if time_ns_start == int(time_ns_start):
+                            time_str_start = f"{hex_val_start}@{int(time_ns_start)}"
+                        else:
+                            time_str_start = f"{hex_val_start}@{time_ns_start}"
+                    else:
+                        time_str_start = f"{hex_val_start}@{time_ps_start}"
+                    values.append(time_str_start)
                 
-                # Get edges after start time
                 try:
-                    edges_after = analyzer.get_signal_edges_from_timestamp(signal_name, start_time, verbose)
+                    edges_after = analyzer.get_signal_edges_from_timestamp(signal_name, start_time, False)
                 except ValueError:
                     edges_after = []
                 
-                # Limit count
-                if count is not None:
-                    edges_after = edges_after[:count]
-                    print(f"\n--- {count} edges after {start_time}ns ---")
-                else:
-                    print(f"\n--- All edges after {start_time}ns ({len(edges_after)} total) ---")
-                
                 for edge in edges_after:
-                    edge.note = {"status": "value change"}
-                    print(edge.to_string(verbose, radix))
+                    hex_val = edge.calc_value.get('hex', '0x0')
+                    time_ps = int(edge.time)
+                    if clock_period:
+                        time_ns = time_ps / 1000.0
+                        if time_ns == int(time_ns):
+                            time_str = f"{hex_val}@{int(time_ns)}"
+                        else:
+                            time_str = f"{hex_val}@{time_ns}"
+                    else:
+                        time_str = f"{hex_val}@{time_ps}"
+                    values.append(time_str)
+                
+                values_str = ','.join(values)
+                signal_data.append((signal_range, values_str))
             
-            else:
-                # --value mode: show values at consecutive timestamps
-                print(f"=== {signal_name} values ===")
-                
-                try:
-                    start_time_int = int(start_time)
-                except ValueError:
-                    print(f"[!x!] Invalid timestamp: {start_time}")
-                    sys.exit(1)
-                
-                # Build list of timestamps to sample
-                if clock_period and clock_info.get('is_uniform'):
-                    # Use global clock period for tick-aligned sampling
-                    print(f"[Sampling] Using clock period {clock_period}ps")
-                    timestamps_to_show = []
-                    
-                    for ts in all_timestamps:
-                        ts_int = int(ts)
-                        if ts_int >= start_time_int:
-                            if (ts_int - start_time_int) % clock_period == 0 or ts_int == start_time_int:
-                                timestamps_to_show.append(ts)
-                else:
-                    # Non-uniform clock, use all timestamps
-                    print(f"[Sampling] Using all timestamps")
-                    timestamps_to_show = [ts for ts in all_timestamps if int(ts) >= start_time_int]
-                
-                # Limit count
-                if count is not None:
-                    timestamps_to_show = timestamps_to_show[:count]
-                    print(f"--- {count} values starting from {start_time}ns ---")
-                else:
-                    print(f"--- All values starting from {start_time}ns ({len(timestamps_to_show)} total) ---")
-                
-                print()
-                for ts in timestamps_to_show:
-                    value = analyzer._get_signal_value_from_edges(signal_edges, ts, signal_name, verbose)
-                    value.note = {"status": "sampled value"}
-                    print(value.to_string(verbose, radix))
+            # Find max length for padding if human-readable
+            if human:
+                max_len = max(len(signal_range) for signal_range, _ in signal_data)
             
-            print()  # Newline between signals
+            # Print all signals
+            for signal_range, values_str in signal_data:
+                if human:
+                    padded_signal = signal_range.ljust(max_len)
+                    print(f"{padded_signal} edges in ns:{values_str}")
+                else:
+                    print(f"{signal_range} edges in ns:{values_str}")
+            return
     
     except FileNotFoundError:
         print(f"Error: File '{args.vcd}' not found")

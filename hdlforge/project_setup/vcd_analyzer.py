@@ -510,6 +510,80 @@ class VCDIndexedAnalyzer:
                 matching_signals.append(signal_name)
         return matching_signals
     
+    def find_submodules(self, module_path: str) -> List[str]:
+        """Find all immediate sub-modules under module_path."""
+        if self._signals_list is None:
+            self._load_index_metadata()
+        
+        prefix = module_path + '.'
+        submodules: set = set()
+        
+        for signal_name in self._signals_list:
+            if signal_name.startswith(prefix):
+                remainder = signal_name[len(prefix):]
+                if '_inst' in remainder:
+                    parts = remainder.split('.')
+                    if parts[0].endswith('_inst'):
+                        submodules.add(parts[0])
+        
+        return sorted(list(submodules))
+    
+    def find_signals_in_module(self, module_path: str) -> List[str]:
+        """Find signals in module excluding sub-module signals."""
+        if self._signals_list is None:
+            self._load_index_metadata()
+        
+        prefix = module_path + '.'
+        results: List[str] = []
+        
+        for signal_name in self._signals_list:
+            if signal_name.startswith(prefix):
+                remainder = signal_name[len(prefix):]
+                if '_inst' not in remainder:
+                    if 'unnamed' not in signal_name.lower() and 'clk' not in signal_name.lower():
+                        results.append(signal_name)
+        
+        return results
+    
+    def find_pins_in_module(self, module_path: str) -> List[str]:
+        """Find pin signals (_i or _o) in module excluding sub-module signals."""
+        signals = self.find_signals_in_module(module_path)
+        pins: List[str] = []
+        
+        for signal_name in signals:
+            signal_basename = signal_name.split('.')[-1]
+            if signal_basename.endswith('_i') or signal_basename.endswith('_o'):
+                pins.append(signal_name)
+            elif '_i[' in signal_basename or '_o[' in signal_basename:
+                pins.append(signal_name)
+            else:
+                parts = signal_name.split('.')
+                for part in parts:
+                    if part.endswith('_i') or part.endswith('_o'):
+                        pins.append(signal_name)
+                        break
+                    if '_i[' in part or '_o[' in part:
+                        pins.append(signal_name)
+                        break
+        
+        return pins
+    
+    def get_all_modules(self) -> List[str]:
+        """Get all module paths from signal hierarchy."""
+        if self._signals_list is None:
+            self._load_index_metadata()
+        
+        modules: set = set()
+        
+        for signal_name in self._signals_list:
+            parts = signal_name.split('.')
+            for i in range(1, len(parts)):
+                module_path = '.'.join(parts[:i])
+                if module_path.endswith('_inst') or i == 1:
+                    modules.add(module_path)
+        
+        return sorted(list(modules))
+    
     def get_clock_info(self) -> Dict[str, Any]:
         """Get global clock analysis for the design."""
         if self._meta is None:
@@ -735,7 +809,9 @@ def main() -> None:
     
     parser.add_argument('--vcdfilename', required=True, help='VCD file to analyze')
     parser.add_argument('--timestamps', action='store_true', help='List all timestamps')
-    parser.add_argument('--find_signal_names', nargs='?', const='*', help='List signal names (optionally filter with wildcard pattern)')
+    parser.add_argument('--list_value_changes_in_module', help='Module path to list value changes (excludes sub-modules)')
+    parser.add_argument('--get_modules_list', action='store_true', help='List all modules')
+    parser.add_argument('--all', action='store_true', help='Show all signals in module (default: pin signals only)')
     parser.add_argument('--signal', help='Signal name (supports wildcards)')
     parser.add_argument('--time', nargs='+', help='Filter signal results by timestamp(s) - can specify multiple timestamps')
     parser.add_argument('--edge', nargs='?', const=True, type=int, help='Show signal edges after the --time timestamp (requires --time). Optional number limits edges shown (must be >0)')

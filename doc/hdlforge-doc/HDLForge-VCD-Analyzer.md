@@ -2,21 +2,21 @@
 
 ## Overview
 
-The VCD (Value Change Dump) analyzer is an HDLForge tool for debugging FPGA simulations by analyzing waveform data.
+The VCD (Value Change Dump) analyzer is an HDLForge tool for debugging FPGA simulations by analyzing waveform data using a module-based approach. The tool focuses on analyzing signals within specific modules rather than individual signal queries.
 
 **VCD File Location**: `_verilator/<test_name>/dump.vcd` (generated after simulation)
 
 ## Quick Start
 
 ```bash
-# Find signals
-hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --find_signal_names "*clk*"
+# List all modules in the design
+hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --get_modules_list
 
-# Show values (clock-aligned sampling)
-hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --signal "top.clk" --value --count 10
+# Get pin values for a specific module
+hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --get_values_pins 'top.config_interface_inst.arp_server_inst'
 
-# Show edges (actual value changes)
-hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --signal "top.data" --edge --count 5
+# Get all signal values for a specific module
+hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --get_values_all 'top.config_interface_inst.arp_server_inst'
 ```
 
 ## Command Structure
@@ -25,182 +25,229 @@ hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --signal "top.data" --edge -
 hdlforge --tool vcd_analyzer --vcdfilename <file> [action] [options]
 ```
 
+### Required Arguments
+
+| Argument | Description |
+|----------|-------------|
+| `--vcdfilename <FILE>` | VCD file to analyze (required) |
+
 ### Actions (choose one)
 
 | Action | Description |
 |--------|-------------|
-| `--timestamps` | List all timestamps in VCD |
-| `--find_signal_names [pattern]` | Find signals (supports wildcards) |
-| `--signal <name> --value` | Show signal values at timestamps |
-| `--signal <name> --edge` | Show signal value changes only |
+| `--get_modules_list` | List all modules in the design hierarchy |
+| `--get_values_pins <PATH>` | Get value changes for pin signals only (signals ending with `_i` or `_o`) |
+| `--get_values_all <PATH>` | Get value changes for all signals in the module (including internal signals) |
 
-### Signal Query Options
+### Options
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--time <ps>` | `0` | Start timestamp (picoseconds) |
-| `--count <n>` | all | Number of values/edges to show |
-| `--radix hex/int/bin` | all | Output format |
-| `--verbose` | off | Show full VCD details |
-| `--no-clock` | off | Disable clock-aligned sampling |
-| `--rebuild-index` | off | Force rebuild VCD index |
+| Option | Description |
+|--------|-------------|
+| `--human` | Human-readable output format with aligned columns (for use with `--get_values_pins` or `--get_values_all`) |
 
-## Clock Analysis
+## Module-Based Analysis
 
-The tool automatically analyzes VCD timestamps to detect the simulation clock:
+The VCD analyzer uses a module-centric approach, focusing on analyzing signals within specific module instances rather than individual signal queries.
 
-```
-[Clock Analysis]
-  Timestamps uniformly spaced: 5000ps between edges
-  Clock period: 10000ps (10.0ns)
-  Frequency: 100.00MHz
-  Using tick = 10000ps for value sampling
-```
+### Module Hierarchy
 
-- **With clock (default)**: Samples at clock-aligned timestamps (skips falling edges)
-- **With `--no-clock`**: Samples at every timestamp
+Modules are identified by their hierarchical path in the design:
+- `top` - Top-level module
+- `top.config_interface_inst` - Instance under top
+- `top.config_interface_inst.arp_server_inst` - Nested instance
 
-## Value Mode vs Edge Mode
+### Pin Signals vs All Signals
 
-### `--value` Mode
-Shows signal values at consecutive timestamps (including unchanged values):
-
-```bash
-hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --signal "top.counter" --value --count 5
-```
-Output shows values at times 0, 10000, 20000, 30000, 40000 (clock-aligned).
-
-### `--edge` Mode  
-Shows only actual value changes (edges):
-
-```bash
-hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --signal "top.counter" --edge --count 5
-```
-Output:
-- Initial value at time 0
-- Value at `--time` (if not 0)
-- Next 5 actual value changes
+- **Pin Signals** (`--get_values_pins`): Only signals that are module ports (ending with `_i` for inputs or `_o` for outputs)
+- **All Signals** (`--get_values_all`): All signals within the module, including internal state and intermediate signals
 
 ## Examples
 
-### Find Signals
-```bash
-# All signals
-hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --find_signal_names
+### List All Modules
 
-# With wildcard
-hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --find_signal_names "*clk*"
-hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --find_signal_names "*state*"
+```bash
+# List all modules in the design
+hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --get_modules_list
 ```
 
-### Signal Values
-```bash
-# 10 values starting from time 0 (clock-aligned)
-hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --signal "top.data" --value --count 10
-
-# Values starting from specific time
-hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --signal "top.data" --value --time 50000 --count 10
-
-# All timestamps (no clock alignment)
-hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --signal "top.data" --value --count 10 --no-clock
+Output:
+```
+constants_pkg
+top
+top.config_block_inst
+top.config_interface_inst
+top.config_interface_inst.arp_server_inst
+top.config_interface_inst.arp_server_inst.arp_exception_handler_inst
+...
 ```
 
-### Signal Edges
-```bash
-# First 5 edges
-hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --signal "top.state" --edge --count 5
+### Get Pin Values
 
-# Edges after specific time
-hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --signal "top.state" --edge --time 100000 --count 10
+```bash
+# Get pin values for a module (inputs/outputs only)
+hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --get_values_pins 'top.config_interface_inst.arp_server_inst'
 ```
 
-### Output Format
-```bash
---radix hex    # Hexadecimal (0x00000004)
---radix int    # Integer (4)
---radix bin    # Binary (00000100)
+Output format:
 ```
+rst_async_i[0] edges in ns:0x1@0,0x0@290
+packed_mac_address_i[0][7:0] edges in ns:0x00@0,0x34@1490
+mac_data_stream_i.sop[0] edges in ns:0x0@0,0x1@2720,0x0@2750
+arp_response_fifo_wr_en_o[0] edges in ns:0x0@0,0x1@2940,0x0@3050
+...
+```
+
+### Get All Signal Values
+
+```bash
+# Get all signal values for a module (including internal signals)
+hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --get_values_all 'top.config_interface_inst.arp_server_inst'
+```
+
+This includes internal signals like:
+- `state[4:0]` - Internal state machine
+- `checksum_accum[31:0]` - Internal calculation registers
+- `eth_buffer.*` - Internal buffer structures
+
+### Human-Readable Format
+
+```bash
+# Use --human for aligned, readable output
+hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --get_values_pins 'top.config_interface_inst.arp_server_inst' --human
+```
+
+Output with aligned columns:
+```
+rst_async_i[0]                                       edges in ns:0x1@0,0x0@290
+packed_mac_address_i[0][7:0]                         edges in ns:0x00@0,0x34@1490
+mac_data_stream_i.sop[0]                             edges in ns:0x0@0,0x1@2720
+...
+```
+
+## Output Format
+
+The output uses a compressed format showing signal value changes:
+
+```
+signal_name[range] edges in ns:value@time,value@time,...
+```
+
+Where:
+- `signal_name[range]` - Signal name with bit range
+- `edges in ns:` - Indicates value changes are shown
+- `value@time` - Value at specific time (in nanoseconds)
+- Multiple `value@time` pairs show all value changes
+
+Example:
+```
+state_o[3:0] edges in ns:0x0@0,0x1@2750,0x2@2910,0x3@2920,0x4@2930,0x0@3040
+```
+
+This shows:
+- Initial value: `0x0` at time `0ns`
+- Changed to `0x1` at time `2750ns`
+- Changed to `0x2` at time `2910ns`
+- etc.
 
 ## VCD Indexing
 
 The tool automatically creates an index for fast queries:
-- Index stored in `.dump.vcd.idx/` folder next to VCD file
+- Index stored in `.<vcd_filename>.idx/` folder next to VCD file
 - First query builds index (~2-5 seconds)
 - Subsequent queries use cached index (~0.3 seconds)
 - Index auto-invalidates when VCD file changes
 
-Force rebuild:
-```bash
-hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --rebuild-index --find_signal_names
-```
-
-## Output Structure
-
-```json
-{
-  "signal_name": {
-    "time": "5000",
-    "calc_value": {
-      "hex": "0x00000004",
-      "int": 4,
-      "bin": "00000100"
-    },
-    "width": 8,
-    "note": {"status": "sampled value"}
-  }
-}
-```
-
 ## Common Debugging Scenarios
 
-### Reset Sequence
+### Finding a Module
+
 ```bash
-hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --find_signal_names "*rst*"
-hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --signal "*rst*" --edge --count 10
+# First, list all modules to find the one you need
+hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --get_modules_list | grep arp
 ```
 
-### Clock Domain
+### Analyzing Module Interface
+
 ```bash
-hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --find_signal_names "*clk*"
-hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --signal "top.clk" --edge --count 20
+# Check all pin signals (interface) of a module
+hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --get_values_pins 'top.config_interface_inst.arp_server_inst' --human
 ```
 
-### State Machine
+### Analyzing Internal Module Behavior
+
 ```bash
-hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --find_signal_names "*state*"
-hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --signal "*state*" --edge --time 5000 --count 20
+# Check all signals including internal state
+hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --get_values_all 'top.config_interface_inst.arp_server_inst' --human
 ```
 
-### Packet Data
+### Filtering Output
+
 ```bash
-hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --signal "*data*" --value --time 50000 --count 20 --radix hex
+# Use grep to filter specific signals
+hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --get_values_all 'top.config_interface_inst.arp_server_inst' | grep state
 ```
 
 ## Debugging Workflow
 
 1. **Run simulation**: `hdlforge --tool Verilator --step sim --SimTargetName <test>`
-2. **Find signals**: `--find_signal_names "*pattern*"`
-3. **Check edges**: `--signal "name" --edge --count 20`
-4. **Analyze values**: `--signal "name" --value --time <timestamp> --count 20`
+2. **List modules**: `hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --get_modules_list`
+3. **Find target module**: Pipe to `grep` to find modules of interest
+4. **Analyze pins**: Use `--get_values_pins` to see module interface behavior
+5. **Analyze internals**: Use `--get_values_all` to see internal state and signals
+6. **Filter results**: Use `grep` to focus on specific signals
 
 ## Troubleshooting
 
-### No Signal Found
-- Check spelling (case-sensitive)
-- Use wildcards to find similar signals
-- Verify signal exists with `--find_signal_names`
+### Module Not Found
+
+- Check module path spelling (case-sensitive)
+- Use `--get_modules_list` to see available modules
+- Ensure module path matches hierarchy (e.g., `top.instance_inst`)
+
+### No Signals Found
+
+- Module may not have any signals (empty or only sub-modules)
+- Try using `--get_values_all` instead of `--get_values_pins` to see internal signals
+- Check that the module path is correct
 
 ### Slow First Query
+
 - Normal - building VCD index
 - Subsequent queries will be fast (~0.3s)
-- Use `--rebuild-index` if index seems stale
+- Index is cached in `.<vcd_filename>.idx/` directory
 
-### Unexpected Sampling
-- Default uses clock-aligned sampling
-- Use `--no-clock` to see all timestamps
-- Check clock analysis message for deduced period
+### Shell Expansion Issues
 
-### No Value at Timestamp
-- VCD files only record value changes
-- Use `--edge` to see when signal changed
-- Check if timestamp is within simulation range
+If you see errors about unrecognized arguments when using wildcards:
+
+```bash
+# ❌ Wrong - shell expands *arp* to filenames
+hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --get_modules_list *arp*
+
+# ✅ Correct - use grep to filter
+hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --get_modules_list | grep arp
+```
+
+The `--get_modules_list` flag does not accept arguments. Use `grep` to filter the output instead.
+
+## Migration from Old API
+
+The previous signal-based API (`--find_signal_names`, `--signal`, `--value`, `--edge`) has been replaced with the module-based API for better organization and performance.
+
+**Old approach** (removed):
+```bash
+hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --find_signal_names "*state*"
+hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --signal "top.state" --edge --count 10
+```
+
+**New approach**:
+```bash
+hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --get_modules_list | grep state
+hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --get_values_all 'top.module_inst' | grep state
+```
+
+The new API provides:
+- Better organization by module hierarchy
+- Faster analysis of related signals
+- Compressed output format for easier scanning
+- Focus on module-level debugging
