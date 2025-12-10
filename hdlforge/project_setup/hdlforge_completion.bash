@@ -116,12 +116,8 @@ _hdlforge_completions() {
             compopt -o filenames 2>/dev/null
             return
             ;;
-        --signal)
-            # After --signal, user needs to type signal name - no completion
-            return
-            ;;
-        --time|--count)
-            # After --time or --count, user needs to type a number - no completion
+        --get_values_pins|--get_values_all)
+            # After --get_values_pins or --get_values_all, user needs to type module path - no completion
             return
             ;;
         --src_ip|--dst_ip)
@@ -182,10 +178,6 @@ _hdlforge_completions() {
                 local targets=$(jq -r '.verilator.sim_targets | keys[]' "$project_file" 2>/dev/null)
                 COMPREPLY=($(compgen -W "$targets" -- "$cur"))
             fi
-            return
-            ;;
-        --edge)
-            # --edge is a flag, no values needed (use with --count for number of edges)
             return
             ;;
         --pcap)
@@ -334,15 +326,21 @@ _hdlforge_completions() {
             fi
             ;;
         vcd_analyzer)
-            # Check for terminal actions that don't need more flags
-            if _word_in_args "--timestamps" || _word_in_args "--find_signal_names"; then
-                # These are complete commands, no more flags needed
-                return
-            fi
-            
             # Check if --vcdfilename is provided
             local has_vcdfile=false
             _word_in_args "--vcdfilename" && has_vcdfile=true
+            
+            # Check if we're after a flag that needs a value
+            if [[ "$prev" == "--get_values_pins" || "$prev" == "--get_values_all" ]]; then
+                # User is typing the module path - no completion
+                return
+            fi
+            
+            # Check for terminal actions that don't need more flags (except --human)
+            if _word_in_args "--get_modules_list"; then
+                # --get_modules_list is complete, no more flags needed
+                return
+            fi
             
             if [[ "$cur" == -* || -z "$cur" ]]; then
                 local available_flags=""
@@ -350,24 +348,14 @@ _hdlforge_completions() {
                 if [ "$has_vcdfile" = false ]; then
                     # First, require --vcdfilename
                     available_flags="--vcdfilename"
-                elif _word_in_args "--signal"; then
-                    # After --signal, need --value or --edge (mutually exclusive)
-                    local has_value_or_edge=false
-                    (_word_in_args "--value" || _word_in_args "--edge") && has_value_or_edge=true
-                    
-                    if [ "$has_value_or_edge" = false ]; then
-                        # Must choose --value or --edge first
-                        available_flags="--value --edge"
-                    else
-                        # After --value/--edge, show modifiers
-                        local signal_modifiers="--time --count --radix --verbose --no-clock"
-                        for flag in $signal_modifiers; do
-                            _word_in_args "$flag" || available_flags="$available_flags $flag"
-                        done
+                elif _word_in_args "--get_values_pins" || _word_in_args "--get_values_all"; then
+                    # After --get_values_pins or --get_values_all (with path), can add --human
+                    if ! _word_in_args "--human"; then
+                        available_flags="--human"
                     fi
                 else
                     # Show action flags (after --vcdfilename is set)
-                    local action_flags="--timestamps --find_signal_names --signal --rebuild-index"
+                    local action_flags="--get_modules_list --get_values_pins --get_values_all"
                     for flag in $action_flags; do
                         _word_in_args "$flag" || available_flags="$available_flags $flag"
                     done
