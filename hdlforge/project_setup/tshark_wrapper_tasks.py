@@ -87,6 +87,20 @@ def tshark_wrapper(c, pcap_file: str, output_format: str = 'to_plain_text',
     # Add checksum options
     cmd.extend(checksum_opts)
     
+    # Load FPGA config protocol dissector (if available)
+    # Look for it in common locations relative to the project
+    dissector_paths = [
+        Path(__file__).parent.parent.parent.parent / "fpga" / "fpga_projects" / "phy10gbaser" / "sources" / "PY" / "TEST_UTILS" / "fpga_config_protocol.lua",
+        Path.cwd() / "sources" / "PY" / "TEST_UTILS" / "fpga_config_protocol.lua",
+        Path.cwd() / "TEST_UTILS" / "fpga_config_protocol.lua",
+    ]
+    for dissector_path in dissector_paths:
+        if dissector_path.exists():
+            cmd.extend(['-X', f'lua_script:{dissector_path}'])
+            if verbose:
+                print(f"[i] Loading FPGA config dissector: {dissector_path}")
+            break
+    
     # Disable heuristic protocol dissectors (prevents false protocol detection)
     if disable_heuristics:
         # Disable UDP heuristic dissectors to prevent false detection like MNDP
