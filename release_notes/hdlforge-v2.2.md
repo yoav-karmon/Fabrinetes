@@ -5,12 +5,12 @@
 **Commit:** c65f1204264b7d3d1538e970988406df9c38d103
 
 ## Summary
-This release introduces LLM orchestration mode, enabling HDLForge to execute commands from project JSON configuration files without requiring the `--tool` flag. This allows for simplified command invocation using natural language paths (e.g., `hdlforge arp_test sim build`). Additional improvements include bash completion support, tshark wrapper tool for packet analysis, hardware manager for FPGA programming, enhanced VCD analyzer documentation, and improved path resolution for VCD filenames.
+This release introduces LLM orchestration mode, enabling HDLForge to execute commands from project JSON configuration files without requiring the `--tool` flag. This allows for simplified command invocation using natural language paths (e.g., `hdlforge arp_test sim build_and_run_sim`). Additional improvements include bash completion support, tshark wrapper tool for packet analysis, hardware manager for FPGA programming, enhanced VCD analyzer documentation, and improved path resolution for VCD filenames.
 
 ## Added
 - **LLM Orchestration Mode**: When `--tool` is not provided, HDLForge automatically enters orchestration mode:
   - Reads command paths from `LLM_orch` section in project JSON files
-  - Supports natural language command paths (e.g., `hdlforge arp_test sim build`)
+  - Supports natural language command paths (e.g., `hdlforge arp_test sim build_and_run_sim`)
   - Automatically resolves and executes commands from JSON configuration
   - Generic implementation using `jq` for flexible JSON path parsing
   - Works with any JSON structure under `LLM_orch`
@@ -62,7 +62,7 @@ None at this time.
   - Old: `hdlforge vivado --syn <run>` (if tool was optional)
   - New: `hdlforge --tool vivado --syn <run>`
 - **LLM Orchestration Alternative**: Use natural language paths instead:
-  - `hdlforge <profile> <category> <action>` (e.g., `hdlforge arp_test sim build`)
+  - `hdlforge <profile> <category> <action>` (e.g., `hdlforge arp_test sim build_and_run_sim`)
   - Commands are read from `LLM_orch` section in project JSON files
 
 ### New Features
@@ -72,7 +72,8 @@ None at this time.
     "LLM_orch": {
       "arp_test": {
         "sim": {
-          "build": "hdlforge --tool verilator --step build --SimTargetName arp_test"
+          "build_only": "hdlforge --tool verilator --step build --SimTargetName arp_test",
+          "build_and_run_sim": "hdlforge --tool verilator --step sim --SimTargetName arp_test"
         }
       }
     }
