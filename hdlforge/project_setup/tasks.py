@@ -25,7 +25,6 @@ from verilator_tasks import Verilator
 from network_tasks import network
 from vcd_analyzer_tasks import vcd_analyzer
 from tshark_wrapper_tasks import tshark_wrapper, help_tshark_wrapper
-from hw_manager_tasks import hw_manager, help_hw_manager
 
 # Import project loader (single source of truth for project data)
 from project_file import ProjectFile
@@ -337,7 +336,8 @@ def help_network():
     print("      --verbose                            Enable verbose output")
     print()
     print("NOTES:")
-    print("  • Network tools require root privileges (use sudo)")
+    print("  • Most network tools require root privileges (use sudo) - except config_reg")
+    print("  • config_reg uses regular UDP sockets and does not require root")
     print("  • Use tcpdump to capture packets: sudo tcpdump -i <interface> -w capture.pcap")
     print("  • View pcap file: tcpdump -r capture.pcap -X")
     print()
@@ -353,42 +353,23 @@ def help_vcd_analyzer():
     print("=" * 80)
     print()
     print("DESCRIPTION:")
-    print("  VCD waveform analysis tool with automatic clock detection and indexing.")
+    print("  Professional VCD waveform analysis tool with signal hierarchy support.")
     print()
     print("USAGE:")
-    print("  hdlforge --tool vcd_analyzer --vcdfilename <file> [action] [options]")
+    print("  hdlforge --tool vcd_analyzer [--arg1] [<value1>] [--arg2] [<value2>] ...")
     print()
-    print("ACTIONS (choose one):")
-    print("    --timestamps                           List all timestamps in VCD")
-    print("    --find_signal_names [PATTERN]          Find signals (supports wildcards)")
-    print("    --signal <NAME> --value                Show signal values at timestamps")
-    print("    --signal <NAME> --edge                 Show signal value changes only")
-    print()
-    print("OPTIONS:")
+    print("ARGUMENTS:")
     print("    --vcdfilename <FILE>                   VCD file to analyze (required)")
-    print("    --time <TIMESTAMP>                     Start timestamp in ps (default: 0)")
-    print("    --count <N>                            Number of values/edges to show (default: all)")
-    print("    --radix <hex|int|bin>                  Output format")
-    print("    --no-clock                             Disable clock-aligned sampling")
-    print("    --rebuild-index                        Force rebuild VCD index")
-    print("    --verbose                              Show full VCD details")
-    print()
-    print("CLOCK ANALYSIS:")
-    print("  Tool auto-detects clock from timestamps. Default samples at clock period.")
-    print("  Use --no-clock to sample at every timestamp.")
+    print("    --get_modules_list                     List all modules in the design")
+    print("    --get_values_pins <PATH>               Module path to list value changes for pins only (excludes sub-modules)")
+    print("    --get_values_all <PATH>                Module path to list value changes for all signals (excludes sub-modules)")
+    print("    --human                                Human-readable output format with padding")
     print()
     print("EXAMPLES:")
-    print("  # Find signals")
-    print("  hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --find_signal_names '*clk*'")
-    print()
-    print("  # Show 10 values (clock-aligned)")
-    print("  hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --signal 'top.data' --value --count 10")
-    print()
-    print("  # Show 5 edges (value changes)")
-    print("  hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --signal 'top.state' --edge --count 5")
-    print()
-    print("  # All timestamps (no clock alignment)")
-    print("  hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --signal 'top.data' --value --count 10 --no-clock")
+    print("  hdlforge --tool vcd_analyzer --vcdfilename waveform.vcd --get_modules_list")
+    print("  hdlforge --tool vcd_analyzer --vcdfilename waveform.vcd --get_values_pins 'top.module_inst'")
+    print("  hdlforge --tool vcd_analyzer --vcdfilename waveform.vcd --get_values_all 'top.module_inst'")
+    print("  hdlforge --tool vcd_analyzer --vcdfilename waveform.vcd --get_values_pins 'top.module_inst' --human")
     print()
     print("=" * 80)
 
@@ -429,8 +410,8 @@ if __name__ == "__main__":
     )
     parser.add_argument('-h', '--help', action='store_true', help='Show help message')
     parser.add_argument('--project', required=False, help='Project file path')
-    parser.add_argument('--tool', required=False, choices=['vivado', 'Verilator', 'network', 'vcd_analyzer', 'tsharkWrapper', 'hw_manager', 'projects'], 
-                       help='Tool to execute: vivado, Verilator, network, vcd_analyzer, tsharkWrapper, hw_manager, or projects (required)')
+    parser.add_argument('--tool', required=False, choices=['vivado', 'Verilator', 'network', 'vcd_analyzer', 'tsharkWrapper', 'projects'], 
+                       help='Tool to execute: vivado, Verilator, network, vcd_analyzer, tsharkWrapper, or projects (required)')
     
     # Common arguments for all tools
     parser.add_argument('--verbose', action='store_true', help='Enable verbose output')
@@ -458,7 +439,7 @@ if __name__ == "__main__":
     parser.add_argument('-f', '--force', action='store_true', help='Skip confirmation prompts')
     
     # Network and hw_manager tool arguments (shared --cmd)
-    parser.add_argument('--cmd', type=str, choices=['send_raw', 'send_arp', 'send_icmp', 'send_udp', 'program', 'read_dna', 'read_ila'], 
+    parser.add_argument('--cmd', type=str, choices=['send_raw', 'send_arp', 'send_icmp', 'send_udp', 'config_reg', 'program', 'read_dna', 'read_ila'], 
                        help='Command: network (send_raw, send_arp, send_icmp, send_udp) or hw_manager (program, read_dna, read_ila)')
     parser.add_argument('--interface', type=str, help='Network interface name')
     parser.add_argument('--data', type=str, help='Raw data as hex string')
@@ -481,16 +462,10 @@ if __name__ == "__main__":
     
     # VCD analyzer arguments
     parser.add_argument('--vcdfilename', type=str, help='VCD file to analyze')
-    parser.add_argument('--timestamps', action='store_true', help='List all timestamps')
-    parser.add_argument('--find_signal_names', nargs='?', const='*', help='List signal names (optionally filter with wildcard pattern)')
-    parser.add_argument('--signal', type=str, help='Signal name (supports wildcards)')
-    parser.add_argument('--value', action='store_true', help='Show signal values at timestamps (tick by tick)')
-    parser.add_argument('--edge', action='store_true', help='Show signal edges (value changes only)')
-    parser.add_argument('--time', type=str, default='0', help='Start timestamp (default: 0)')
-    parser.add_argument('--count', type=int, help='Number of values/edges to show (default: all)')
-    parser.add_argument('--radix', choices=['hex', 'int', 'bin'], help='Output format for calc_value')
-    parser.add_argument('--rebuild-index', action='store_true', help='Force rebuild of VCD index')
-    parser.add_argument('--no-clock', action='store_true', help='Disable clock-aligned sampling, use all timestamps')
+    parser.add_argument('--get_modules_list', action='store_true', help='List all modules in the design')
+    parser.add_argument('--get_values_pins', type=str, help='Module path to list value changes for pins only (excludes sub-modules)')
+    parser.add_argument('--get_values_all', type=str, help='Module path to list value changes for all signals (excludes sub-modules)')
+    parser.add_argument('--human', action='store_true', help='Human-readable output format with padding (for --get_values_pins or --get_values_all)')
     
     # tshark wrapper arguments
     parser.add_argument('--pcap', type=str, help='PCAP file to analyze')
@@ -500,20 +475,44 @@ if __name__ == "__main__":
     parser.add_argument('--frame_start', type=int, help='Start frame number for range (requires --frame_end)')
     parser.add_argument('--frame_end', type=int, help='End frame number for range (requires --frame_start)')
     parser.add_argument('--frame_list', type=str, help='Comma-separated list of frame numbers to display')
+    parser.add_argument('--count', type=int, help='Number of packets to display (use with --skip for pagination)')
     parser.add_argument('--skip', type=int, help='Skip this many packets before displaying')
     parser.add_argument('--tsharkArgsAppend', type=str, help='Additional raw tshark arguments to append')
     parser.add_argument('--disable_heuristics', action='store_true', help='Disable UDP heuristic protocol dissectors')
-    parser.add_argument('--disable_protocols', type=str, help='Comma-separated list of protocols to disable (e.g., "mndp,ssdp")')
+    parser.add_argument('--disable_protocols', type=str, help='Comma-separated list of protocols to disable (e.g., mndp,ssdp)')
+    
+    # Config register arguments (for network tool config_reg command)
+    parser.add_argument('--fpga-ip', '--fpga_ip', dest='fpga_ip', type=str, help='FPGA IP address (for config_reg command)')
+    parser.add_argument('--fpga-port', '--fpga_port', dest='fpga_port', type=int, help='FPGA UDP port (default: 4660 for config_reg)')
+    parser.add_argument('--server-port', '--server_port', dest='server_port', type=int, help='Source UDP port (default: 12345 for config_reg)')
+    parser.add_argument('--reg', type=int, help='Register address 0-15 (for config_reg write/read)')
+    parser.add_argument('--value', type=str, help='Value to write (hex: 0x12345678 or decimal, for config_reg write)')
+    parser.add_argument('--action', type=str, choices=['write', 'read', 'write-all', 'read-all'], help='Config reg action: write, read, write-all, read-all')
     
     # hw_manager arguments (--cmd is shared with network tool above)
-    parser.add_argument('--server_ip', type=str, help='Hardware server IP address (default: 10.1.130.74)')
+    # Note: --server_ip is shared between hw_manager and config_reg (config_reg uses it as source IP)
+    parser.add_argument('--server_ip', '--server-ip', dest='server_ip', type=str, help='Server IP: hw_manager (default: 10.1.130.74) or config_reg source IP (default: 192.168.1.1)')
     parser.add_argument('--bitstream', type=str, help='Path to bitstream file (.bit file)')
     parser.add_argument('--probes', type=str, help='Path to probes file (.ltx file)')
     
     # Projects tool arguments
     parser.add_argument('--list', action='store_true', help='List all available projects recursively from current directory')
     
-    args = parser.parse_args()
+    # Use parse_known_args to detect extra arguments for better error messages
+    args, unknown = parser.parse_known_args()
+    
+    # Check for common mistakes with vcd_analyzer
+    if args.tool == 'vcd_analyzer' and args.get_modules_list and unknown:
+        print("[!x!] Error: --get_modules_list does not accept arguments", file=sys.stderr)
+        print(f"[i] Unrecognized arguments: {' '.join(unknown)}", file=sys.stderr)
+        print("[i] Note: --get_modules_list is a flag (no arguments). If you want to filter modules:", file=sys.stderr)
+        print("[i]   Use grep: hdlforge --tool vcd_analyzer --vcdfilename <file> --get_modules_list | grep 'pattern'", file=sys.stderr)
+        print("[i]   Or quote wildcards to prevent shell expansion when typing the command", file=sys.stderr)
+        sys.exit(1)
+    
+    # For other cases with unknown arguments, show standard argparse error
+    if unknown:
+        parser.error(f"unrecognized arguments: {' '.join(unknown)}")
     
     # Create invoke Context manually
     c = Context()
@@ -637,7 +636,7 @@ if __name__ == "__main__":
             help_network()
             sys.exit(0)
         # Validate cmd is a network command
-        if args.cmd not in ['send_raw', 'send_arp', 'send_icmp', 'send_udp']:
+        if args.cmd not in ['send_raw', 'send_arp', 'send_icmp', 'send_udp', 'config_reg']:
             print(f"[!x!] Invalid command for network tool: {args.cmd}")
             print("[i] Network commands: send_raw, send_arp, send_icmp, send_udp")
             help_network()
@@ -660,23 +659,23 @@ if __name__ == "__main__":
             'sequence': args.sequence,
             'src_port': args.src_port,
             'dst_port': args.dst_port,
+            'fpga_ip': args.fpga_ip,
+            'fpga_port': args.fpga_port,
+            'server_port': args.server_port,
+            'server_ip': args.server_ip,  # Reuse server_ip for config_reg source IP
+            'reg': args.reg,
+            'value': args.value,
+            'subcmd': args.action  # Use --action for the subcommand (write, read, etc.)
         }
         network(c, args.cmd, **kwargs)
     elif args.tool == 'vcd_analyzer':
         # VCD analyzer tool selected
         kwargs = {
             'vcd': args.vcdfilename,
-            'timestamps': args.timestamps,
-            'find_signal_names': args.find_signal_names,
-            'signal': args.signal,
-            'value': args.value,
-            'edge': args.edge,
-            'time': args.time,
-            'count': args.count,
-            'verbose': args.verbose,
-            'radix': args.radix,
-            'rebuild_index': getattr(args, 'rebuild_index', False),
-            'no_clock': getattr(args, 'no_clock', False),
+            'get_modules_list': args.get_modules_list,
+            'list_value_changes_in_module': args.get_values_pins or args.get_values_all,  # Use whichever is provided
+            'all': args.get_values_all is not None,  # True if --get_values_all was provided, False if --get_values_pins
+            'human': args.human,
         }
         vcd_analyzer(c, **kwargs)
     elif args.tool == 'tsharkWrapper':
