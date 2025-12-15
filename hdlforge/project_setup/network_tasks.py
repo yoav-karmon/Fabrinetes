@@ -369,68 +369,103 @@ def network(c, tool: Optional[str] = None, **kwargs):
         
         def receive_and_parse_response(sock: socket.socket, server_ip: str, server_port: int, expected_cmd_seq: int) -> None:
             """Receive UDP response and parse using dissector."""
+            # #region agent log
+            import json as json_module
+            log_path = "/home/yoav.karmon/repo/.cursor/debug.log"
+            def log_debug(hypothesis_id, location, message, data):
+                try:
+                    with open(log_path, 'a') as f:
+                        log_entry = {
+                            "sessionId": "debug-session",
+                            "runId": "run1",
+                            "hypothesisId": hypothesis_id,
+                            "location": location,
+                            "message": message,
+                            "data": data,
+                            "timestamp": int(time.time() * 1000)
+                        }
+                        f.write(json_module.dumps(log_entry) + "\n")
+                except: pass
+            # #endregion
             try:
                 data, addr = sock.recvfrom(4096)
                 sock.close()
                 print(f"[v] Response received from {addr[0]}:{addr[1]} ({len(data)} bytes)")
+                log_debug("A", "network_tasks.py:391", "Response received", {"addr": f"{addr[0]}:{addr[1]}", "data_len": len(data), "data_hex": data.hex()[:64]})
                 
-                # Convert to Scapy packet (add Ethernet header since we only have UDP payload)
-                # We need to reconstruct the full packet for tshark
-                # For now, create a minimal Ethernet frame
-                eth_header = b'\x00' * 14  # Placeholder Ethernet header
-                ip_header_len = 20
-                udp_header_len = 8
-                # Create minimal IP header
-                ip_header = struct.pack('!BBHHHBBH4s4s',
-                    0x45, 0, len(data) + udp_header_len + ip_header_len, 0, 0, 64, 17, 0,
-                    socket.inet_aton(addr[0]), socket.inet_aton(server_ip))
-                # Create UDP header
-                udp_header = struct.pack('!HHHH',
-                    addr[1], server_port, len(data) + udp_header_len, 0)
-                full_packet = eth_header + ip_header + udp_header + data
-                
-                # Parse with tshark
+                # Use Scapy to build packet properly for tshark parsing
+                # This ensures proper packet structure that tshark can recognize
+                # Note: We use dummy MAC addresses since this is only for parsing, not sending
                 try:
-                    json_data = parse_packet_to_json(full_packet)
-                    if json_data and len(json_data) > 0:
-                        layers = json_data[0].get('_source', {}).get('layers', {})
-                        fpga_config = layers.get('fpga_config', {})
-                        if fpga_config:
-                            cmd_seq = int(fpga_config.get('fpga_config.cmd_seq', '0'), 0)
-                            cmd_raw = int(fpga_config.get('fpga_config.cmd', '0'), 0)
-                            cmd_name = "UNKNOWN"
-                            if cmd_raw == 0x00000001:
-                                cmd_name = "READ"
-                            elif cmd_raw == 0x00000002:
-                                cmd_name = "WRITE"
-                            core = int(fpga_config.get('fpga_config.core', '0'), 0)
-                            addr_val = int(fpga_config.get('fpga_config.addr', '0'), 0)
-                            len_val = int(fpga_config.get('fpga_config.len', '0'), 0)
+                    if TEST_HELPERS_AVAILABLE:
+                        # Use broadcast MACs to avoid Scapy trying to resolve MAC addresses (which causes warnings)
+                        scapy_packet = scapy.Ether(src="00:00:00:00:00:00", dst="ff:ff:ff:ff:ff:ff") / scapy.IP(src=addr[0], dst=server_ip) / scapy.UDP(sport=addr[1], dport=server_port) / scapy.Raw(data)
+                        log_debug("B", "network_tasks.py:396", "Scapy packet constructed", {"packet_len": len(bytes(scapy_packet))})
+                        json_data = parse_packet_to_json(scapy_packet)
+                        log_debug("B", "network_tasks.py:398", "Tshark parse result", {"json_data_type": type(json_data).__name__, "json_data_len": len(json_data) if json_data else 0})
+                        if json_data and len(json_data) > 0:
+                            layers = json_data[0].get('_source', {}).get('layers', {})
+                            log_debug("B", "network_tasks.py:401", "Layers extracted", {"layers_keys": list(layers.keys()), "has_fpga_config": 'fpga_config' in layers})
                             
-                            print(f"[i] Parsed Response:")
-                            print(f"    Command Sequence: {cmd_seq}")
-                            print(f"    Command: {cmd_name} (0x{cmd_raw:08X})")
-                            print(f"    Core Index: {core}")
-                            print(f"    Address: 0x{addr_val:08X} words")
-                            print(f"    Data Length: {len_val} words")
+                            # Debug: Print available layers to help diagnose
+                            if kwargs.get('verbose', False):
+                                print(f"[d] Available layers: {list(layers.keys())}")
+                                if 'udp' in layers:
+                                    udp_layer = layers.get('udp', {})
+                                    print(f"[d] UDP layer: {list(udp_layer.keys()) if isinstance(udp_layer, dict) else 'not a dict'}")
                             
-                            # Extract data words from UDP payload (skip 20-byte header)
-                            if len(data) > 20:
-                                data_bytes = data[20:]
-                                data_words = []
-                                for i in range(0, len(data_bytes), 4):
-                                    if i + 4 <= len(data_bytes):
-                                        word = int.from_bytes(data_bytes[i:i+4], 'big')
-                                        data_words.append(word)
-                                if data_words:
-                                    print(f"    Data: {[f'0x{w:08X}' for w in data_words]}")
+                            fpga_config = layers.get('fpga_config', {})
+                            log_debug("B", "network_tasks.py:402", "FPGA config check", {"fpga_config_type": type(fpga_config).__name__, "fpga_config_keys": list(fpga_config.keys()) if isinstance(fpga_config, dict) else [], "fpga_config_empty": not bool(fpga_config)})
+                            if fpga_config:
+                                cmd_seq = int(fpga_config.get('fpga_config.cmd_seq', '0'), 0)
+                                cmd_raw = int(fpga_config.get('fpga_config.cmd', '0'), 0)
+                                cmd_name = "UNKNOWN"
+                                if cmd_raw == 0x00000001:
+                                    cmd_name = "READ"
+                                elif cmd_raw == 0x00000002:
+                                    cmd_name = "WRITE"
+                                core = int(fpga_config.get('fpga_config.core', '0'), 0)
+                                addr_val = int(fpga_config.get('fpga_config.addr', '0'), 0)
+                                len_val = int(fpga_config.get('fpga_config.len', '0'), 0)
+                                
+                                print(f"[i] Parsed Response:")
+                                print(f"    Command Sequence: {cmd_seq}")
+                                print(f"    Command: {cmd_name} (0x{cmd_raw:08X})")
+                                print(f"    Core Index: {core}")
+                                print(f"    Address: 0x{addr_val:08X} words")
+                                print(f"    Data Length: {len_val} words")
+                                
+                                # Extract data words from UDP payload (skip 20-byte header)
+                                if len(data) > 20:
+                                    data_bytes = data[20:]
+                                    data_words = []
+                                    for i in range(0, len(data_bytes), 4):
+                                        if i + 4 <= len(data_bytes):
+                                            word = int.from_bytes(data_bytes[i:i+4], 'big')
+                                            data_words.append(word)
+                                    if data_words:
+                                        print(f"    Data: {[f'0x{w:08X}' for w in data_words]}")
+                            else:
+                                print("[!] Response received but not recognized as FPGA Config protocol")
+                                # Provide helpful debug info
+                                udp_layer = layers.get('udp', {})
+                                if isinstance(udp_layer, dict):
+                                    udp_dst_port = udp_layer.get('udp.dstport', 'unknown')
+                                    udp_src_port = udp_layer.get('udp.srcport', 'unknown')
+                                    print(f"    UDP ports: src={udp_src_port}, dst={udp_dst_port}")
+                                    print(f"    Note: FPGA Config dissector is registered for UDP ports 10, 5678, and 12345")
+                                    print(f"    Available layers: {', '.join(layers.keys())}")
+                                log_debug("B", "network_tasks.py:428", "FPGA config not found", {"layers_keys": list(layers.keys()), "layers_str": str(layers)[:500]})
                         else:
-                            print("[!] Response received but not recognized as FPGA Config protocol")
+                            print("[!] Could not parse response with tshark")
+                            log_debug("C", "network_tasks.py:431", "Tshark returned empty result", {"json_data": str(json_data)[:200] if json_data else "None"})
                     else:
-                        print("[!] Could not parse response with tshark")
+                        print("[!] Test helpers not available for packet parsing")
+                        log_debug("E", "network_tasks.py:434", "TEST_HELPERS_AVAILABLE is False", {})
                 except Exception as e:
                     print(f"[!] Error parsing response: {e}")
                     print(f"    Raw response (hex): {data.hex()}")
+                    log_debug("E", "network_tasks.py:438", "Exception during parsing", {"error": str(e), "error_type": type(e).__name__})
             except socket.timeout:
                 sock.close()
                 print("[!] Timeout waiting for response (2 seconds)")

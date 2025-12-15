@@ -88,9 +88,20 @@ puts "Generating reports..."
 puts "=========================================="
 
 # Try to generate reports even if synth_design had errors
-catch {
-    report_methodology -file lint_methodology.rpt
-    report_drc -file lint_drc.rpt
+# Note: report_methodology and report_drc may fail with -lint option
+# because -lint doesn't create a full synthesized design object
+if {[catch {report_methodology -file lint_methodology.rpt} err]} {
+    puts "(i) report_methodology failed (expected with -lint option): $err"
+    puts "(i) Methodology reports require full synthesis, not just linting"
+} else {
+    puts "(i) report_methodology completed successfully"
+}
+
+if {[catch {report_drc -file lint_drc.rpt} err]} {
+    puts "(i) report_drc failed (expected with -lint option): $err"
+    puts "(i) DRC reports require full synthesis, not just linting"
+} else {
+    puts "(i) report_drc completed successfully"
 }
 
 puts ""
