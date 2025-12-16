@@ -1,5 +1,25 @@
 #!/bin/bash
 
+# =============================================================================
+# FABRINETES must be set - it points to the Fabrinetes repository root
+# =============================================================================
+if [ -z "$FABRINETES" ]; then
+    echo "❌ FABRINETES environment variable is not set."
+    echo ""
+    echo "Please set FABRINETES to point to the Fabrinetes repository root:"
+    echo "  export FABRINETES=/path/to/Fabrinetes"
+    echo ""
+    echo "Add this to your ~/.bashrc or shell profile for persistence."
+    exit 1
+fi
+
+if [ ! -d "$FABRINETES/hdlforge/project_setup" ]; then
+    echo "❌ Invalid FABRINETES path: $FABRINETES"
+    echo "   Directory not found: $FABRINETES/hdlforge/project_setup"
+    exit 1
+fi
+# =============================================================================
+
 # Check if any arguments are provided
 if [ $# -lt 1 ]; then
     # Look for existing project files in current directory (JSON first, then TOML)
@@ -19,7 +39,7 @@ if [ $# -lt 1 ]; then
         echo "  network       - Network Utilities (raw packet sending)"
         echo "  vcd_analyzer  - VCD Waveform Analysis"
         echo "  tsharkWrapper - tshark Command Wrapper"
-        echo "  hw_manager    - Hardware Manager (FPGA programming)"
+        echo "  hw_server     - Interactive FPGA Tools (program, ILA/VIO, JTAG)"
         echo "  projects      - Project Management"
         echo ""
         echo "hdlforge auto-detected project file in the current directory: $example_file"
@@ -32,7 +52,7 @@ if [ $# -lt 1 ]; then
         echo "  network       - Network Utilities (raw packet sending)"
         echo "  vcd_analyzer  - VCD Waveform Analysis"
         echo "  tsharkWrapper - tshark Command Wrapper"
-        echo "  hw_manager    - Hardware Manager (FPGA programming)"
+        echo "  hw_server     - Interactive FPGA Tools (program, ILA/VIO, JTAG)"
         echo "  projects      - Project Management"
         echo ""
         echo "Note: --project is optional. If omitted, hdlforge will auto-detect *.hdlforge.json or *.hdlforge.toml files in the current directory."
@@ -138,34 +158,9 @@ if [ -z "$REPO_TOP" ]; then
     exit 1
 fi
 
-# Resolve script path even if called via symlink
-# $0 might be a symlink (e.g., /usr/local/bin/hdlforge -> /path/to/actual/script)
-SCRIPT_PATH="$0"
-# Try to resolve symlink using readlink -f (canonicalize path)
-if command -v readlink >/dev/null 2>&1; then
-    # readlink -f resolves all symlinks and gives absolute path
-    RESOLVED="$(readlink -f "$SCRIPT_PATH" 2>/dev/null)"
-    if [ -n "$RESOLVED" ] && [ -f "$RESOLVED" ]; then
-        SCRIPT_PATH="$RESOLVED"
-    else
-        # Fallback: try readlink without -f (may be relative)
-        RESOLVED="$(readlink "$SCRIPT_PATH" 2>/dev/null)"
-        if [ -n "$RESOLVED" ]; then
-            # If relative, make it absolute based on symlink location
-            if [ "${RESOLVED#/}" = "$RESOLVED" ]; then
-                RESOLVED="$(dirname "$SCRIPT_PATH")/$RESOLVED"
-            fi
-            if [ -f "$RESOLVED" ]; then
-                SCRIPT_PATH="$RESOLVED"
-            fi
-        fi
-    fi
-fi
-# Get absolute path if not already absolute
-if [ "${SCRIPT_PATH#/}" = "$SCRIPT_PATH" ]; then
-    SCRIPT_PATH="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)/$(basename "$SCRIPT_PATH")"
-fi
-TASKS_DIR="$(dirname "$SCRIPT_PATH")"
+# Use FABRINETES to find tasks directory (already validated at script start)
+TASKS_DIR="$FABRINETES/hdlforge/project_setup"
+SCRIPT_PATH="$TASKS_DIR/hdlforge"
 shell_id="$PPID"
 timestamp=$(date +%Y%m%d)
 time=$(date +%H%M%S)
@@ -295,6 +290,9 @@ if [ "$has_tool_flag" = false ]; then
 fi
 
 echo "--------$(pwd): $Date: $timestamp Time $time------" >> "$log_file"
+
+# Export original directory for Python scripts that need to resolve relative paths
+export HDLFORGE_ORIG_DIR="$ORIG_DIR"
 
 # Execute the command
 exec python3 "$TASKS_DIR/tasks.py" "$@" | tee -a "$log_file"

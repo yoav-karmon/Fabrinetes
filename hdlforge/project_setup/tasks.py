@@ -25,6 +25,7 @@ from verilator_tasks import Verilator
 from network_tasks import network
 from vcd_analyzer_tasks import vcd_analyzer
 from tshark_wrapper_tasks import tshark_wrapper, help_tshark_wrapper
+from hw_server_tasks import hw_server, help_hw_server
 
 # Import project loader (single source of truth for project data)
 from project_file import ProjectFile
@@ -147,10 +148,6 @@ def help(c):
         ("tsharkWrapper", "Tshark Wrapper", [
             "Wrapper for tshark commands",
             "Use --tool tsharkWrapper"
-        ]),
-        ("hw_manager", "Hardware Manager", [
-            "Program FPGA, read chip DNA, read ILA values",
-            "Use --tool hw_manager --cmd <command>"
         ]),
         ("projects", "Project Management", [
             "Manage HDL project configurations",
@@ -404,14 +401,17 @@ def help_projects():
 
 
 if __name__ == "__main__":
+    # Get original CWD from environment (set by hdlforge bash script) or fallback to current dir
+    ORIGINAL_CWD = os.environ.get('HDLFORGE_ORIG_DIR', os.getcwd())
+    
     parser = argparse.ArgumentParser(
         description='HDLForge - Hardware Development Tool',
         add_help=False  # We'll handle help manually
     )
     parser.add_argument('-h', '--help', action='store_true', help='Show help message')
     parser.add_argument('--project', required=False, help='Project file path')
-    parser.add_argument('--tool', required=False, choices=['vivado', 'Verilator', 'network', 'vcd_analyzer', 'tsharkWrapper', 'projects'], 
-                       help='Tool to execute: vivado, Verilator, network, vcd_analyzer, tsharkWrapper, or projects (required)')
+    parser.add_argument('--tool', required=False, choices=['vivado', 'Verilator', 'network', 'vcd_analyzer', 'tsharkWrapper', 'hw_server', 'projects'], 
+                       help='Tool to execute: vivado, Verilator, network, vcd_analyzer, tsharkWrapper, hw_server, or projects (required)')
     
     # Common arguments for all tools
     parser.add_argument('--verbose', action='store_true', help='Enable verbose output')
@@ -438,9 +438,9 @@ if __name__ == "__main__":
     parser.add_argument('--file_path', type=str, help='File path (required for file_remove and file_add)')
     parser.add_argument('-f', '--force', action='store_true', help='Skip confirmation prompts')
     
-    # Network and hw_manager tool arguments (shared --cmd)
-    parser.add_argument('--cmd', type=str, choices=['send_raw', 'send_arp', 'send_icmp', 'send_udp', 'config_reg', 'program', 'read_dna', 'read_ila'], 
-                       help='Command: network (send_raw, send_arp, send_icmp, send_udp) or hw_manager (program, read_dna, read_ila)')
+    # Network, hw_manager, and hw_server tool arguments (shared --cmd)
+    parser.add_argument('--cmd', type=str, choices=['send_raw', 'send_arp', 'send_icmp', 'send_udp', 'config_reg', 'program', 'read_dna', 'read_ila', 'scan_ila', 'scan_jtag'], 
+                       help='Command: network (send_raw, send_arp, send_icmp, send_udp), hw_manager (program, read_dna, read_ila), or hw_server (program, scan_ila, scan_jtag)')
     parser.add_argument('--interface', type=str, help='Network interface name')
     parser.add_argument('--data', type=str, help='Raw data as hex string')
     # ARP arguments
@@ -463,6 +463,8 @@ if __name__ == "__main__":
     # VCD analyzer arguments
     parser.add_argument('--vcdfilename', type=str, help='VCD file to analyze')
     parser.add_argument('--get_modules_list', action='store_true', help='List all modules in the design')
+    parser.add_argument('--find_signal_names', '--signalnames', nargs='?', const='*', 
+                        help='List signal names (optionally filter with wildcard pattern)')
     parser.add_argument('--get_values_pins', type=str, help='Module path to list value changes for pins only (excludes sub-modules)')
     parser.add_argument('--get_values_all', type=str, help='Module path to list value changes for all signals (excludes sub-modules)')
     parser.add_argument('--human', action='store_true', help='Human-readable output format with padding (for --get_values_pins or --get_values_all)')
@@ -489,11 +491,14 @@ if __name__ == "__main__":
     parser.add_argument('--value', type=str, help='Value to write (hex: 0x12345678 or decimal, for config_reg write)')
     parser.add_argument('--action', type=str, choices=['write', 'read', 'write-all', 'read-all'], help='Config reg action: write, read, write-all, read-all')
     
-    # hw_manager arguments (--cmd is shared with network tool above)
-    # Note: --server_ip is shared between hw_manager and config_reg (config_reg uses it as source IP)
-    parser.add_argument('--server_ip', '--server-ip', dest='server_ip', type=str, help='Server IP: hw_manager (default: 10.1.130.74) or config_reg source IP (default: 192.168.1.1)')
+    # hw_server arguments (--cmd is shared with network tool above)
+    parser.add_argument('--server_ip', '--server-ip', dest='server_ip', type=str, help='Hardware server IP (default: localhost)')
     parser.add_argument('--bitstream', type=str, help='Path to bitstream file (.bit file)')
     parser.add_argument('--probes', type=str, help='Path to probes file (.ltx file)')
+    parser.add_argument('-c', '--hw-config', dest='hw_config', type=str, help='Config JSON file for hw_server')
+    parser.add_argument('-i', '--interactive', dest='hw_interactive', action='store_true', help='Interactive mode for hw_server (keep console open)')
+    parser.add_argument('-ic', '--interactive-chain', dest='hw_chain', nargs='*', help='Run commands then exit for hw_server (e.g., -ic 2 i1)')
+    parser.add_argument('-d', '--debug', dest='hw_debug', action='store_true', help='Enable debug output showing TCL commands and inputs')
     
     # Projects tool arguments
     parser.add_argument('--list', action='store_true', help='List all available projects recursively from current directory')
@@ -531,8 +536,8 @@ if __name__ == "__main__":
                 help_vcd_analyzer()
             elif args.tool == 'tsharkWrapper':
                 help_tshark_wrapper()
-            elif args.tool == 'hw_manager':
-                help_hw_manager()
+            elif args.tool == 'hw_server':
+                help_hw_server()
             elif args.tool == 'projects':
                 help_projects()
             sys.exit(0)
@@ -673,6 +678,7 @@ if __name__ == "__main__":
         kwargs = {
             'vcd': args.vcdfilename,
             'get_modules_list': args.get_modules_list,
+            'find_signal_names': args.find_signal_names,
             'list_value_changes_in_module': args.get_values_pins or args.get_values_all,  # Use whichever is provided
             'all': args.get_values_all is not None,  # True if --get_values_all was provided, False if --get_values_pins
             'human': args.human,
@@ -702,24 +708,19 @@ if __name__ == "__main__":
                        disable_heuristics=args.disable_heuristics,
                        disable_protocols=args.disable_protocols,
                        verbose=args.verbose)
-    elif args.tool == 'hw_manager':
-        # hw_manager tool
-        if not args.cmd:
-            help_hw_manager()
-            sys.exit(0)
-        # Validate cmd is an hw_manager command
-        if args.cmd not in ['program', 'read_dna', 'read_ila']:
-            print(f"[!x!] Invalid command for hw_manager tool: {args.cmd}")
-            print("[i] hw_manager commands: program, read_dna, read_ila")
-            help_hw_manager()
-            sys.exit(1)
-        
-        hw_manager(c,
-                   cmd=args.cmd,
-                   server_ip=args.server_ip,
-                   bitstream_path=args.bitstream,
-                   probes_path=args.probes,
-                   verbose=args.verbose)
+    elif args.tool == 'hw_server':
+        # hw_server tool - interactive FPGA programming and debugging
+        hw_server(c, 
+                  cmd=args.cmd,
+                  server_ip=args.server_ip,
+                  server_port=getattr(args, 'server_port', '3121'),
+                  bitstream=args.bitstream,
+                  probes=args.probes,
+                  config_file=getattr(args, 'hw_config', ''),
+                  interactive=getattr(args, 'hw_interactive', False),
+                  chain_commands=getattr(args, 'hw_chain', []),
+                  debug=getattr(args, 'hw_debug', False),
+                  original_cwd=ORIGINAL_CWD)
     elif args.tool == 'projects':
         # Projects tool requires --list option
         if not getattr(args, 'list', False):
