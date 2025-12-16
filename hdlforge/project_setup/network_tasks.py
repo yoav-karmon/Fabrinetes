@@ -27,32 +27,53 @@ from toolbox_tasks import (
     calculate_checksum
 )
 
-# Import test helper functions for config protocol
-# Add path to test helpers
-# Path: network_tasks.py -> project_setup -> hdlforge -> Fabrinetes -> repo_root (4 levels)
-repo_root = Path(__file__).parent.parent.parent.parent
-sources_path = repo_root / "fpga" / "fpga_projects" / "phy10gbaser" / "sources" / "PY"
-test_helpers_path = sources_path / "TEST_HELPERS"
-test_utils_path = sources_path / "TEST_UTILS"
-if test_helpers_path.exists() and test_utils_path.exists():
-    sys.path.insert(0, str(sources_path))
-    sys.path.insert(0, str(test_helpers_path))
-    sys.path.insert(0, str(test_utils_path))
-    try:
-        from config_block_helpers import build_config_payload, CFG_CMD_READ, CFG_CMD_WRITE
-        from tshark_parser import parse_packet_to_json
-        import scapy.all as scapy
-        TEST_HELPERS_AVAILABLE = True
-    except ImportError as e:
-        print(f"[!] Warning: Could not import test helpers: {e}", file=sys.stderr)
-        print(f"[!]   Looking in: {test_helpers_path}", file=sys.stderr)
-        TEST_HELPERS_AVAILABLE = False
-else:
-    if not test_helpers_path.exists():
-        print(f"[!] Warning: Test helpers path not found: {test_helpers_path}", file=sys.stderr)
-    if not test_utils_path.exists():
-        print(f"[!] Warning: Test utils path not found: {test_utils_path}", file=sys.stderr)
-    TEST_HELPERS_AVAILABLE = False
+# Import test helper functions for config protocol (optional, project-specific)
+# Test helpers are loaded from project's working directory if available
+# These are NOT part of HDLForge itself - they are project-specific extensions
+TEST_HELPERS_AVAILABLE = False
+
+def _try_load_test_helpers():
+    """Attempt to load project-specific test helpers from current working directory."""
+    global TEST_HELPERS_AVAILABLE
+    
+    # Look for test helpers in project-relative locations (current working directory)
+    search_paths = [
+        Path.cwd() / "sources" / "PY" / "TEST_HELPERS",
+        Path.cwd() / "sources" / "PY" / "TEST_UTILS",
+        Path.cwd() / "TEST_HELPERS",
+        Path.cwd() / "TEST_UTILS",
+    ]
+    
+    # Also check ROOT_FOLDER if set (project root)
+    root_folder = os.environ.get("ROOT_FOLDER")
+    if root_folder:
+        root_path = Path(root_folder)
+        search_paths.extend([
+            root_path / "sources" / "PY" / "TEST_HELPERS",
+            root_path / "sources" / "PY" / "TEST_UTILS",
+        ])
+    
+    # Find existing paths
+    found_paths = [p for p in search_paths if p.exists()]
+    
+    if found_paths:
+        for path in found_paths:
+            if str(path) not in sys.path:
+                sys.path.insert(0, str(path))
+        
+        try:
+            from config_block_helpers import build_config_payload, CFG_CMD_READ, CFG_CMD_WRITE
+            from tshark_parser import parse_packet_to_json
+            import scapy.all as scapy
+            TEST_HELPERS_AVAILABLE = True
+            return True
+        except ImportError:
+            pass
+    
+    return False
+
+# Defer loading - will be attempted when network functions are actually called
+_test_helpers_load_attempted = False
 
 
 def network(c, tool: Optional[str] = None, **kwargs):
@@ -320,9 +341,16 @@ def network(c, tool: Optional[str] = None, **kwargs):
     
     elif tool == "config_reg":
         # Config register read/write using regular UDP sockets
+        # Attempt to load test helpers if not already loaded
+        global _test_helpers_load_attempted
+        if not _test_helpers_load_attempted:
+            _try_load_test_helpers()
+            _test_helpers_load_attempted = True
+        
         if not TEST_HELPERS_AVAILABLE:
             print("[!x!] Test helpers not available. Cannot use config_reg command.")
-            print("[i] Make sure the test helper modules are accessible.")
+            print("[i] Test helpers are project-specific and should be in your project's")
+            print("[i]   sources/PY/TEST_HELPERS or TEST_UTILS directories.")
             sys.exit(1)
         
         fpga_ip = kwargs.get('fpga_ip')

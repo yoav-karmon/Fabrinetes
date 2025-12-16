@@ -88,12 +88,16 @@ def tshark_wrapper(c, pcap_file: str, output_format: str = 'to_plain_text',
     cmd.extend(checksum_opts)
     
     # Load FPGA config protocol dissector (if available)
-    # Look for it in common locations relative to the project
+    # Look for it in project-relative locations (current working directory or ROOT_FOLDER)
+    # Note: This is project-specific, not part of HDLForge itself
     dissector_paths = [
-        Path(__file__).parent.parent.parent.parent / "fpga" / "fpga_projects" / "phy10gbaser" / "sources" / "PY" / "TEST_UTILS" / "fpga_config_protocol.lua",
         Path.cwd() / "sources" / "PY" / "TEST_UTILS" / "fpga_config_protocol.lua",
         Path.cwd() / "TEST_UTILS" / "fpga_config_protocol.lua",
     ]
+    # Also check ROOT_FOLDER if set
+    root_folder = os.environ.get("ROOT_FOLDER")
+    if root_folder:
+        dissector_paths.insert(0, Path(root_folder) / "sources" / "PY" / "TEST_UTILS" / "fpga_config_protocol.lua")
     for dissector_path in dissector_paths:
         if dissector_path.exists():
             cmd.extend(['-X', f'lua_script:{dissector_path}'])
