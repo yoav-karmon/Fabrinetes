@@ -50,6 +50,17 @@ def vcd_analyzer(c, **kwargs):
                 print(module)
             return
         
+        # Handle --find_signal_names / --signalnames
+        signal_pattern = getattr(args, 'find_signal_names', None)
+        if signal_pattern is not None:
+            matching_signals = analyzer.find_signals(signal_pattern)
+            if matching_signals:
+                for signal_name in matching_signals:
+                    print(signal_name)
+            else:
+                print("None")
+            return
+        
         # Handle --get_values_pins (mapped from list_value_changes_in_module for backward compatibility)
         module_path = getattr(args, 'list_value_changes_in_module', None)
         if module_path is not None:

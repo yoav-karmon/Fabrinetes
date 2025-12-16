@@ -403,11 +403,12 @@ class VCDIndexedAnalyzer:
     
     def _parse_var_line(self, line: str, scope_stack: List[str], 
                         signals_info: Dict, signal_hierarchy: Dict) -> None:
-        """Parse a $var definition line."""
+        """Parse a $var definition line (supports wire and reg types)."""
         parts = line.split()
         if len(parts) < 6:
             return
-        if parts[0] != '$var' or parts[1] != 'wire' or parts[-1] != '$end':
+        # Support both 'wire' and 'reg' types (ILA VCDs use 'reg')
+        if parts[0] != '$var' or parts[1] not in ('wire', 'reg') or parts[-1] != '$end':
             return
         
         try:
@@ -812,6 +813,8 @@ def main() -> None:
     parser.add_argument('--list_value_changes_in_module', help='Module path to list value changes (excludes sub-modules)')
     parser.add_argument('--get_modules_list', action='store_true', help='List all modules')
     parser.add_argument('--all', action='store_true', help='Show all signals in module (default: pin signals only)')
+    parser.add_argument('--find_signal_names', '--signalnames', nargs='?', const='*', 
+                        help='List signal names (optionally filter with wildcard pattern)')
     parser.add_argument('--signal', help='Signal name (supports wildcards)')
     parser.add_argument('--time', nargs='+', help='Filter signal results by timestamp(s) - can specify multiple timestamps')
     parser.add_argument('--edge', nargs='?', const=True, type=int, help='Show signal edges after the --time timestamp (requires --time). Optional number limits edges shown (must be >0)')
