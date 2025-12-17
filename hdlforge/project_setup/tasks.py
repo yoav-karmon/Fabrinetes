@@ -332,9 +332,16 @@ def help_network():
     print("      --data <HEX_STRING>                   UDP payload as hex string")
     print("      --verbose                            Enable verbose output")
     print()
+    print("EXAMPLES:")
+    print("  # Send ARP request")
+    print("  sudo hdlforge --tool network --cmd send_arp --interface eth0 --src_ip 192.168.1.100")
+    print()
+    print("  # Send UDP packet")
+    print("  sudo hdlforge --tool network --cmd send_udp --interface eth0 --src_ip 192.168.1.1 \\")
+    print("       --dst_ip 192.168.1.100 --dst_port 5678 --data 'deadbeef'")
+    print()
     print("NOTES:")
-    print("  • Most network tools require root privileges (use sudo) - except config_reg")
-    print("  • config_reg uses regular UDP sockets and does not require root")
+    print("  • Network tools require root privileges (use sudo)")
     print("  • Use tcpdump to capture packets: sudo tcpdump -i <interface> -w capture.pcap")
     print("  • View pcap file: tcpdump -r capture.pcap -X")
     print()
@@ -439,7 +446,7 @@ if __name__ == "__main__":
     parser.add_argument('-f', '--force', action='store_true', help='Skip confirmation prompts')
     
     # Network, hw_manager, and hw_server tool arguments (shared --cmd)
-    parser.add_argument('--cmd', type=str, choices=['send_raw', 'send_arp', 'send_icmp', 'send_udp', 'config_reg', 'program', 'read_dna', 'read_ila', 'scan_ila', 'scan_jtag'], 
+    parser.add_argument('--cmd', type=str, choices=['send_raw', 'send_arp', 'send_icmp', 'send_udp', 'program', 'read_dna', 'read_ila', 'scan_ila', 'scan_jtag'], 
                        help='Command: network (send_raw, send_arp, send_icmp, send_udp), hw_manager (program, read_dna, read_ila), or hw_server (program, scan_ila, scan_jtag)')
     parser.add_argument('--interface', type=str, help='Network interface name')
     parser.add_argument('--data', type=str, help='Raw data as hex string')
@@ -483,12 +490,6 @@ if __name__ == "__main__":
     parser.add_argument('--disable_heuristics', action='store_true', help='Disable UDP heuristic protocol dissectors')
     parser.add_argument('--disable_protocols', type=str, help='Comma-separated list of protocols to disable (e.g., mndp,ssdp)')
     
-    # Config register arguments (for network tool config_reg command)
-    parser.add_argument('--fpga-ip', '--fpga_ip', dest='fpga_ip', type=str, help='FPGA IP address (for config_reg command)')
-    parser.add_argument('--fpga-port', '--fpga_port', dest='fpga_port', type=int, help='FPGA UDP port (default: 4660 for config_reg)')
-    parser.add_argument('--server-port', '--server_port', dest='server_port', type=int, help='Source UDP port (default: 12345 for config_reg)')
-    parser.add_argument('--reg', type=int, help='Register address 0-15 (for config_reg write/read)')
-    parser.add_argument('--value', type=str, help='Value to write (hex: 0x12345678 or decimal, for config_reg write)')
     parser.add_argument('--action', type=str, choices=['write', 'read', 'write-all', 'read-all'], help='Config reg action: write, read, write-all, read-all')
     
     # hw_server arguments (--cmd is shared with network tool above)
@@ -641,7 +642,7 @@ if __name__ == "__main__":
             help_network()
             sys.exit(0)
         # Validate cmd is a network command
-        if args.cmd not in ['send_raw', 'send_arp', 'send_icmp', 'send_udp', 'config_reg']:
+        if args.cmd not in ['send_raw', 'send_arp', 'send_icmp', 'send_udp']:
             print(f"[!x!] Invalid command for network tool: {args.cmd}")
             print("[i] Network commands: send_raw, send_arp, send_icmp, send_udp")
             help_network()
@@ -667,7 +668,7 @@ if __name__ == "__main__":
             'fpga_ip': args.fpga_ip,
             'fpga_port': args.fpga_port,
             'server_port': args.server_port,
-            'server_ip': args.server_ip,  # Reuse server_ip for config_reg source IP
+            'server_ip': args.server_ip,
             'reg': args.reg,
             'value': args.value,
             'subcmd': args.action  # Use --action for the subcommand (write, read, etc.)
