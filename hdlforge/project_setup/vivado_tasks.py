@@ -626,16 +626,11 @@ def vivado(c, project, verbose=False, step: List[str] = [], clean=False, force=F
                     exit(1)
                 
                 # Resolve file path (can be relative to project root or absolute)
+                # Note: For file_remove, we don't check if file exists - it may have been moved/deleted
                 file_path_resolved = Path(file_path)
                 if not file_path_resolved.is_absolute():
                     # Try relative to project root
                     file_path_resolved = project_file.working_path / file_path_resolved
-                
-                # Check if file exists
-                if not file_path_resolved.exists():
-                    print(f"[!x!] File not found: {file_path_resolved}")
-                    print(f"[i] Please provide a valid file path")
-                    exit(1)
                 
                 # Calculate relative paths for TCL script
                 try:

@@ -11,13 +11,21 @@ if { $argc < 2 } {
     exit 1
 }
 
-# Parse arguments
-set cmd [lindex $argv 0]
-set project_path [lindex $argv 1]
-set run_name [lindex $argv 2]
+# Parse arguments - save to local variables before open_project can modify them
+set _local_cmd [lindex $argv 0]
+set _local_project_path [lindex $argv 1]
+set _local_run_name [lindex $argv 2]
+
+# Store in proc-local copies to avoid Vivado 2025.1 yaml namespace pollution
+set cmd $_local_cmd
+set project_path $_local_project_path
+set run_name $_local_run_name
 
 # Open project
 open_project $project_path
+
+# Restore cmd after open_project (Vivado 2025.1 may corrupt global vars)
+set cmd $_local_cmd
 
 # Command dispatcher
 switch -- $cmd {
