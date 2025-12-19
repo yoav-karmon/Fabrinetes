@@ -28,5 +28,9 @@ For each commit, list all affected files relative to the repository root.
 ## Confirmation
 After listing all commits, ask the user if they want to:
 - Make changes to the commit plan
-- Push and commit all commits
-- Push and commit a specific commit (by number)
+- Push and commit all commits using: git push ssh://git@github.com/yoav-karmon/Fabrinetes.git
+- Push and commit a specific commit (by number) using: 
+
+`git push ssh://git@github.com/yoav-karmon/Fabrinetes.git`
+
+
