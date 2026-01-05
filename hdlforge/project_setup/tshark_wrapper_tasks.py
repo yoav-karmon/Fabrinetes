@@ -88,22 +88,63 @@ def tshark_wrapper(c, pcap_file: str, output_format: str = 'to_plain_text',
     cmd.extend(checksum_opts)
     
     # Load FPGA config protocol dissector (if available)
-    # Look for it in project-relative locations (current working directory or ROOT_FOLDER)
+    # Look for it in project-relative locations (current working directory, PCAP file location, or ROOT_FOLDER)
     # Note: This is project-specific, not part of HDLForge itself
-    dissector_paths = [
-        Path.cwd() / "sources" / "PY" / "TEST_UTILS" / "fpga_config_protocol.lua",
-        Path.cwd() / "TEST_UTILS" / "fpga_config_protocol.lua",
-    ]
-    # Also check ROOT_FOLDER if set
+    dissector_paths = []
+    
+    # Method 1: Check ROOT_FOLDER environment variable first (highest priority)
     root_folder = os.environ.get("ROOT_FOLDER")
     if root_folder:
-        dissector_paths.insert(0, Path(root_folder) / "sources" / "PY" / "TEST_UTILS" / "fpga_config_protocol.lua")
-    for dissector_path in dissector_paths:
-        if dissector_path.exists():
-            cmd.extend(['-X', f'lua_script:{dissector_path}'])
-            if verbose:
-                print(f"[i] Loading FPGA config dissector: {dissector_path}")
+        dissector_paths.append(Path(root_folder) / "sources" / "PY" / "TEST_UTILS" / "fpga_config_protocol.lua")
+    
+    # Method 2: Find project root by looking for .hdlforge.json files (walk up from PCAP or CWD)
+    project_root = None
+    for search_start in [pcap_path.parent, Path.cwd()]:
+        for parent in [search_start] + list(search_start.parents)[:6]:  # Check up to 6 levels up
+            if (parent / ".hdlforge.json").exists() or (parent / "phy10gbaser.hdlforge.json").exists():
+                project_root = parent
+                break
+        if project_root:
             break
+    
+    if project_root:
+        dissector_paths.append(project_root / "sources" / "PY" / "TEST_UTILS" / "fpga_config_protocol.lua")
+    
+    # Method 3: Check relative to PCAP file location
+    pcap_parent = pcap_path.parent
+    for parent in [pcap_parent] + list(pcap_parent.parents)[:5]:  # Check up to 5 levels up
+        test_path = parent / "sources" / "PY" / "TEST_UTILS" / "fpga_config_protocol.lua"
+        if test_path.exists():
+            dissector_paths.append(test_path)
+            break
+    
+    # Method 4: Check relative to current working directory
+    dissector_paths.extend([
+        Path.cwd() / "sources" / "PY" / "TEST_UTILS" / "fpga_config_protocol.lua",
+        Path.cwd() / "TEST_UTILS" / "fpga_config_protocol.lua",
+    ])
+    
+    # Try each path until we find one that exists
+    # Use absolute paths to avoid issues with working directory changes
+    dissector_loaded = False
+    for dissector_path in dissector_paths:
+        try:
+            abs_path = dissector_path.resolve() if not dissector_path.is_absolute() else dissector_path
+            if abs_path.exists():
+                cmd.extend(['-X', f'lua_script:{abs_path}'])
+                dissector_loaded = True
+                if verbose:
+                    print(f"[i] Loading FPGA config dissector: {abs_path}")
+                break
+        except (OSError, RuntimeError):
+            # Path resolution failed, try next path
+            continue
+    
+    # If no dissector found and verbose, report it
+    if not dissector_loaded and verbose:
+        print(f"[!] FPGA config dissector not found. Checked paths:")
+        for dp in dissector_paths[:3]:  # Show first 3 paths checked
+            print(f"    - {dp}")
     
     # Disable heuristic protocol dissectors (prevents false protocol detection)
     if disable_heuristics:
