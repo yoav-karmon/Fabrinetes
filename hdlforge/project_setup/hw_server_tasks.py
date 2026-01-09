@@ -92,9 +92,9 @@ def hw_server(c, cmd: str = None, **kwargs):
     print(f"  Server:    {server_ip}:{server_port}", flush=True)
     print(f"  Work dir:  {invoked_cwd}", flush=True)
     if bitstream:
-        print(f"  Bitstream: {os.path.basename(bitstream)}", flush=True)
+        print(f"  Bitstream: {bitstream}", flush=True)
     if probes:
-        print(f"  Probes:    {os.path.basename(probes)}", flush=True)
+        print(f"  Probes:    {probes}", flush=True)
     
     # Start Vivado console (from invoked location for logs)
     console = VivadoTCLConsole(working_dir=invoked_cwd, debug=debug)
