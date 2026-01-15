@@ -1265,21 +1265,19 @@ def _read_usr_access_from_device(console) -> bool:
             result_message("DEVICE READ FAILED - No values found")
             return False
         
-        # Build RESULT message with both values
+        # Build RESULT message with both values (2 lines)
         if value is not None:
             major = (value >> 16) & 0xFF
             minor = (value >> 8) & 0xFF
             patch = value & 0xFF
-            version_str = f"V{major}.{minor}.{patch}"
+            result_message(f"USR_ACCESS: V{major}.{minor}.{patch} (0x{value:08X})")
         else:
-            version_str = "N/A"
+            result_message("USR_ACCESS: N/A")
         
         if userid_value is not None:
-            userid_str = _format_userid(userid_value)
+            result_message(f"USERID: {_format_userid(userid_value)}")
         else:
-            userid_str = "N/A"
-        
-        result_message(f"DEVICE READ COMPLETE - USR_ACCESS: {version_str}, USERID: {userid_str}")
+            result_message("USERID: N/A")
         
         return True
             
@@ -1346,24 +1344,22 @@ def _read_usr_access(bitfile: str) -> bool:
             log_message("USERID: N/A (not found in bitstream)")
         
         print()
-        # Build RESULT message with both values
-        if usr_access_value is not None:
-            major = (usr_access_value >> 16) & 0xFF
-            minor = (usr_access_value >> 8) & 0xFF
-            patch = usr_access_value & 0xFF
-            version_str = f"V{major}.{minor}.{patch}"
-        else:
-            version_str = "N/A"
-        
-        if userid_value is not None:
-            userid_str = _format_userid(userid_value)
-        elif userid_raw is not None:
-            userid_str = f"0x{userid_raw:08X}"
-        else:
-            userid_str = "N/A"
-        
+        # Build RESULT message with both values (2 lines)
         if usr_access_value is not None or userid_value is not None or userid_raw is not None:
-            result_message(f"BITSTREAM READ COMPLETE - USR_ACCESS: {version_str}, USERID: {userid_str}")
+            if usr_access_value is not None:
+                major = (usr_access_value >> 16) & 0xFF
+                minor = (usr_access_value >> 8) & 0xFF
+                patch = usr_access_value & 0xFF
+                result_message(f"USR_ACCESS: V{major}.{minor}.{patch} (0x{usr_access_value:08X})")
+            else:
+                result_message("USR_ACCESS: N/A")
+            
+            if userid_value is not None:
+                result_message(f"USERID: {_format_userid(userid_value)}")
+            elif userid_raw is not None:
+                result_message(f"USERID: 0x{userid_raw:08X} (not a valid timestamp)")
+            else:
+                result_message("USERID: N/A")
         else:
             result_message("BITSTREAM READ FAILED - No values found")
         
