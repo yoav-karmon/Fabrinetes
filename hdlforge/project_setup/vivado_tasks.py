@@ -17,6 +17,74 @@ from tabulate import tabulate
 from project_file import ProjectFile
 
 
+def _clean_logs_from_current_dir(verbose: bool = False, force: bool = False):
+    """
+    Clean Vivado log files from current working directory.
+    
+    Cleans: vivado.log, vivado.jou, vivado_*.backup.jou, vivado_*.backup.log
+    
+    Args:
+        verbose: Show each file being removed
+        force: Skip confirmation prompt
+    """
+    # Use HDLFORGE_ORIG_DIR (set by hdlforge bash script) to get the original invocation directory
+    current_dir = Path(os.environ.get('HDLFORGE_ORIG_DIR', os.getcwd()))
+    print(f"[i] Cleaning Vivado log files from: {current_dir}")
+    
+    # Collect files matching the specific patterns (non-recursive)
+    files_to_delete = []
+    
+    # vivado.log
+    vivado_log = current_dir / "vivado.log"
+    if vivado_log.exists():
+        files_to_delete.append(vivado_log)
+    
+    # vivado.jou
+    vivado_jou = current_dir / "vivado.jou"
+    if vivado_jou.exists():
+        files_to_delete.append(vivado_jou)
+    
+    # vivado_*.backup.jou
+    backup_jou_files = list(current_dir.glob("vivado_*.backup.jou"))
+    files_to_delete.extend(backup_jou_files)
+    
+    # vivado_*.backup.log
+    backup_log_files = list(current_dir.glob("vivado_*.backup.log"))
+    files_to_delete.extend(backup_log_files)
+    
+    if len(files_to_delete) == 0:
+        print("[+] No Vivado log files found to clean")
+        return
+    
+    print(f"\n[i] Found {len(files_to_delete)} file(s) to delete:")
+    for f in files_to_delete:
+        print(f"   • {f.name}")
+    print()
+    
+    # Confirm deletion
+    if not force:
+        response = input(f"[!] Delete {len(files_to_delete)} file(s)? [y/N] ").strip().lower()
+        if response != 'y' and response != 'yes':
+            print("[!] Cancelled")
+            return
+    
+    # Delete files
+    deleted_count = 0
+    for file in files_to_delete:
+        try:
+            file.unlink()
+            deleted_count += 1
+            if verbose:
+                print(f"   [-] Removed: {file.name}")
+        except Exception as e:
+            print(f"   [!] Failed to remove {file.name}: {e}")
+    
+    if not verbose:
+        print(f"[-] Removed {deleted_count} file(s)")
+    
+    print(f"\n[+] Clean complete - Removed {deleted_count} file(s)")
+
+
 class VivadoStep(str, Enum):
     """Enum for Vivado step names"""
     LIST_RUNS = "list_runs"
@@ -58,6 +126,11 @@ def vivado(c, project, verbose=False, step: List[str] = [], clean=False, force=F
         step = []
     elif isinstance(step, str):
         step = [step]
+    
+    # Handle clean_logs early - it doesn't require a project file
+    if step == ['clean_logs']:
+        _clean_logs_from_current_dir(verbose, force)
+        return
 
     TOOL_NAME = "vivado"
     # Get script directory from environment or use the directory where this script is located
@@ -525,90 +598,8 @@ def vivado(c, project, verbose=False, step: List[str] = [], clean=False, force=F
                 print(f"[+] Project TCL exported successfully: {project_file.vivado_project_tcl}")
             
             case VivadoStep.CLEAN_LOGS:
-                print(f"[i] Cleaning Vivado log and journal files for project: {project_file.vivado_project_name}")
-                
-                project_root = project_file.working_path
-                project_name = project_file.vivado_project_name.strip()
-                
-                # Pattern for vivado.*.jou and vivado.*.log files
-                jou_files = list(project_root.rglob("vivado*.jou"))
-                log_files = list(project_root.rglob("vivado*.log"))
-                
-                # Project-specific dump files
-                dump_file = project_root / f"{project_name}_dump.txt"
-                def_val_file = project_root / f"{project_name}_def_val.txt"
-                
-                total_files = len(jou_files) + len(log_files)
-                if dump_file.exists():
-                    total_files += 1
-                if def_val_file.exists():
-                    total_files += 1
-                
-                if total_files == 0:
-                    print("[+] No files found to clean")
-                    continue
-                
-                print(f"\n[i] Found:")
-                print(f"   • {len(jou_files)} journal file(s) (vivado*.jou)")
-                print(f"   • {len(log_files)} log file(s) (vivado*.log)")
-                if dump_file.exists():
-                    print(f"   • 1 dump file ({dump_file.name})")
-                if def_val_file.exists():
-                    print(f"   • 1 def_val file ({def_val_file.name})")
-                print(f"   • Total: {total_files} file(s)\n")
-                
-                # Confirm deletion
-                if not force:
-                    response = input(f"[!] Delete {total_files} file(s)? [y/N] ").strip().lower()
-                    if response != 'y' and response != 'yes':
-                        print("[!] Cancelled")
-                        continue
-                
-                # Delete journal files
-                deleted_count = 0
-                for file in jou_files:
-                    try:
-                        file.unlink()
-                        deleted_count += 1
-                        if verbose:
-                            print(f"   [-] Removed: {file.relative_to(project_root)}")
-                    except Exception as e:
-                        print(f"   [!] Failed to remove {file.relative_to(project_root)}: {e}")
-                
-                # Delete log files
-                for file in log_files:
-                    try:
-                        file.unlink()
-                        deleted_count += 1
-                        if verbose:
-                            print(f"   [-] Removed: {file.relative_to(project_root)}")
-                    except Exception as e:
-                        print(f"   [!] Failed to remove {file.relative_to(project_root)}: {e}")
-                
-                # Delete dump file
-                if dump_file.exists():
-                    try:
-                        dump_file.unlink()
-                        deleted_count += 1
-                        if verbose:
-                            print(f"   [-] Removed: {dump_file.name}")
-                    except Exception as e:
-                        print(f"   [!] Failed to remove {dump_file.name}: {e}")
-                
-                # Delete def_val file
-                if def_val_file.exists():
-                    try:
-                        def_val_file.unlink()
-                        deleted_count += 1
-                        if verbose:
-                            print(f"   [-] Removed: {def_val_file.name}")
-                    except Exception as e:
-                        print(f"   [!] Failed to remove {def_val_file.name}: {e}")
-                
-                if not verbose:
-                    print(f"[-] Removed {deleted_count} file(s)")
-                
-                print(f"\n[+] Clean complete - Removed {deleted_count} file(s)")
+                # Clean Vivado log files from current working directory
+                _clean_logs_from_current_dir(verbose, force)
             
             case VivadoStep.FILE_REMOVE:
                 print(f"[i] Removing file from Vivado project: {project_file.vivado_project_name}")

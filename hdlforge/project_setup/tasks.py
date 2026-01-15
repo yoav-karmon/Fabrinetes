@@ -225,6 +225,8 @@ def help_vivado():
     print("  Other:")
     print("    --lint                               Run lint")
     print("    --clean                              Clean build directory")
+    print("    --clean_logs                         Clean Vivado log files from current directory")
+    print("                                         (vivado.log, vivado.jou, vivado_*.backup.*)")
     print("    --verbose                            Enable verbose output")
     print("    -f, --force                          Skip confirmation prompts")
     print()
@@ -443,11 +445,14 @@ if __name__ == "__main__":
     parser.add_argument('--file_remove', action='store_true', help='Remove a file from the Vivado project')
     parser.add_argument('--file_add', action='store_true', help='Add a file to the Vivado project')
     parser.add_argument('--file_path', type=str, help='File path (required for file_remove and file_add)')
+    parser.add_argument('--clean_logs', action='store_true', help='Clean Vivado log files from current directory')
     parser.add_argument('-f', '--force', action='store_true', help='Skip confirmation prompts')
     
     # Network, hw_manager, and hw_server tool arguments (shared --cmd)
-    parser.add_argument('--cmd', type=str, choices=['send_raw', 'send_arp', 'send_icmp', 'send_udp', 'program', 'read_dna', 'read_ila', 'scan_ila', 'scan_jtag'], 
-                       help='Command: network (send_raw, send_arp, send_icmp, send_udp), hw_manager (program, read_dna, read_ila), or hw_server (program, scan_ila, scan_jtag)')
+    # For hw_server, --cmd can be used multiple times and accepts any string (menu selections)
+    # For other tools, it's a single command from the choices list
+    parser.add_argument('--cmd', type=str, action='append',
+                       help='Command: network (send_raw, send_arp, send_icmp, send_udp), hw_manager (program, read_dna, read_ila), or hw_server (any menu selection, can be used multiple times)')
     parser.add_argument('--interface', type=str, help='Network interface name')
     parser.add_argument('--data', type=str, help='Raw data as hex string')
     # ARP arguments
@@ -606,6 +611,8 @@ if __name__ == "__main__":
             steps_from_flags.append('file_remove')
         if args.file_add:
             steps_from_flags.append('file_add')
+        if args.clean_logs:
+            steps_from_flags.append('clean_logs')
         
         final_steps = steps_from_flags
         
@@ -638,12 +645,17 @@ if __name__ == "__main__":
         vivado(c, args.project, args.verbose, final_steps, args.clean, args.force, run_name, args.file_path)
     elif args.tool == 'network':
         # Network tool selected
-        if not args.cmd:
+        cmd_list = args.cmd if args.cmd else []
+        if not cmd_list:
             help_network()
             sys.exit(0)
+        # For network tool, only allow single command
+        if len(cmd_list) > 1:
+            parser.error("--cmd can only be used once for network tool")
+        cmd_value = cmd_list[0]
         # Validate cmd is a network command
-        if args.cmd not in ['send_raw', 'send_arp', 'send_icmp', 'send_udp']:
-            print(f"[!x!] Invalid command for network tool: {args.cmd}")
+        if cmd_value not in ['send_raw', 'send_arp', 'send_icmp', 'send_udp']:
+            print(f"[!x!] Invalid command for network tool: {cmd_value}")
             print("[i] Network commands: send_raw, send_arp, send_icmp, send_udp")
             help_network()
             sys.exit(1)
@@ -673,7 +685,7 @@ if __name__ == "__main__":
             'value': args.value,
             'subcmd': args.action  # Use --action for the subcommand (write, read, etc.)
         }
-        network(c, args.cmd, **kwargs)
+        network(c, cmd_value, **kwargs)
     elif args.tool == 'vcd_analyzer':
         # VCD analyzer tool selected
         kwargs = {
@@ -711,8 +723,12 @@ if __name__ == "__main__":
                        verbose=args.verbose)
     elif args.tool == 'hw_server':
         # hw_server tool - interactive FPGA programming and debugging
+        # For hw_server, --cmd can be a list (multiple --cmd arguments)
+        cmd_list = args.cmd if args.cmd else []
+        
         hw_server(c, 
-                  cmd=args.cmd,
+                  cmd=None,  # Single cmd not used for hw_server when cmd_list is provided
+                  cmd_list=cmd_list,  # List of cmds for hw_server (menu selections)
                   server_ip=args.server_ip,
                   server_port=getattr(args, 'server_port', '3121'),
                   bitstream=args.bitstream,

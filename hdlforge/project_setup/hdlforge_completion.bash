@@ -25,7 +25,7 @@ _hdlforge_completions() {
     local network_send_udp_params="--interface --eth_dst_mac --eth_src_mac --src_ip --dst_ip --src_port --dst_port --data --verbose"
 
     # Vivado steps (--step is deprecated, use direct flags like --syn, --impl, --bit)
-    local vivado_steps="syn impl bit all lint list_runs reset_run generate_prj_with_external_tcl write_tcl file_remove file_add"
+    local vivado_steps="syn impl bit all lint list_runs reset_run generate_prj_with_external_tcl write_tcl file_remove file_add clean_logs"
 
     # Verilator operations
     local verilator_ops="build sim clean"
@@ -236,7 +236,7 @@ _hdlforge_completions() {
     case "$tool" in
         vivado)
             # Primary action flags (show first)
-            local vivado_action_flags="--syn --impl --bit --all --lint --list_runs --reset_run --generate_prj_with_external_tcl --write_tcl --file_add --file_remove"
+            local vivado_action_flags="--syn --impl --bit --all --lint --list_runs --reset_run --generate_prj_with_external_tcl --write_tcl --file_add --file_remove --clean_logs"
             
             # Check which action is selected to determine appropriate modifiers
             local selected_action=""
@@ -269,6 +269,10 @@ _hdlforge_completions() {
                         --list_runs|--write_tcl)
                             # List/export: no modifiers needed
                             modifier_flags=""
+                            ;;
+                        --clean_logs)
+                            # Clean logs: --force --verbose
+                            modifier_flags="--force --verbose"
                             ;;
                     esac
                     
