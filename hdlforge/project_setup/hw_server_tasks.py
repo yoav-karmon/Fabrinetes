@@ -243,6 +243,7 @@ def _execute_command(console: VivadoTCLConsole, cmd: str, bitstream: str, probes
         log_message("[end of output from Vivado TCL]")
         
         if not success:
+            result_message("PROGRAMMING FAILED")
             return False
         
         # Step 3: Verify USR_ACCESS from device
@@ -255,11 +256,16 @@ def _execute_command(console: VivadoTCLConsole, cmd: str, bitstream: str, probes
             log_message(f"Device USR_ACCESS: 0x{device_value:08X}")
             if usr_access_value is not None:
                 if usr_access_value == device_value:
-                    log_message("✓ Verification PASSED: USR_ACCESS values match")
+                    log_message("Verification PASSED: USR_ACCESS values match")
+                    result_message("PROGRAMMING SUCCESS - USR_ACCESS verified")
                 else:
-                    log_message(f"✗ Verification FAILED: Values do not match (bitstream: 0x{usr_access_value:08X}, device: 0x{device_value:08X})")
+                    log_message(f"Verification FAILED: Values do not match (bitstream: 0x{usr_access_value:08X}, device: 0x{device_value:08X})")
+                    result_message("PROGRAMMING SUCCESS - USR_ACCESS mismatch warning")
+            else:
+                result_message("PROGRAMMING SUCCESS")
         else:
             log_message("Warning: Could not read USR_ACCESS from device")
+            result_message("PROGRAMMING SUCCESS - USR_ACCESS not verified")
         
         return success
     
@@ -268,15 +274,23 @@ def _execute_command(console: VivadoTCLConsole, cmd: str, bitstream: str, probes
             log_message("[!x!] Probes file must be specified with --probes or in config file")
             return False
         log_message("[start of output from Vivado TCL]")
-        result = console.scan_ila_vio(probes)
+        scan_result = console.scan_ila_vio(probes)
         log_message("[end of output from Vivado TCL]")
-        return result
+        if scan_result:
+            result_message("SCAN COMPLETE")
+        else:
+            result_message("SCAN FAILED")
+        return scan_result
     
     elif cmd == 'scan_jtag' or cmd == 'read_dna':
         log_message("[start of output from Vivado TCL]")
-        result = console.scan_jtag()
+        jtag_result = console.scan_jtag()
         log_message("[end of output from Vivado TCL]")
-        return result
+        if jtag_result:
+            result_message("JTAG SCAN COMPLETE")
+        else:
+            result_message("JTAG SCAN FAILED")
+        return jtag_result
     
     elif cmd == 'read_usr_access':
         if not bitstream:
@@ -1251,10 +1265,19 @@ def _read_usr_access_from_device(console) -> bool:
         else:
             log_message("USERID: Could not read from device (may not be exposed via TCL)")
         
+        print()
         if value is None and userid_value is None:
-            log_message("")
             log_message("Note: Use option 4 to read values from the bitstream file instead.")
+            result_message("DEVICE READ FAILED - No values found")
             return False
+        
+        if value is not None:
+            major = (value >> 16) & 0xFF
+            minor = (value >> 8) & 0xFF
+            patch = value & 0xFF
+            result_message(f"DEVICE READ COMPLETE - Version: V{major}.{minor}.{patch}")
+        else:
+            result_message("DEVICE READ COMPLETE - USERID only")
         
         return True
             
@@ -1262,6 +1285,7 @@ def _read_usr_access_from_device(console) -> bool:
         log_message(f"[!x!] Error reading USR_ACCESS from device: {e}")
         import traceback
         traceback.print_exc()
+        result_message("DEVICE READ FAILED - Error reading from device")
         return False
 
 
@@ -1319,15 +1343,26 @@ def _read_usr_access(bitfile: str) -> bool:
         else:
             log_message("USERID: N/A (not found in bitstream)")
         
+        print()
+        if usr_access_value is not None:
+            major = (usr_access_value >> 16) & 0xFF
+            minor = (usr_access_value >> 8) & 0xFF
+            patch = usr_access_value & 0xFF
+            result_message(f"BITSTREAM READ COMPLETE - Version: V{major}.{minor}.{patch}")
+        else:
+            result_message("BITSTREAM READ FAILED - USR_ACCESS not found")
+        
         return usr_access_value is not None
         
     except FileNotFoundError:
         log_message(f"[!x!] Bitstream file not found: {bitfile}")
+        result_message("BITSTREAM READ FAILED - File not found")
         return False
     except Exception as e:
         log_message(f"[!x!] Error reading bitstream: {e}")
         import traceback
         traceback.print_exc()
+        result_message("BITSTREAM READ FAILED - Error reading file")
         return False
 
 
