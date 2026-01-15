@@ -908,30 +908,24 @@ def _read_usr_access_value(bitfile: str) -> Optional[int]:
 def _read_userid_value(bitfile: str) -> Optional[int]:
     """Read USERID (timestamp) value from bitstream file. Returns value or None.
     
+    The USERID is stored in the ASCII header of Xilinx bitstreams as 'UserID=XXXXXXXX'.
     Returns the first value found that looks like a valid Unix timestamp.
     If no valid timestamp found, returns None.
     """
     try:
         with open(bitfile, 'rb') as f:
-            data = f.read()
+            # Read header (first 1024 bytes should be enough)
+            header = f.read(1024)
         
-        # USERID register write command patterns in Xilinx bitstreams
-        userid_patterns = [
-            bytes([0x30, 0x01, 0x80, 0x01]),  # Common USERID pattern
-            bytes([0x30, 0x01, 0xC0, 0x01]),  # Alternate pattern
-            bytes([0x30, 0x02, 0x80, 0x01]),  # UltraScale+ variant
-            bytes([0x30, 0x02, 0xC0, 0x01]),  # UltraScale+ alternate
-        ]
-        
-        # First pass: look for valid timestamps
-        for pattern in userid_patterns:
-            pos = data.find(pattern)
-            if pos != -1 and pos + 8 <= len(data):
-                value_bytes = data[pos + 4:pos + 8]
-                candidate = int.from_bytes(value_bytes, byteorder='big')
-                # Valid range: 2020-01-01 to 2040-01-01 (1577836800 to 2208988800)
-                if 1577836800 <= candidate <= 2208988800:
-                    return candidate
+        # Search for UserID=XXXXXXXX pattern in header
+        import re
+        match = re.search(b'UserID=([0-9A-Fa-f]{8})', header)
+        if match:
+            userid_hex = match.group(1).decode('ascii')
+            candidate = int(userid_hex, 16)
+            # Valid range: 2020-01-01 to 2040-01-01 (1577836800 to 2208988800)
+            if 1577836800 <= candidate <= 2208988800:
+                return candidate
         
         return None
         
@@ -940,21 +934,21 @@ def _read_userid_value(bitfile: str) -> Optional[int]:
 
 
 def _read_userid_raw(bitfile: str) -> Optional[int]:
-    """Read raw USERID value from bitstream file (no timestamp validation)."""
+    """Read raw USERID value from bitstream file (no timestamp validation).
+    
+    The USERID is stored in the ASCII header of Xilinx bitstreams as 'UserID=XXXXXXXX'.
+    """
     try:
         with open(bitfile, 'rb') as f:
-            data = f.read()
+            # Read header (first 1024 bytes should be enough)
+            header = f.read(1024)
         
-        userid_patterns = [
-            bytes([0x30, 0x01, 0x80, 0x01]),
-            bytes([0x30, 0x01, 0xC0, 0x01]),
-        ]
-        
-        for pattern in userid_patterns:
-            pos = data.find(pattern)
-            if pos != -1 and pos + 8 <= len(data):
-                value_bytes = data[pos + 4:pos + 8]
-                return int.from_bytes(value_bytes, byteorder='big')
+        # Search for UserID=XXXXXXXX pattern in header
+        import re
+        match = re.search(b'UserID=([0-9A-Fa-f]{8})', header)
+        if match:
+            userid_hex = match.group(1).decode('ascii')
+            return int(userid_hex, 16)
         
         return None
         
