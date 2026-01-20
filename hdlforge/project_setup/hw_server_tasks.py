@@ -16,9 +16,21 @@ from typing import Dict, Optional, List
 from hw_server_console import VivadoTCLConsole
 
 
+# Global debug flag (set by hw_server function)
+_debug_mode = False
+
+def set_debug_mode(enabled: bool) -> None:
+    """Set global debug mode."""
+    global _debug_mode
+    _debug_mode = enabled
+
 def log_message(text: str) -> None:
-    """Output a log message with [LOG]: prefix."""
-    print(f"[LOG]: {text}", flush=True)
+    """Output a log message with [LOG]: prefix. Only shown in debug mode, except for errors."""
+    # Always show error messages (starting with [!x!])
+    if text.startswith("[!x!]"):
+        print(f"[ERROR]: {text[6:]}", flush=True)  # Remove [!x!] prefix and show as ERROR
+    elif _debug_mode:
+        print(f"[LOG]: {text}", flush=True)
 
 
 def result_message(text: str) -> None:
@@ -43,7 +55,8 @@ def display_box(title: str, content_lines: list = None, auto_close: bool = False
 
 def display_close_box() -> None:
     """Close a display box."""
-    print("=" * 60)
+    # Separator removed - no longer printing ==== after results
+    pass
 
 
 def hw_server(c, cmd: str = None, **kwargs):
@@ -67,32 +80,63 @@ def hw_server(c, cmd: str = None, **kwargs):
     cmd_list = kwargs.get('cmd_list', [])  # --cmd commands (can be multiple)
     force_commit = kwargs.get('force', False)  # -f flag for force commit
     debug = kwargs.get('debug', False)  # -d/--debug flag
+    set_debug_mode(debug)  # Set global debug mode
     
     # Use original CWD from where user invoked hdlforge (for Vivado logs and relative paths)
     invoked_cwd = kwargs.get('original_cwd', os.getcwd())
     
-    # Load config file ONLY if -c is explicitly provided
+    # Load config file: use -f/-c if provided, otherwise auto-detect from invoke location
     config = {}
     config_path = ""
+    
     if config_file:
+        # Explicit config file provided via -f or -c
         config_path = os.path.expanduser(config_file)
         if not os.path.isabs(config_path):
             config_path = os.path.join(invoked_cwd, config_path)
+    else:
+        # Auto-detect: look for config.json in invoke location
+        auto_config_path = os.path.join(invoked_cwd, "config.json")
+        if os.path.exists(auto_config_path):
+            config_path = auto_config_path
+    
+    if config_path:
         config = _load_config(config_path)
         if not config:
             log_message(f"[!x!] Config file not found or invalid: {config_path}")
             sys.exit(1)
-        log_message(f"Loaded config from: {config_path}")
+        # Show which config file is being used
+        print(f"[RESULT]: Using config file: {config_path}")
+    else:
+        # No config file found - continue without config (some features won't work)
+        if not _debug_mode:
+            pass  # Don't show message in non-debug mode
+        else:
+            log_message("No config file found (auto-detection failed, continuing without config)")
+    
+    # Handle new config format: DNA is the key, device settings are nested under it
+    # e.g., { "DNA_VALUE": { "hw_server_host": "...", "bit_file": "...", ... } }
+    device_dna = ''
+    device_config = config
+    
+    config_keys = list(config.keys())
+    if config_keys and not any(k in config_keys for k in ['hw_server_host', 'hw_server_port', 'bit_file', 'ltx_file', 'device']):
+        # New format: first key is the DNA, value is the device config
+        device_dna = config_keys[0]
+        device_config = config.get(device_dna, {})
+    else:
+        # Old format: direct config with 'device' field
+        device_dna = config.get('device', '') if isinstance(config.get('device'), str) else ''
     
     # Apply config values (only if not overridden by command line)
     if not server_ip:
-        server_ip = config.get('hw_server_host', 'localhost')
+        server_ip = device_config.get('hw_server_host', 'localhost')
     if not server_port:
-        server_port = str(config.get('hw_server_port', '3121'))
+        server_port = str(device_config.get('hw_server_port', '3121'))
     if not bitstream:
-        bitstream = config.get('bit_file', '')
+        bitstream = device_config.get('bit_file', '')
     if not probes:
-        probes = config.get('ltx_file', '')
+        probes = device_config.get('ltx_file', '')
     
     # Resolve relative paths from config relative to invoked directory
     if bitstream and not os.path.isabs(bitstream) and not bitstream.startswith('~'):
@@ -100,8 +144,8 @@ def hw_server(c, cmd: str = None, **kwargs):
     if probes and not os.path.isabs(probes) and not probes.startswith('~'):
         probes = os.path.join(invoked_cwd, probes)
     
-    # Get VIO outputs from config
-    vio_outputs = config.get('vio_outputs', {})
+    # Get VIO outputs from device config
+    vio_outputs = device_config.get('vio_outputs', {})
     
     # Expand paths
     if bitstream:
@@ -133,6 +177,9 @@ def hw_server(c, cmd: str = None, **kwargs):
     # Start Vivado console (from invoked location for logs)
     # For interactive mode, we'll start it lazily when needed
     console = VivadoTCLConsole(working_dir=invoked_cwd, debug=debug)
+    
+    # Store device DNA from config for later use (only if present and valid)
+    console.config_device_dna = device_dna if device_dna and device_dna.strip() else None
     
     # Determine if we need console immediately (non-interactive commands always need it)
     # Note: cmd_list is now handled in interactive loop, so we don't need console immediately for it
@@ -229,42 +276,41 @@ def _execute_command(console: VivadoTCLConsole, cmd: str, bitstream: str, probes
             return False
         
         # Step 1: Read USR_ACCESS from bitstream file
-        log_message("OPERATION: Step 1/3 - Reading USR_ACCESS from bitstream file")
+        log_message("Step 1/3 - Reading USR_ACCESS from bitstream file")
         usr_access_value = _read_usr_access_value(bitstream)
         if usr_access_value is not None:
-            log_message(f"USR_ACCESS Value: 0x{usr_access_value:08X}")
+            major = (usr_access_value >> 16) & 0xFF
+            minor = (usr_access_value >> 8) & 0xFF
+            patch = usr_access_value & 0xFF
+            result_message(f"Bitstream USR_ACCESS: V{major}.{minor}.{patch} (0x{usr_access_value:08X})")
         else:
             log_message("Warning: Could not read USR_ACCESS from bitstream file")
         
         # Step 2: Program FPGA
-        log_message("OPERATION: Step 2/3 - Programming FPGA")
-        log_message("[start of output from Vivado TCL]")
+        log_message("Step 2/3 - Programming FPGA")
         success = console.program_fpga(bitstream, probes)
-        log_message("[end of output from Vivado TCL]")
         
         if not success:
             result_message("PROGRAMMING FAILED")
             return False
         
         # Step 3: Verify USR_ACCESS from device
-        log_message("OPERATION: Step 3/3 - Verifying USR_ACCESS from device")
-        log_message("[start of output from Vivado TCL]")
+        log_message("Step 3/3 - Verifying USR_ACCESS from device")
         device_value = _read_usr_access_from_device_value(console)
-        log_message("[end of output from Vivado TCL]")
         
         if device_value is not None:
-            log_message(f"Device USR_ACCESS: 0x{device_value:08X}")
+            major = (device_value >> 16) & 0xFF
+            minor = (device_value >> 8) & 0xFF
+            patch = device_value & 0xFF
+            result_message(f"Device USR_ACCESS: V{major}.{minor}.{patch} (0x{device_value:08X})")
             if usr_access_value is not None:
                 if usr_access_value == device_value:
-                    log_message("Verification PASSED: USR_ACCESS values match")
                     result_message("PROGRAMMING SUCCESS - USR_ACCESS verified")
                 else:
-                    log_message(f"Verification FAILED: Values do not match (bitstream: 0x{usr_access_value:08X}, device: 0x{device_value:08X})")
-                    result_message("PROGRAMMING SUCCESS - USR_ACCESS mismatch warning")
+                    result_message(f"PROGRAMMING SUCCESS - USR_ACCESS mismatch (bitstream: 0x{usr_access_value:08X}, device: 0x{device_value:08X})")
             else:
                 result_message("PROGRAMMING SUCCESS")
         else:
-            log_message("Warning: Could not read USR_ACCESS from device")
             result_message("PROGRAMMING SUCCESS - USR_ACCESS not verified")
         
         return success
@@ -273,22 +319,16 @@ def _execute_command(console: VivadoTCLConsole, cmd: str, bitstream: str, probes
         if not probes:
             log_message("[!x!] Probes file must be specified with --probes or in config file")
             return False
-        log_message("[start of output from Vivado TCL]")
         scan_result = console.scan_ila_vio(probes)
-        log_message("[end of output from Vivado TCL]")
-        if scan_result:
-            result_message("SCAN COMPLETE")
-        else:
+        # Result message is printed by scan_ila_vio itself
+        if not scan_result:
             result_message("SCAN FAILED")
         return scan_result
     
     elif cmd == 'scan_jtag' or cmd == 'read_dna':
-        log_message("[start of output from Vivado TCL]")
         jtag_result = console.scan_jtag()
-        log_message("[end of output from Vivado TCL]")
-        if jtag_result:
-            result_message("JTAG SCAN COMPLETE")
-        else:
+        # Result message is printed by scan_jtag itself
+        if not jtag_result:
             result_message("JTAG SCAN FAILED")
         return jtag_result
     
@@ -312,68 +352,36 @@ def _describe_chain_command(choice: str) -> str:
     c = choice.lower().strip()
 
     # Top-level numeric / word commands
-    if c in ("1", "program"):
+    if c in ("1", "pr", "prog", "program", "pro"):
         return "Program FPGA"
-    if c in ("2", "scan_ila"):
-        return "Scan ILA/VIO cores"
-    if c in ("3", "scan_jtag", "read_dna"):
+    # Scan removed - now runs automatically when device is selected
+    if c in ("2", "jt", "jtag", "device", "scan_jtag", "read_dna"):
         return "Scan JTAG / Read DNA"
-    if c in ("4", "read_usr_access"):
+    if c in ("3", "rb", "readbit", "read_bit", "read-file", "read_file", "read_usr_access"):
         return "Read USR_ACCESS/USERID from bitstream file"
-    if c in ("5", "read_usr_access_device"):
+    if c in ("4", "rd", "readdev", "read_dev", "read-device", "read_device", "read_usr_access_device"):
         return "Read USR_ACCESS/USERID from FPGA device"
+    if c in ("5", "pu", "pull", "pull_release"):
+        return "Pull release (fetch files from git tag)"
+    if c in ("6", "cl", "clear", "clear_fpga"):
+        return "Clear/Reset FPGA Device"
     if c in ("q", "quit", "exit"):
         return "Exit"
 
-    # New ILA commands
-    if c.startswith("ila-v-"):
-        idx = c[len("ila-v-"):]
-        return f"View ILA {idx}"
-    if c.startswith("ila-save-ila-"):
-        idx = c[len("ila-save-ila-"):]
+    # ILA commands
+    if c.startswith("ila-") and "-save-" not in c:
+        idx = c[len("ila-"):]
+        return f"Read ILA {idx}"
+    if c.startswith("ila-") and "-save-ila" in c:
+        idx = c[len("ila-"):].split("-save-ila")[0]
         return f"Save ILA {idx} as .ila"
-    if c.startswith("ila-save-vcd-"):
-        idx = c[len("ila-save-vcd-"):]
+    if c.startswith("ila-") and "-save-vcd" in c:
+        idx = c[len("ila-"):].split("-save-vcd")[0]
         return f"Save ILA {idx} as .vcd"
-    if c.startswith("ila-save-csv-"):
-        idx = c[len("ila-save-csv-"):]
+    if c.startswith("ila-") and "-save-csv" in c:
+        idx = c[len("ila-"):].split("-save-csv")[0]
         return f"Save ILA {idx} as .csv"
 
-    # Backwards-compatible short ILA commands
-    if c.startswith("i") and len(c) > 1 and not c.startswith("is"):
-        idx = c[1:]
-        return f"View ILA {idx}"
-    if c.startswith("is") and len(c) > 2:
-        idx = c[2:]
-        return f"Save ILA {idx} as .ila"
-    if c.startswith("iw") and len(c) > 2:
-        idx = c[2:]
-        return f"Save ILA {idx} as .vcd"
-    if c.startswith("ic") and len(c) > 2:
-        idx = c[2:]
-        return f"Save ILA {idx} as .csv"
-
-    # New VIO commands
-    if c.startswith("vio-v-"):
-        idx = c[len("vio-v-"):]
-        return f"View VIO {idx}"
-    if c.startswith("vio-set-f-"):
-        idx = c[len("vio-set-f-"):]
-        return f"Set VIO {idx} from config"
-    if c.startswith("vio-set-hex-"):
-        idx = c[len("vio-set-hex-"):]
-        return f"Set VIO {idx} manually (hex)"
-
-    # Backwards-compatible short VIO commands
-    if c.startswith("v") and len(c) > 1 and not c.startswith("sv") and not c.startswith("vh"):
-        idx = c[1:]
-        return f"View VIO {idx}"
-    if c.startswith("sv") and len(c) > 2:
-        idx = c[2:]
-        return f"Set VIO {idx} from config"
-    if c.startswith("vh") and len(c) > 2:
-        idx = c[2:]
-        return f"Set VIO {idx} manually (hex)"
 
     return ""
 
@@ -415,12 +423,22 @@ def _execute_menu_choice(console: VivadoTCLConsole, choice: str,
     """
     choice = choice.lower().strip()
     
-    if choice == "1" or choice == "program":
+    if choice in ("1", "pr", "prog", "program", "pro"):
+        # Validate device DNA matches config before programming
+        if console.selected_device_dna and console.config_device_dna:
+            # Normalize DNAs for comparison (strip leading/trailing zeros)
+            selected_clean = console.selected_device_dna.strip('0') or '0'
+            config_clean = console.config_device_dna.strip('0') or '0'
+            if selected_clean.upper() != config_clean.upper():
+                result_message(f"PROGRAM BLOCKED - Selected device DNA ({console.selected_device_dna}) does not match config DNA ({console.config_device_dna})")
+                result_message("Use correct device or update config.json with matching DNA")
+                return True
+        
         # Reload config if available to get latest bitstream/probes paths
         current_bitstream = bitstream
         current_probes = probes
         if config_path and os.path.exists(config_path):
-            _, _, _, current_bitstream, current_probes, _, _ = _load_and_resolve_config(config_path, invoked_cwd)
+            _, _, _, current_bitstream, current_probes, _, _, _ = _load_and_resolve_config(config_path, invoked_cwd)
             if not current_bitstream:
                 current_bitstream = bitstream  # Fallback to original
             if not current_probes:
@@ -433,31 +451,151 @@ def _execute_menu_choice(console: VivadoTCLConsole, choice: str,
         if not _ensure_console_started(console, server_ip, server_port):
             return True
         result = _execute_command(console, 'program', current_bitstream, current_probes)
+        # After programming, clear ILA/VIO cache to force fresh scan on next device selection
+        if result:
+            console.core_cache = {}
+            console.scanned = False
         return result
-    elif choice == "2" or choice == "scan_ila":
-        if not _ensure_console_started(console, server_ip, server_port):
-            return True
-        result = _execute_command(console, 'scan_ila', bitstream, probes)
-        return result
-    elif choice == "3" or choice == "scan_jtag":
+    # Device scan - only lists devices, does NOT auto-select
+    # User must explicitly select with device-1, device-2, etc.
+    elif choice in ("2", "jt", "jtag", "device", "scan_jtag"):
         if not _ensure_console_started(console, server_ip, server_port):
             return True
         result = _execute_command(console, 'scan_jtag', bitstream, probes)
+        # No auto-selection - user must explicitly select device
+        # VIO/ILA will only be shown after user selects a device
         return result
-    elif choice == "4" or choice == "read_usr_access":
+    elif choice.startswith("device-") and choice != "device":
+        # Handle device selection (device-1, device-2, etc.) or by DNA value
+        if not _ensure_console_started(console, server_ip, server_port):
+            return True
+        try:
+            idx_str = choice[len("device-"):]
+            # Force refresh device list if cache is empty (e.g., after clear/disconnect)
+            # Clear cache to force refresh
+            console.device_list_cache = []
+            device_list = console._get_device_list()
+            
+            # Try to match by DNA value first (allowing trailing 0 removal)
+            matched_dev = None
+            matched_idx = -1  # Index in device_list for updating device database
+            for i, dev in enumerate(device_list):
+                dev_dna = dev.get('dna', '')
+                if dev_dna and dev_dna != "N/A":
+                    # Remove trailing zeros from both for comparison
+                    dev_dna_clean = dev_dna.rstrip('0') or '0'
+                    idx_clean = idx_str.rstrip('0') or '0'
+                    if dev_dna_clean.upper() == idx_clean.upper():
+                        matched_dev = dev
+                        matched_idx = i
+                        break
+            
+            # If no DNA match, try by index
+            if not matched_dev:
+                try:
+                    device_idx = int(idx_str) - 1
+                    if 0 <= device_idx < len(device_list):
+                        matched_dev = device_list[device_idx]
+                        matched_idx = device_idx
+                except ValueError:
+                    pass
+            
+            # If no match and config has device DNA, try to match by config DNA (auto-select from config)
+            if not matched_dev and console.config_device_dna and console.config_device_dna.strip():
+                config_dna_clean = console.config_device_dna.rstrip('0') or '0'
+                for i, dev in enumerate(device_list):
+                    dev_dna = dev.get('dna', '')
+                    if dev_dna and dev_dna != "N/A":
+                        dev_dna_clean = dev_dna.rstrip('0') or '0'
+                        if dev_dna_clean.upper() == config_dna_clean.upper():
+                            matched_dev = dev
+                            matched_idx = i
+                            result_message(f"AUTO-SELECTED device from config: DNA {dev_dna}")
+                            break
+            
+            if matched_dev:
+                dev = matched_dev
+                # ALWAYS clear ILA/VIO cache before device selection (even if same device)
+                # This forces a fresh re-read of ILA/VIO cores every time a device is selected
+                console.core_cache = {}
+                console.scanned = False
+                
+                # Use the same logic as select_device_interactive but non-interactive
+                # Close any existing target first to ensure clean state (important after clear operations)
+                console.send_command("set all_targets [get_hw_targets]", timeout=5)
+                console.send_command("foreach t $all_targets { if {[get_property IS_OPEN $t]} { close_hw_target $t } }", timeout=5)
+                
+                # Now open the target for the selected device
+                console.send_command("set all_targets [get_hw_targets]", timeout=5)
+                console.send_command(f"set target [lindex $all_targets {dev['target_idx']}]", timeout=2)
+                console.send_command("open_hw_target $target", timeout=10)
+                
+                console.send_command("set devices [get_hw_devices]", timeout=5)
+                console.send_command(f"set device [lindex $devices {dev['device_idx']}]", timeout=2)
+                console.send_command("current_hw_device $device", timeout=2)
+                
+                # Refresh the device to ensure it's in a good state (especially after clear operations)
+                console.send_command("refresh_hw_device $device", timeout=10)
+                
+                # Update console state
+                console.device = dev['name']
+                console.target = dev['target_name']
+                
+                # Mark device as explicitly selected by user and store its DNA for menu matching
+                console.device_explicitly_selected = True
+                console.selected_device_dna = dev.get('dna', '')
+                
+                # Automatically scan ILA/VIO when device is selected
+                dna_display = dev.get('dna', 'N/A')
+                result_message(f"DEVICE SELECTED - DNA: {dna_display}")
+                
+                if probes:
+                    # Scan ILA/VIO and store results in device database
+                    scan_result = console.scan_ila_vio(probes)
+                    if scan_result:
+                        # Store ILA/VIO lists in device entry (part of device database)
+                        ila_list = console._get_ila_list()
+                        vio_list = console._get_vio_list()
+                        if matched_idx >= 0 and matched_idx < len(console.device_list_cache):
+                            console.device_list_cache[matched_idx]['ila_list'] = ila_list
+                            console.device_list_cache[matched_idx]['vio_list'] = vio_list
+                    else:
+                        result_message("SCAN FAILED - ILA/VIO scan could not complete")
+                else:
+                    result_message("(no probes file for ILA/VIO scan)")
+                
+                return True
+            else:
+                result_message(f"Invalid device selection: {choice}")
+                return True
+        except Exception as e:
+            result_message(f"Invalid device selection: {choice} ({str(e)})")
+            return True
+    elif choice in ("3", "rb", "readbit", "read_bit", "read-file", "read_file", "read_usr_access"):
         # Option 4 doesn't need console - reads from bitstream file directly
         if not bitstream:
             log_message("[!x!] Bitstream file must be specified with --bitstream or in config file")
             return True
-        return _read_usr_access(bitstream)
+        result = _read_usr_access(bitstream)
+        return result
     
-    elif choice == "5" or choice == "read_usr_access_device":
-        # Option 5 needs console - start it now
+    elif choice in ("4", "rd", "readdev", "read_dev", "read-device", "read_device", "read_usr_access_device"):
+        # Check device cache BEFORE opening TCL console (read-device can work with any device, but check cache first)
+        if not console.device:
+            result_message("READ FAILED - No device available (use 'device' to scan and select)")
+            return True
         if not _ensure_console_started(console, server_ip, server_port):
             return True
+        # Ensure device is properly set in TCL context before reading
+        if console.device:
+            console.send_command("set devices [get_hw_devices]", timeout=2)
+            console.send_command("set device_found 0", timeout=1)
+            console.send_command(f'foreach d $devices {{ if {{[get_property NAME $d] == "{console.device}"}} {{ set device $d; set device_found 1; break }} }}', timeout=3)
+            console.send_command("if {!$device_found} { set device [lindex $devices 0] }", timeout=2)
+            console.send_command("current_hw_device $device", timeout=2)
         result = _read_usr_access_from_device(console)
         return result
-    elif choice == "6" or choice == "pull_and_program" or choice == "pull":
+    elif choice in ("5", "pu", "pull", "pull_and_program"):
         # Option 6: Pull release (fetch files from git tag)
         if not invoked_cwd:
             invoked_cwd = os.getcwd()
@@ -485,9 +623,12 @@ def _execute_menu_choice(console: VivadoTCLConsole, choice: str,
         # Reload config after pull using central function
         if hw_config.exists():
             log_message("Reloading config after pull...")
-            new_config, new_server_ip, new_server_port, new_bitstream, new_probes, new_vio_outputs, new_config_path = _load_and_resolve_config(str(hw_config), invoked_cwd)
+            new_config, new_server_ip, new_server_port, new_bitstream, new_probes, new_vio_outputs, new_device_dna, new_config_path = _load_and_resolve_config(str(hw_config), invoked_cwd)
             
             if new_config:
+                # Update device DNA from config if present
+                if new_device_dna and new_device_dna.strip():
+                    console.config_device_dna = new_device_dna
                 # Update the values for subsequent operations
                 bitstream = new_bitstream
                 probes = new_probes
@@ -495,9 +636,7 @@ def _execute_menu_choice(console: VivadoTCLConsole, choice: str,
                 server_ip = new_server_ip
                 server_port = new_server_port
                 config_path = new_config_path
-                print()
                 log_message("Use option 1 to program FPGA with pulled files.")
-                print()
                 result_message(f"PULL SUCCESS - Tag {tag_arg} pulled to release folder")
             else:
                 result_message("PULL FAILED - Could not reload config after pull")
@@ -507,139 +646,181 @@ def _execute_menu_choice(console: VivadoTCLConsole, choice: str,
             return True
         
         return True  # Continue with menu (pull only, no programming)
+    elif choice in ("6", "cl", "clear", "clear_fpga"):
+        # Check device cache BEFORE opening TCL console
+        if not console.device:
+            result_message("CLEAR FAILED - No device available (use 'device' to scan and select)")
+            return True
+        if not _ensure_console_started(console, server_ip, server_port):
+            return True
+        result = console.clear_fpga()
+        if not result:
+            return True  # Continue with menu on error
+        return True
     elif choice in ("q", "quit", "exit"):
         return False
-    # ILA view/save commands - need console
-    # New names:
-    #   ila-v-1          -> view ILA 1
-    #   ila-save-ila-1   -> save ILA 1 as .ila
-    #   ila-save-vcd-1   -> save ILA 1 as .vcd
-    #   ila-save-csv-1   -> save ILA 1 as .csv
-    if choice.startswith("ila-v-"):
+    # ILA commands (ila-1, ila-1-save-ila, ila-1-save-vcd, ila-1-save-csv)
+    elif choice.startswith("ila-") and "-save-" not in choice:
+        # Check device selection cache BEFORE opening TCL console
+        if not console.device_explicitly_selected:
+            result_message("READ FAILED - Device must be explicitly selected first (use 'device' to scan and select)")
+            return True
         if not _ensure_console_started(console, server_ip, server_port):
             return True
         try:
-            ila_idx = int(choice[len("ila-v-"):]) - 1
-            console.print_ila_details(ila_idx)
+            # Extract index from "ila-1" format
+            idx_str = choice[len("ila-"):]
+            ila_idx = int(idx_str) - 1
+            # Check if ILA cores exist before trying to read
+            ila_list = console._get_ila_list()
+            if len(ila_list) == 0:
+                result_message("READ FAILED - No ILA cores found (device may need to be programmed first)")
+            else:
+                console.print_ila_details(ila_idx)
         except ValueError:
-            log_message(f"Invalid ILA selection: {choice}")
-    elif choice.startswith("ila-save-ila-"):
+            result_message(f"Invalid ILA selection: {choice}")
+        except Exception as e:
+            result_message(f"READ FAILED - Error reading ILA: {str(e)}")
+        return True  # Always return True to continue menu loop
+    elif choice.startswith("ila-") and "-save-ila" in choice:
+        # Check device selection cache BEFORE opening TCL console
+        if not console.device_explicitly_selected:
+            result_message("SAVE FAILED - Device must be explicitly selected first (use 'device' to scan and select)")
+            return True
         if not _ensure_console_started(console, server_ip, server_port):
             return True
         try:
-            ila_idx = int(choice[len("ila-save-ila-"):]) - 1
+            idx_str = choice[len("ila-"):].split("-save-ila")[0]
+            ila_idx = int(idx_str) - 1
             console.save_ila_data(ila_idx, fmt="ila")
         except ValueError:
-            log_message(f"Invalid ILA save selection: {choice}")
-    elif choice.startswith("ila-save-vcd-"):
+            result_message(f"Invalid ILA save selection: {choice}")
+        return True  # Always return True to continue menu loop
+    elif choice.startswith("ila-") and "-save-vcd" in choice:
+        # Check device selection cache BEFORE opening TCL console
+        if not console.device_explicitly_selected:
+            result_message("SAVE FAILED - Device must be explicitly selected first (use 'device' to scan and select)")
+            return True
         if not _ensure_console_started(console, server_ip, server_port):
             return True
         try:
-            ila_idx = int(choice[len("ila-save-vcd-"):]) - 1
+            idx_str = choice[len("ila-"):].split("-save-vcd")[0]
+            ila_idx = int(idx_str) - 1
             console.save_ila_data(ila_idx, fmt="vcd")
         except ValueError:
-            log_message(f"Invalid VCD save selection: {choice}")
-    elif choice.startswith("ila-save-csv-"):
+            result_message(f"Invalid VCD save selection: {choice}")
+        return True  # Always return True to continue menu loop
+    elif choice.startswith("ila-") and "-save-csv" in choice:
+        # Check device selection cache BEFORE opening TCL console
+        if not console.device_explicitly_selected:
+            result_message("SAVE FAILED - Device must be explicitly selected first (use 'device' to scan and select)")
+            return True
         if not _ensure_console_started(console, server_ip, server_port):
             return True
         try:
-            ila_idx = int(choice[len("ila-save-csv-"):]) - 1
+            idx_str = choice[len("ila-"):].split("-save-csv")[0]
+            ila_idx = int(idx_str) - 1
             console.save_ila_data(ila_idx, fmt="csv")
         except ValueError:
-            log_message(f"Invalid CSV save selection: {choice}")
-    # Backwards-compatible short ILA commands (i1, is1, iw1, ic1)
-    elif choice.startswith("i") and len(choice) > 1 and not choice.startswith("is"):
+            result_message(f"Invalid CSV save selection: {choice}")
+        return True  # Always return True to continue menu loop
+    
+    # VIO commands (vio-1, vio-1-set-from-file, vio-1-set-hex)
+    elif choice.startswith("vio-") and "-set-" not in choice:
+        # Check device selection cache BEFORE opening TCL console
+        if not console.device_explicitly_selected:
+            result_message("READ FAILED - Device must be explicitly selected first (use 'device' to scan and select)")
+            return True
         if not _ensure_console_started(console, server_ip, server_port):
             return True
         try:
-            ila_idx = int(choice[1:]) - 1
-            console.print_ila_details(ila_idx)
+            # Extract index from "vio-1" format
+            idx_str = choice[len("vio-"):]
+            vio_idx = int(idx_str) - 1
+            # Check if VIO cores exist before trying to read
+            vio_list = console._get_vio_list()
+            if len(vio_list) == 0:
+                result_message("READ FAILED - No VIO cores found (device may need to be programmed first)")
+            else:
+                # Read VIO and store last read values in device database
+                last_values = console.print_vio_details(vio_idx, vio_outputs)
+                _store_vio_last_values(console, vio_idx, last_values)
         except ValueError:
-            log_message(f"Invalid ILA selection: {choice}")
-    elif choice.startswith("is") and len(choice) > 2:
+            result_message(f"Invalid VIO selection: {choice}")
+        except Exception as e:
+            result_message(f"READ FAILED - Error reading VIO: {str(e)}")
+        return True  # Always return True to continue menu loop
+    elif choice.startswith("vio-") and "-set-from-file" in choice:
+        # Check device selection cache BEFORE opening TCL console
+        if not console.device_explicitly_selected:
+            result_message("SET FAILED - Device must be explicitly selected first (use 'device' to scan and select)")
+            return True
+        # Validate device DNA matches config before using config VIO values
+        if console.selected_device_dna and console.config_device_dna:
+            selected_clean = console.selected_device_dna.strip('0') or '0'
+            config_clean = console.config_device_dna.strip('0') or '0'
+            if selected_clean.upper() != config_clean.upper():
+                result_message(f"SET BLOCKED - Selected device DNA ({console.selected_device_dna}) does not match config DNA ({console.config_device_dna})")
+                result_message("Use correct device or update config.json with matching DNA")
+                return True
         if not _ensure_console_started(console, server_ip, server_port):
             return True
         try:
-            ila_idx = int(choice[2:]) - 1
-            console.save_ila_data(ila_idx, fmt="ila")
-        except ValueError:
-            log_message(f"Invalid ILA save selection: {choice}")
-    elif choice.startswith("iw") and len(choice) > 2:
-        if not _ensure_console_started(console, server_ip, server_port):
-            return True
-        try:
-            ila_idx = int(choice[2:]) - 1
-            console.save_ila_data(ila_idx, fmt="vcd")
-        except ValueError:
-            log_message(f"Invalid VCD save selection: {choice}")
-    elif choice.startswith("ic") and len(choice) > 2:
-        if not _ensure_console_started(console, server_ip, server_port):
-            return True
-        try:
-            ila_idx = int(choice[2:]) - 1
-            console.save_ila_data(ila_idx, fmt="csv")
-        except ValueError:
-            log_message(f"Invalid CSV save selection: {choice}")
-
-    # VIO view/set commands - need console
-    # New names:
-    #   vio-v-1        -> view VIO 1
-    #   vio-set-f-1    -> set from config for VIO 1
-    #   vio-set-hex-1  -> set manually (hex) for VIO 1
-    elif choice.startswith("vio-v-"):
-        if not _ensure_console_started(console, server_ip, server_port):
-            return True
-        try:
-            vio_idx = int(choice[len("vio-v-"):]) - 1
-            console.print_vio_details(vio_idx, vio_outputs)
-        except ValueError:
-            log_message(f"Invalid VIO selection: {choice}")
-    elif choice.startswith("vio-set-f-"):
-        if not _ensure_console_started(console, server_ip, server_port):
-            return True
-        try:
-            vio_idx = int(choice[len("vio-set-f-"):]) - 1
+            idx_str = choice[len("vio-"):].split("-set-from-file")[0]
+            vio_idx = int(idx_str) - 1
             _set_vio_values_for_index(console, vio_idx, vio_outputs, force)
         except ValueError:
-            log_message(f"Invalid VIO set selection: {choice}")
-    elif choice.startswith("vio-set-hex-"):
+            result_message(f"Invalid VIO set-from-file selection: {choice}")
+    elif choice.startswith("vio-") and "-set-hex" in choice:
+        # Check device selection cache BEFORE opening TCL console
+        if not console.device_explicitly_selected:
+            result_message("SET FAILED - Device must be explicitly selected first (use 'device' to scan and select)")
+            return True
         if not _ensure_console_started(console, server_ip, server_port):
             return True
         try:
-            vio_idx = int(choice[len("vio-set-hex-"):]) - 1
+            idx_str = choice[len("vio-"):].split("-set-hex")[0]
+            vio_idx = int(idx_str) - 1
             _set_vio_values_manual(console, vio_idx)
         except ValueError:
-            log_message(f"Invalid manual VIO set selection: {choice}")
-
-    # Backwards-compatible short VIO commands (v1, sv1, vh1)
-    elif choice.startswith("v") and len(choice) > 1 and not choice.startswith("sv") and not choice.startswith("vh"):
-        if not _ensure_console_started(console, server_ip, server_port):
-            return True
-        try:
-            vio_idx = int(choice[1:]) - 1
-            console.print_vio_details(vio_idx, vio_outputs)
-        except ValueError:
-            log_message(f"Invalid VIO selection: {choice}")
-    elif choice.startswith("sv") and len(choice) > 2:
-        if not _ensure_console_started(console, server_ip, server_port):
-            return True
-        try:
-            vio_idx = int(choice[2:]) - 1
-            _set_vio_values_for_index(console, vio_idx, vio_outputs, force)
-        except ValueError:
-            log_message(f"Invalid VIO set selection: {choice}")
-    elif choice.startswith("vh") and len(choice) > 2:
-        if not _ensure_console_started(console, server_ip, server_port):
-            return True
-        try:
-            vio_idx = int(choice[2:]) - 1
-            _set_vio_values_manual(console, vio_idx)
-        except ValueError:
-            log_message(f"Invalid manual VIO set selection: {choice}")
+            result_message(f"Invalid VIO set-hex selection: {choice}")
+        return True  # Always return True to continue menu loop
     else:
         log_message(f"Invalid option: {choice}")
     
     return True
+
+
+def _store_vio_last_values(console: VivadoTCLConsole, vio_idx: int, probes_data: list) -> None:
+    """Store last read VIO values in device database for menu display.
+    
+    Args:
+        console: VivadoTCLConsole instance
+        vio_idx: VIO index (0-based)
+        probes_data: List of probe data dicts from print_vio_details
+    """
+    if not probes_data or not console.selected_device_dna:
+        return
+    
+    # Find device in cache and store values
+    for dev in console.device_list_cache:
+        if dev.get('dna') == console.selected_device_dna:
+            # Initialize vio_last_values if not present
+            if 'vio_last_values' not in dev:
+                dev['vio_last_values'] = {}
+            # Store values by VIO index - keep a summary of key probes
+            summary = []
+            for probe in probes_data[:5]:  # Keep first 5 probes for summary
+                name = probe.get('name', '')
+                val = probe.get('value', '')  # Value is stored in 'value' key
+                if name and val and val != '-':
+                    # Shorten name if too long
+                    short_name = name.split('/')[-1][:12]
+                    # Shorten value if too long
+                    short_val = val[:10] if len(val) > 10 else val
+                    summary.append(f"{short_name}={short_val}")
+            dev['vio_last_values'][vio_idx] = summary
+            break
 
 
 def _set_vio_values_for_index(console: VivadoTCLConsole, vio_idx: int, 
@@ -676,14 +857,18 @@ def _set_vio_values_for_index(console: VivadoTCLConsole, vio_idx: int,
 
     # After setting values, show the updated VIO table (same format as view command),
     # but keep the header as "Set VIO" instead of "VIO".
-    console.print_vio_details(vio_idx, vio_outputs, header_prefix="Set VIO")
+    last_values = console.print_vio_details(vio_idx, vio_outputs, header_prefix="Set VIO")
+    # Store last read values in device database for menu display
+    _store_vio_last_values(console, vio_idx, last_values)
+    vio_info = vio_list[vio_idx]
+    result_message(f"VIO SET COMPLETE - {vio_info['name']} (set {len(values_to_set)} values from config)")
 
 
 def _set_vio_values_manual(console: VivadoTCLConsole, vio_idx: int) -> None:
     """Interactively set VIO values by hand (hex only) for a specific VIO index."""
     vio_list = console._get_vio_list()
     if vio_idx < 0 or vio_idx >= len(vio_list):
-        log_message(f"  ERROR: Invalid VIO index {vio_idx + 1}")
+        result_message(f"ERROR: Invalid VIO index {vio_idx + 1}")
         return
 
     vio_info = vio_list[vio_idx]
@@ -691,32 +876,42 @@ def _set_vio_values_manual(console: VivadoTCLConsole, vio_idx: int) -> None:
     probe_widths = vio_info.get("probe_widths", {})
     probe_directions = vio_info.get("probe_directions", {})
 
-    log_message(f"--- Set VIO (manual): {vio_info['name']} ---")
-    log_message("  Output probes (hex only):")
-
+    # Collect output probes
     output_probes = []
     for name in probe_names:
         if probe_directions.get(name) == "output":
             width = probe_widths.get(name)
             width_str = f"[{width-1}:0]" if isinstance(width, int) and width > 1 else "[0]"
-            log_message(f"    - {name} {width_str}")
-            output_probes.append(name)
+            output_probes.append((name, width_str))
 
     if not output_probes:
-        log_message("  No output probes available to set.")
+        result_message("No output probes available to set")
         return
 
+    # Display available probes (always visible, not just in debug mode)
+    print(f"\n--- Set VIO (manual): {vio_info['name']} ---")
+    print("Available output probes:")
+    for name, width_str in output_probes:
+        print(f"  - {name} {width_str}")
+
     while True:
-        probe_name = input("\n  Enter probe name to set (or empty to finish): ").strip()
+        probe_name = input("\nEnter probe name to set (or empty to finish): ").strip()
         if not probe_name:
             break
-        if probe_name not in output_probes:
-            log_message("  Invalid probe name or not an output probe.")
+        # Check if probe name is in the list (compare with name from tuple)
+        probe_found = None
+        for name, _ in output_probes:
+            if name == probe_name:
+                probe_found = name
+                break
+        
+        if not probe_found:
+            print(f"Invalid probe name or not an output probe. Available: {', '.join([n for n, _ in output_probes])}")
             continue
 
-        raw_val = input(f"  Enter hex value for {probe_name} (e.g. 0x20 or 20): ").strip()
+        raw_val = input(f"Enter hex value for {probe_name} (e.g. 0x20 or 20): ").strip()
         if not raw_val:
-            log_message("  Empty value, skipped.")
+            print("Empty value, skipped.")
             continue
 
         # Strip 0x prefix and spaces, validate hex
@@ -727,76 +922,248 @@ def _set_vio_values_manual(console: VivadoTCLConsole, vio_idx: int) -> None:
         try:
             int(v, 16)
         except ValueError:
-            log_message("  Invalid hex value, try again.")
+            print("Invalid hex value, try again.")
             continue
 
         width = probe_widths.get(probe_name)
         # Use radix 'hex'; set_vio_value will pad and commit, and verify via read-back
         if not console.set_vio_value(probe_name, v, radix="hex", width=width, commit=False, force=True):
-            log_message("  Failed to set value, see errors above.")
+            result_message("Failed to set value, see errors above")
 
     # After manual updates, show updated table with explicit header
-    console.print_vio_details(vio_idx, vio_outputs=None, header_prefix="Set VIO")
+    last_values = console.print_vio_details(vio_idx, vio_outputs=None, header_prefix="Set VIO")
+    # Store last read values in device database for menu display
+    _store_vio_last_values(console, vio_idx, last_values)
+    vio_info = vio_list[vio_idx]
+    result_message(f"VIO SET COMPLETE - {vio_info['name']} (values set manually)")
 
+
+def _show_ila_vio_submenu(console: VivadoTCLConsole, vio_outputs: dict = None, 
+                          server_ip: str = 'localhost', server_port: str = '3121') -> None:
+    """Show submenu after scanning to choose ILA or VIO to read."""
+    ila_list = console._get_ila_list()
+    vio_list = console._get_vio_list()
+    
+    # If no ILA or VIO found, don't show submenu
+    if not ila_list and not vio_list:
+        return
+    
+    print()
+    print("=" * 60)
+    print(" SUBMENU: Read ILA/VIO")
+    print("=" * 60)
+    print()
+    
+    menu_lines = []
+    if ila_list:
+        menu_lines.append("ILA cores:")
+        for i, ila in enumerate(ila_list):
+            idx = i + 1
+            menu_lines.append(f"  ila-{idx}  Read ILA {idx}: {ila['name']}")
+        menu_lines.append("")
+    
+    if vio_list:
+        menu_lines.append("VIO cores:")
+        for i, vio in enumerate(vio_list):
+            idx = i + 1
+            menu_lines.append(f"  vio-{idx}  Read VIO {idx}: {vio['name']}")
+        menu_lines.append("")
+    
+    menu_lines.append("q.  Back to main menu")
+    
+    for line in menu_lines:
+        print(line)
+    
+    print("=" * 60)
+    print()
+    print(" Select an option: ", end="", flush=True)
+    
+    try:
+        sub_choice = input().strip().lower()
+        print()
+        
+        if sub_choice == 'q' or sub_choice == '':
+            return
+        
+        # Handle ILA selection
+        if sub_choice.startswith("ila-"):
+            try:
+                ila_idx = int(sub_choice[len("ila-"):]) - 1
+                if 0 <= ila_idx < len(ila_list):
+                    console.print_ila_details(ila_idx)
+                else:
+                    result_message(f"Invalid ILA index: {sub_choice}")
+            except ValueError:
+                result_message(f"Invalid ILA selection: {sub_choice}")
+        
+        # Handle VIO selection
+        elif sub_choice.startswith("vio-"):
+            try:
+                vio_idx = int(sub_choice[len("vio-"):]) - 1
+                if 0 <= vio_idx < len(vio_list):
+                    console.print_vio_details(vio_idx, vio_outputs)
+                else:
+                    result_message(f"Invalid VIO index: {sub_choice}")
+            except ValueError:
+                result_message(f"Invalid VIO selection: {sub_choice}")
+        else:
+            result_message(f"Invalid selection: {sub_choice}")
+    
+    except (KeyboardInterrupt, EOFError):
+        print()
+        return
 
 
 def _print_menu(console: VivadoTCLConsole, bitstream: str, probes: str, vio_outputs: dict = None) -> None:
-    """Print the interactive menu."""
-    menu_lines = []
+    """Print the interactive menu as a formatted table with 4 columns (Command, Description, ILA, VIO).
+    
+    Menu data sources (all from device_list_cache and selection state):
+    - Device list: console.device_list_cache (regenerated by 'device', cleared by 'clear')
+    - Selection: console.selected_device_dna (set by 'device-N', cleared by 'clear')
+    - ILA/VIO: stored per-device in device_list_cache[i]['ila_list']/['vio_list']
+    """
+    menu_rows = []
+    
+    # Main menu items
+    if bitstream:
+        menu_rows.append(("program", "Program FPGA", "", ""))
+    else:
+        menu_rows.append(("program", "Program FPGA (requires --bitstream or -c config)", "", ""))
+    
+    # Get selected device data from cache (if user explicitly selected)
+    selected_device_dna = "None"
+    selected_device = None
+    if console.device_explicitly_selected and console.selected_device_dna:
+        selected_device_dna = console.selected_device_dna
+        # Find selected device in cache to get its ILA/VIO data
+        for dev in console.device_list_cache:
+            if dev.get('dna') == console.selected_device_dna:
+                selected_device = dev
+                break
+    
+    # Build ILA options from selected device's data (stored in device database)
+    ila_options = ""
+    if selected_device:
+        ila_list = selected_device.get('ila_list', [])
+        if ila_list:
+            ila_lines = []
+            for i, ila in enumerate(ila_list):
+                idx = i + 1
+                ila_lines.append(f"ila-{idx}: read")
+                ila_lines.append(f"ila-{idx}-save-ila")
+                ila_lines.append(f"ila-{idx}-save-vcd")
+                ila_lines.append(f"ila-{idx}-save-csv")
+            ila_options = "\n".join(ila_lines)
+    
+    # Build VIO options from selected device's data (stored in device database)
+    vio_options = ""
+    if selected_device:
+        vio_list = selected_device.get('vio_list', [])
+        if vio_list:
+            vio_lines = []
+            for i, vio in enumerate(vio_list):
+                idx = i + 1
+                vio_lines.append(f"vio-{idx}")
+                if vio_outputs:
+                    vio_lines.append(f"vio-{idx}-set-from-file")
+                vio_lines.append(f"vio-{idx}-set-hex")
+            vio_options = "\n".join(vio_lines)
+    
+    menu_rows.append(("device", f"Scan JTAG Targets: [{selected_device_dna}]", ila_options, vio_options))
+    
+    # Device list from cache (regenerated by 'device' command, cleared by 'clear')
+    for i, dev in enumerate(console.device_list_cache):
+        idx = i + 1
+        dev_dna = dev.get('dna', '')
+        is_current = (console.device_explicitly_selected and 
+                      console.selected_device_dna and 
+                      dev_dna and dev_dna != 'N/A' and
+                      dev_dna == console.selected_device_dna)
+        current_marker = " [CURRENT]" if is_current else ""
+        dna_display = dev_dna or 'N/A'
+        menu_rows.append(("", f"device-{idx}: {dna_display}{current_marker}", "", ""))
     
     if bitstream:
-        menu_lines.append("1. Program FPGA (requires hardware connection)")
+        # Extract just the filename from the path
+        bitstream_filename = os.path.basename(bitstream)
+        menu_rows.append(("read-file", f"Read USR_ACCESS/USERID from bitstream file: {bitstream_filename}", "", ""))
     else:
-        menu_lines.append("1. Program FPGA (requires --bitstream or -c config, requires hardware connection)")
+        menu_rows.append(("read-file", "Read USR_ACCESS/USERID from bitstream file (requires --bitstream or -c config)", "", ""))
     
-    if probes:
-        menu_lines.append("2. Scan ILA/VIO (requires hardware connection)")
-    else:
-        menu_lines.append("2. Scan ILA/VIO (requires --probes or -c config, requires hardware connection)")
+    menu_rows.append(("read-device", "Read USR_ACCESS/USERID from FPGA device", "", ""))
+    menu_rows.append(("pull", "Pull release (fetch files from git tag)", "", ""))
+    menu_rows.append(("clear", "Clear/Reset FPGA Device", "", ""))
     
-    menu_lines.append("3. Scan JTAG Targets (requires hardware connection)")
+    # Calculate column widths (similar to hw_server_tables.py pattern)
+    headers = ["Command", "Description", "ILA", "VIO"]
+    cmd_width = max(len(headers[0]), max(len(row[0]) for row in menu_rows))
+    desc_width = max(len(headers[1]), max(len(row[1]) for row in menu_rows))
     
-    if bitstream:
-        menu_lines.append("4. Read USR_ACCESS/USERID from bitstream file")
-    else:
-        menu_lines.append("4. Read USR_ACCESS/USERID from bitstream file (requires --bitstream or -c config)")
+    # Calculate ILA/VIO column widths (need to check multi-line content)
+    ila_width = len(headers[2])
+    vio_width = len(headers[3])
+    for row in menu_rows:
+        if row[2]:  # ILA options
+            for line in row[2].split('\n'):
+                ila_width = max(ila_width, len(line))
+        if row[3]:  # VIO options
+            for line in row[3].split('\n'):
+                vio_width = max(vio_width, len(line))
+    ila_width = max(ila_width, 20)  # Minimum width
+    vio_width = max(vio_width, 20)  # Minimum width
     
-    menu_lines.append("5. Read USR_ACCESS/USERID from FPGA device (requires hardware connection)")
-    menu_lines.append("6. Pull release (fetch files from git tag)")
+    widths = [cmd_width, desc_width, ila_width, vio_width]
     
-    # Dynamic ILA options
-    ila_list = console._get_ila_list()
-    if console.scanned and ila_list:
-        menu_lines.append("-" * 40)
-        menu_lines.append("ILA:")
-        for i, ila in enumerate(ila_list):
-            idx = i + 1
-            menu_lines.append(
-                f"  ila-v-{idx}  View"
-                f"    | ila-save-ila-{idx} Save .ila"
-                f"    | ila-save-vcd-{idx} Save .vcd"
-                f"    | ila-save-csv-{idx} Save .csv"
-            )
+    # Print table header (using same pattern as hw_server_tables.py)
+    print("=" * 60)
+    print(" MENU: HW Server Menu")
+    print("=" * 60)
     
-    # Dynamic VIO options
-    vio_list = console._get_vio_list()
-    if console.scanned and vio_list:
-        menu_lines.append("-" * 40)
-        menu_lines.append("VIO:")
-        for i, vio in enumerate(vio_list):
-            idx = i + 1
-            line = f"  vio-v-{idx}  View"
-            if vio_outputs:
-                line += f"    | vio-set-f-{idx} Set from config"
-            line += f"    | vio-set-hex-{idx} Set manual (hex)"
-            menu_lines.append(line)
+    # Print table separator
+    sep = "+" + "+".join("-" * (w + 2) for w in widths) + "+"
+    print(sep)
     
-    menu_lines.append("-" * 40)
-    menu_lines.append("q. Exit")
+    # Print header row
+    header_row = "|" + "|".join(f" {h:<{w}} " for h, w in zip(headers, widths)) + "|"
+    print(header_row)
+    print(sep)
     
-    # Display menu in a single box (don't auto-close, will close after input)
-    display_box("MENU: HW Server Menu", menu_lines, auto_close=False)
+    # Print menu rows (handle multi-line ILA/VIO options)
+    for cmd, desc, ila_opt, vio_opt in menu_rows:
+        ila_lines = ila_opt.split('\n') if ila_opt else [""]
+        vio_lines = vio_opt.split('\n') if vio_opt else [""]
+        max_lines = max(len(ila_lines), len(vio_lines), 1)
+        
+        for line_idx in range(max_lines):
+            ila_line = ila_lines[line_idx] if line_idx < len(ila_lines) else ""
+            vio_line = vio_lines[line_idx] if line_idx < len(vio_lines) else ""
+            # Only show cmd/desc on first line
+            if line_idx == 0:
+                row = "|" + "|".join([
+                    f" {cmd:<{widths[0]}} ",
+                    f" {desc:<{widths[1]}} ",
+                    f" {ila_line:<{widths[2]}} ",
+                    f" {vio_line:<{widths[3]}} "
+                ]) + "|"
+            else:
+                row = "|" + "|".join([
+                    f" {'':<{widths[0]}} ",
+                    f" {'':<{widths[1]}} ",
+                    f" {ila_line:<{widths[2]}} ",
+                    f" {vio_line:<{widths[3]}} "
+                ]) + "|"
+            print(row)
+    
+    # Print table footer
+    print(sep)
+    print(" " * (widths[0] + widths[1] + 6) + "q. Exit | m. Menu")
+    print("=" * 60)
     # Print "Select an option: " without newline, then get input on same line
+    print(" Select an option: ", end="", flush=True)
+
+
+def _print_prompt():
+    """Print just the prompt without the menu."""
     print(" Select an option: ", end="", flush=True)
 
 
@@ -822,23 +1189,29 @@ def _interactive_loop(console: VivadoTCLConsole, bitstream: str, probes: str,
     # Initialize command buffer from cmd_buffer if provided
     cmd_queue = list(cmd_buffer) if cmd_buffer else []
     
+    # Show menu initially
+    menu_shown = False
+    
     while True:
-        # Reload config before each menu display if config_path exists (to pick up changes from pull)
-        # Use silent=True to avoid duplicate logging
-        if state['config_path'] and os.path.exists(state['config_path']):
-            _, new_server_ip, new_server_port, new_bitstream, new_probes, new_vio_outputs, _ = _load_and_resolve_config(state['config_path'], invoked_cwd, silent=True)
-            if new_bitstream:
-                state['bitstream'] = new_bitstream
-            if new_probes:
-                state['probes'] = new_probes
-            if new_vio_outputs:
-                state['vio_outputs'] = new_vio_outputs
-            if new_server_ip:
-                state['server_ip'] = new_server_ip
-            if new_server_port:
-                state['server_port'] = new_server_port
-        
-        _print_menu(console, state['bitstream'], state['probes'], state['vio_outputs'])
+        # Show menu only initially or when user requests it with 'm' or 'menu'
+        if not menu_shown:
+            # Reload config before menu display if config_path exists (to pick up changes from pull)
+            if state['config_path'] and os.path.exists(state['config_path']):
+                _, new_server_ip, new_server_port, new_bitstream, new_probes, new_vio_outputs, new_device_dna, _ = _load_and_resolve_config(state['config_path'], invoked_cwd, silent=True)
+                if new_device_dna and new_device_dna.strip():
+                    console.config_device_dna = new_device_dna
+                if new_bitstream:
+                    state['bitstream'] = new_bitstream
+                if new_probes:
+                    state['probes'] = new_probes
+                if new_vio_outputs:
+                    state['vio_outputs'] = new_vio_outputs
+                if new_server_ip:
+                    state['server_ip'] = new_server_ip
+                if new_server_port:
+                    state['server_port'] = new_server_port
+            _print_menu(console, state['bitstream'], state['probes'], state['vio_outputs'])
+            menu_shown = True
         
         # Get choice from buffer if available, otherwise from user input
         try:
@@ -859,11 +1232,62 @@ def _interactive_loop(console: VivadoTCLConsole, bitstream: str, probes: str,
         if choice.lower() == 'q':
             break
         
+        # Check if this is 'm' or 'menu' to show menu
+        if choice.lower() in ('m', 'menu'):
+            # Reload config before menu display if config_path exists (to pick up changes from pull)
+            if state['config_path'] and os.path.exists(state['config_path']):
+                _, new_server_ip, new_server_port, new_bitstream, new_probes, new_vio_outputs, new_device_dna, _ = _load_and_resolve_config(state['config_path'], invoked_cwd, silent=True)
+                if new_device_dna and new_device_dna.strip():
+                    console.config_device_dna = new_device_dna
+                if new_bitstream:
+                    state['bitstream'] = new_bitstream
+                if new_probes:
+                    state['probes'] = new_probes
+                if new_vio_outputs:
+                    state['vio_outputs'] = new_vio_outputs
+                if new_server_ip:
+                    state['server_ip'] = new_server_ip
+                if new_server_port:
+                    state['server_port'] = new_server_port
+            _print_menu(console, state['bitstream'], state['probes'], state['vio_outputs'])
+            menu_shown = True  # Mark menu as shown again
+            continue  # Loop back to get next input
+        
         if not _execute_menu_choice(console, choice, state['bitstream'], state['probes'], state['vio_outputs'], 
                                    force=False, server_ip=state['server_ip'], server_port=state['server_port'], 
                                    invoked_cwd=invoked_cwd, config_path=state['config_path'],
                                    cmd_queue=cmd_queue):
             break
+        
+        # After device scan or selection, always reprint the full menu
+        # - "device" command scans and shows device list
+        # - "device-N" command selects and shows VIO/ILA options
+        should_reprint_menu = (
+            choice.startswith("device-") or  # device-1, device-2, etc.
+            choice in ("2", "jt", "jtag", "device", "scan_jtag")  # device scan
+        )
+        
+        if should_reprint_menu:
+            # Reload config before menu display if config_path exists (to pick up changes)
+            if state['config_path'] and os.path.exists(state['config_path']):
+                _, new_server_ip, new_server_port, new_bitstream, new_probes, new_vio_outputs, new_device_dna, _ = _load_and_resolve_config(state['config_path'], invoked_cwd, silent=True)
+                if new_device_dna and new_device_dna.strip():
+                    console.config_device_dna = new_device_dna
+                if new_bitstream:
+                    state['bitstream'] = new_bitstream
+                if new_probes:
+                    state['probes'] = new_probes
+                if new_vio_outputs:
+                    state['vio_outputs'] = new_vio_outputs
+                if new_server_ip:
+                    state['server_ip'] = new_server_ip
+                if new_server_port:
+                    state['server_port'] = new_server_port
+            _print_menu(console, state['bitstream'], state['probes'], state['vio_outputs'])
+            menu_shown = True
+        else:
+            # After other operations, reprint just the prompt (not the full menu)
+            _print_prompt()
 
 
 def _read_usr_access_value(bitfile: str) -> Optional[int]:
@@ -1102,20 +1526,35 @@ def _read_usr_access_from_device_value(console) -> Optional[int]:
 
 def _read_usr_access_from_device(console) -> bool:
     """Read USR_ACCESS and USERID values from the programmed FPGA device."""
-    log_message("OPERATION: Reading USR_ACCESS and USERID from FPGA Device")
     
     if not console.connected:
         log_message("[!x!] Not connected to hardware server")
         return False
     
     try:
-        device = console.device or "xcvu9p_0"
+        # Use selected device if available, otherwise find it
+        if console.device:
+            # Set device variable in TCL from selected device name
+            device_name = console.device
+            # Find the device object by name
+            console.send_command("set devices [get_hw_devices]", timeout=2)
+            console.send_command(f'set device [lindex [lsearch -all -inline $devices "*{device_name}*"] 0]', timeout=2)
+            # If that didn't work, try finding by exact match
+            console.send_command("set device_found 0", timeout=1)
+            console.send_command("foreach d $devices { if {[get_property NAME $d] == \"$device_name\"} { set device $d; set device_found 1; break } }", timeout=3)
+            # Fallback: use first device if exact match failed
+            console.send_command("if {!$device_found} { set device [lindex $devices 0] }", timeout=2)
+        else:
+            # No device selected, use first device
+            console.send_command("set devices [get_hw_devices]", timeout=2)
+            console.send_command("set device [lindex $devices 0]", timeout=2)
+            device_name = console.get_property_value("NAME", "$device", timeout=2)
+            console.device = device_name
         
-        # Set device variable in TCL using lindex approach (more reliable)
-        console.send_command("set device [lindex [get_hw_devices] 0]", timeout=2)
         # Ensure device is current and refreshed
         console.send_command("current_hw_device $device", timeout=2)
         console.send_command("refresh_hw_device $device", timeout=5)
+        device = console.device or device_name or "xcvu9p_0"
         
         # Try multiple property names for USR_ACCESS
         # For UltraScale+ devices, USR_ACCESS is per SLR (Super Logic Region)
@@ -1225,7 +1664,14 @@ def _read_usr_access_from_device(console) -> bool:
             try:
                 # Some devices may need to read via JTAG USERCODE instruction
                 # This is a fallback that might work for some FPGA families
-                output = console.send_command("puts [get_property REGISTER.USR_ACCESS [lindex [get_hw_devices] 0]]", timeout=5)
+                # Use selected device or first device
+                if console.device:
+                    console.send_command("set devices [get_hw_devices]", timeout=2)
+                    console.send_command(f'set device [lindex [lsearch -all -inline $devices "*{console.device}*"] 0]', timeout=2)
+                    console.send_command("if {![info exists device] || $device == \"\"} { set device [lindex $devices 0] }", timeout=2)
+                else:
+                    console.send_command("set device [lindex [get_hw_devices] 0]", timeout=2)
+                output = console.send_command("puts [get_property REGISTER.USR_ACCESS $device]", timeout=5)
                 import re
                 match = re.search(r'0x([0-9A-Fa-f]+)', output, re.IGNORECASE)
                 if match:
@@ -1237,61 +1683,35 @@ def _read_usr_access_from_device(console) -> bool:
         # Also read USERID from device
         userid_value = _read_userid_from_device_value(console)
         
-        print()
-        log_message(f"Device: {device}")
-        print()
-        
-        if value is not None:
-            # Format as version: 0x00MMNNPP -> vMM.NN.PP
-            major = (value >> 16) & 0xFF
-            minor = (value >> 8) & 0xFF
-            patch = value & 0xFF
-            
-            log_message(f"USR_ACCESS (Version): 0x{value:08X}")
-            log_message(f"  Property: {property_used}")
-            log_message(f"  Version: V{major}.{minor}.{patch}")
-        else:
-            log_message("[!x!] USR_ACCESS: Could not read from device")
-        
-        print()
-        if userid_value is not None:
-            log_message(f"USERID (Timestamp): {_format_userid(userid_value)}")
-        else:
-            log_message("USERID: Could not read from device (may not be exposed via TCL)")
-        
-        print()
-        if value is None and userid_value is None:
-            log_message("Note: Use option 4 to read values from the bitstream file instead.")
-            result_message("DEVICE READ FAILED - No values found")
-            return False
-        
-        # Build RESULT message with both values (2 lines)
+        # Build RESULT message with both values (always show, even if None)
         if value is not None:
             major = (value >> 16) & 0xFF
             minor = (value >> 8) & 0xFF
             patch = value & 0xFF
             result_message(f"USR_ACCESS: V{major}.{minor}.{patch} (0x{value:08X})")
         else:
-            result_message("USR_ACCESS: N/A")
+            result_message("USR_ACCESS: N/A (could not read from device)")
         
         if userid_value is not None:
             result_message(f"USERID: {_format_userid(userid_value)}")
         else:
-            result_message("USERID: N/A")
+            result_message("USERID: N/A (could not read from device)")
         
+        # Return True if at least one value was read, False if both failed
+        if value is None and userid_value is None:
+            return False
         return True
             
     except Exception as e:
-        log_message(f"[!x!] Error reading USR_ACCESS from device: {e}")
+        result_message(f"READ FAILED - Error reading USR_ACCESS from device: {str(e)}")
         import traceback
-        traceback.print_exc()
-        result_message("DEVICE READ FAILED - Error reading from device")
+        if console.debug:
+            traceback.print_exc()
         return False
 
 
 def _read_usr_access(bitfile: str) -> bool:
     """Read USR_ACCESS (version) and USERID (timestamp) from Xilinx .bit file."""
-    log_message("OPERATION: Reading USR_ACCESS and USERID from Bitstream File")
     log_message(f"Bitstream: {bitfile}")
     
     try:
@@ -1322,46 +1742,24 @@ def _read_usr_access(bitfile: str) -> bool:
         userid_value = _read_userid_value(bitfile)
         userid_raw = _read_userid_raw(bitfile) if userid_value is None else None
         
-        # Display results
+        # Display results - always show important data
         print()
         if usr_access_value is not None:
             major = (usr_access_value >> 16) & 0xFF
             minor = (usr_access_value >> 8) & 0xFF
             patch = usr_access_value & 0xFF
-            
-            log_message(f"USR_ACCESS (Version): 0x{usr_access_value:08X}")
+            result_message(f"USR_ACCESS: V{major}.{minor}.{patch} (0x{usr_access_value:08X})")
             log_message(f"  Pattern: {usr_access_pattern} at position {usr_access_pos}")
-            log_message(f"  Version: V{major}.{minor}.{patch}")
         else:
-            log_message("[!x!] USR_ACCESS not found in bitstream")
+            result_message("USR_ACCESS: N/A")
         
         print()
         if userid_value is not None:
-            log_message(f"USERID (Timestamp): {_format_userid(userid_value)}")
+            result_message(f"USERID: {_format_userid(userid_value)}")
         elif userid_raw is not None:
-            log_message(f"USERID (Raw): 0x{userid_raw:08X} (not a valid timestamp)")
+            result_message(f"USERID: 0x{userid_raw:08X} (not a valid timestamp)")
         else:
-            log_message("USERID: N/A (not found in bitstream)")
-        
-        print()
-        # Build RESULT message with both values (2 lines)
-        if usr_access_value is not None or userid_value is not None or userid_raw is not None:
-            if usr_access_value is not None:
-                major = (usr_access_value >> 16) & 0xFF
-                minor = (usr_access_value >> 8) & 0xFF
-                patch = usr_access_value & 0xFF
-                result_message(f"USR_ACCESS: V{major}.{minor}.{patch} (0x{usr_access_value:08X})")
-            else:
-                result_message("USR_ACCESS: N/A")
-            
-            if userid_value is not None:
-                result_message(f"USERID: {_format_userid(userid_value)}")
-            elif userid_raw is not None:
-                result_message(f"USERID: 0x{userid_raw:08X} (not a valid timestamp)")
-            else:
-                result_message("USERID: N/A")
-        else:
-            result_message("BITSTREAM READ FAILED - No values found")
+            result_message("USERID: N/A")
         
         return usr_access_value is not None
         
@@ -1717,14 +2115,30 @@ def _load_and_resolve_config(config_path: str, invoked_cwd: str = None, silent: 
     # Load config
     config = _load_config(config_path_resolved)
     if not config:
-        return {}, '', '', '', '', {}, config_path_resolved
+        return {}, '', '', '', '', {}, '', config_path_resolved
     
-    # Extract values
-    server_ip = config.get('hw_server_host', 'localhost')
-    server_port = str(config.get('hw_server_port', '3121'))
-    bitstream = config.get('bit_file', '')
-    probes = config.get('ltx_file', '')
-    vio_outputs = config.get('vio_outputs', {})
+    # New config format: DNA is the key, device settings are nested under it
+    # e.g., { "DNA_VALUE": { "hw_server_host": "...", "bit_file": "...", ... } }
+    # Get the first (and usually only) DNA key to extract device settings
+    device_dna = ''
+    device_config = config
+    
+    # Check if config uses new format (DNA as key)
+    config_keys = list(config.keys())
+    if config_keys and not any(k in config_keys for k in ['hw_server_host', 'hw_server_port', 'bit_file', 'ltx_file', 'device']):
+        # New format: first key is the DNA, value is the device config
+        device_dna = config_keys[0]
+        device_config = config.get(device_dna, {})
+    else:
+        # Old format: direct config with 'device' field
+        device_dna = config.get('device', '') if isinstance(config.get('device'), str) else ''
+    
+    # Extract values from device config
+    server_ip = device_config.get('hw_server_host', 'localhost')
+    server_port = str(device_config.get('hw_server_port', '3121'))
+    bitstream = device_config.get('bit_file', '')
+    probes = device_config.get('ltx_file', '')
+    vio_outputs = device_config.get('vio_outputs', {})
     
     # Resolve bitstream path
     if bitstream:
@@ -1761,7 +2175,7 @@ def _load_and_resolve_config(config_path: str, invoked_cwd: str = None, silent: 
         if probes:
             log_message(f"  Probes: {probes} {'(exists)' if os.path.exists(probes) else '(not found)'}")
     
-    return config, server_ip, server_port, bitstream, probes, vio_outputs, config_path_resolved
+    return config, server_ip, server_port, bitstream, probes, vio_outputs, device_dna, config_path_resolved
 
 
 def help_hw_server():
@@ -1793,7 +2207,7 @@ def help_hw_server():
     print("OPTIONS:")
     print("  -c, --hw-config <FILE>   Config file (required, must exist)")
     print("  -i, --interactive        Interactive mode (keep console open with menu)")
-    print("  -ic <cmd1> <cmd2> ...    Run commands then exit (e.g., -ic 2 v1)")
+    print("  -ic <cmd1> <cmd2> ...    Run commands then exit (e.g., -ic device scan vio-1)")
     print("  --cmd <value>            Menu selection (can be used multiple times)")
     print("                           Each --cmd is executed as a menu choice")
     print("                           After all commands, stays in interactive mode")
@@ -1833,7 +2247,7 @@ def help_hw_server():
     print("  hdlforge --tool hw_server -c config.json -i")
     print()
     print("  # View VIO with output display formats")
-    print("  hdlforge --tool hw_server -c config.json -ic 2 v1")
+    print("  hdlforge --tool hw_server -c config.json -ic device scan vio-1")
     print()
     print("  # Execute multiple menu selections, then stay interactive")
     print("  hdlforge --tool hw_server -c config.json --cmd 1 --cmd 2")
@@ -1856,14 +2270,16 @@ def help_hw_server():
     print("  6                  Pull release (fetch files from git tag)")
     print("  q                  Exit")
     print()
-    print("  ila-v-<n>          View ILA (ila-v-1, ila-v-2, ...)")
-    print("  ila-save-ila-<n>   Save ILA as .ila")
-    print("  ila-save-vcd-<n>   Save ILA as .vcd")
-    print("  ila-save-csv-<n>   Save ILA as .csv")
+    print("  ila-<n>            Read ILA (ila-1, ila-2, ...)")
+    print("  ila-<n>-save-ila    Save ILA as .ila")
+    print("  ila-<n>-save-vcd    Save ILA as .vcd")
+    print("  ila-<n>-save-csv    Save ILA as .csv")
     print()
-    print("  vio-v-<n>          View VIO (vio-v-1, vio-v-2, ...)")
-    print("  vio-set-f-<n>      Set VIO from config.json")
-    print("  vio-set-hex-<n>    Set VIO manually (hex only)")
+    print("  vio-<n>            Read VIO (vio-1, vio-2, ...)")
+    print("  vio-<n>-set-from-file  Set VIO from config.json")
+    print("  vio-<n>-set-hex    Set VIO manually (hex only)")
+    print()
+    print("  device-<n>         Select device (device-1, device-2, ...)")
     print()
     print("VIO VALUES:")
     print("  <- = Input (read from FPGA)")

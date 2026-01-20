@@ -501,7 +501,7 @@ if __name__ == "__main__":
     parser.add_argument('--server_ip', '--server-ip', dest='server_ip', type=str, help='Hardware server IP (default: localhost)')
     parser.add_argument('--bitstream', type=str, help='Path to bitstream file (.bit file)')
     parser.add_argument('--probes', type=str, help='Path to probes file (.ltx file)')
-    parser.add_argument('-c', '--hw-config', dest='hw_config', type=str, help='Config JSON file for hw_server')
+    parser.add_argument('-c', '--hw-config', '--config-file', dest='hw_config', type=str, help='Config JSON file for hw_server (auto-detected from invoke location if not provided)')
     parser.add_argument('-i', '--interactive', dest='hw_interactive', action='store_true', help='Interactive mode for hw_server (keep console open)')
     parser.add_argument('-ic', '--interactive-chain', dest='hw_chain', nargs='*', help='Run commands then exit for hw_server (e.g., -ic 2 i1)')
     parser.add_argument('-d', '--debug', dest='hw_debug', action='store_true', help='Enable debug output showing TCL commands and inputs')
