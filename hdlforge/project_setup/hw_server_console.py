@@ -365,8 +365,103 @@ class VivadoTCLConsole:
             print(f"ERROR: Failed to connect to hardware server: {e}")
             return False
     
+    def find_and_select_device_by_dna(self, device_dna: str, debug_prefix: str = "") -> bool:
+        """Find and select a device by its DNA across all JTAG targets.
+        
+        This is the ONLY reliable way to select a device - never use cached indices!
+        Device names and indices can change between scans.
+        
+        Args:
+            device_dna: The DNA of the device to find and select
+            debug_prefix: Optional prefix for debug messages (e.g., "program_fpga")
+            
+        Returns:
+            True if device was found and selected, False otherwise.
+            After success, $device TCL variable is set to the found device.
+        """
+        if not self.connected:
+            print(f"[RESULT]: {debug_prefix} FAILED - Not connected to hardware server")
+            return False
+        
+        if not device_dna:
+            print(f"[RESULT]: {debug_prefix} FAILED - No device DNA provided")
+            return False
+        
+        dna_clean = device_dna.lstrip('0').upper() or '0'
+        
+        if debug_prefix:
+            print(f"[DEBUG] {debug_prefix}: Searching for device with DNA {device_dna}")
+        
+        # Close any open targets first
+        self.send_command("set all_targets [get_hw_targets]", timeout=5)
+        self.send_command("foreach t $all_targets { if {[get_property IS_OPEN $t]} { close_hw_target $t } }", timeout=5)
+        
+        # Search through all targets and devices
+        self.send_command("set all_targets [get_hw_targets]", timeout=5)
+        target_count_output = self.send_command("llength $all_targets", timeout=2)
+        
+        try:
+            target_count = int(target_count_output.strip().split()[-1])
+        except:
+            print(f"[RESULT]: {debug_prefix} FAILED - Could not enumerate targets")
+            return False
+        
+        found_device = False
+        for target_idx in range(target_count):
+            self.send_command(f"set target [lindex $all_targets {target_idx}]", timeout=2)
+            target_name = self.get_property_value("NAME", "$target", timeout=2)
+            
+            open_result = self.send_command("open_hw_target $target", timeout=10)
+            if "ERROR" in open_result:
+                continue
+            
+            self.send_command("set devices [get_hw_devices]", timeout=5)
+            device_count_output = self.send_command("llength $devices", timeout=2)
+            
+            try:
+                device_count = int(device_count_output.strip().split()[-1])
+            except:
+                self.send_command("close_hw_target $target", timeout=5)
+                continue
+            
+            for device_idx in range(device_count):
+                self.send_command(f"set device [lindex $devices {device_idx}]", timeout=2)
+                self.send_command("current_hw_device $device", timeout=2)
+                
+                # Read DNA of this device
+                check_dna = self._read_dna_value()
+                check_dna_clean = (check_dna or '').lstrip('0').upper() or '0'
+                
+                if debug_prefix:
+                    print(f"[DEBUG] {debug_prefix}: Target {target_idx} Device {device_idx}: DNA = {check_dna}")
+                
+                if check_dna_clean == dna_clean:
+                    # Found the device!
+                    found_device = True
+                    target_device_name = self.get_property_value("NAME", "$device", timeout=2)
+                    if debug_prefix:
+                        print(f"[DEBUG] {debug_prefix}: MATCH FOUND - Target {target_idx} ({target_name}), Device {device_idx} ({target_device_name})")
+                    
+                    # Refresh the device
+                    self.send_command("refresh_hw_device $device", timeout=10)
+                    break
+            
+            if found_device:
+                break
+            else:
+                self.send_command("close_hw_target $target", timeout=5)
+        
+        if not found_device:
+            print(f"[RESULT]: {debug_prefix} FAILED - Device with DNA {device_dna} not found in JTAG chain")
+            return False
+        
+        return True
+    
     def program_fpga(self, bit_file: str, ltx_file: Optional[str] = None) -> bool:
-        """Program FPGA with bit file and optionally attach debug probe."""
+        """Program FPGA with bit file and optionally attach debug probe.
+        
+        Uses device DNA for reliable identification (device names may change between scans).
+        """
         if not self.connected:
             print("ERROR: Not connected to hardware server")
             return False
@@ -376,26 +471,14 @@ class VivadoTCLConsole:
             return False
         
         try:
-            # Ensure device variable is set from selected device
-            if self.device:
-                # Find device by name
-                self.send_command("set devices [get_hw_devices]", timeout=2)
-                self.send_command("set device_found 0", timeout=1)
-                self.send_command(f'foreach d $devices {{ if {{[get_property NAME $d] == "{self.device}"}} {{ set device $d; set device_found 1; break }} }}', timeout=3)
-                self.send_command("if {!$device_found} { set device [lindex $devices 0] }", timeout=2)
-            else:
-                # No device selected, use first device
-                self.send_command("set devices [get_hw_devices]", timeout=2)
-                self.send_command("set device [lindex $devices 0]", timeout=2)
-                device_name = self.get_property_value("NAME", "$device", timeout=2)
-                if device_name:
-                    # Clear ILA/VIO cache if device is changing
-                    if self.device != device_name:
-                        self.core_cache = {}
-                        self.scanned = False
-                    self.device = device_name
+            # CRITICAL: Use DNA for reliable device identification
+            if not self.selected_device_dna:
+                print("[RESULT]: PROGRAM FAILED - No device selected (use 'open <dna>' to select)")
+                return False
             
-            self.send_command("current_hw_device $device", timeout=2)
+            # Find and select device by DNA (never use cached indices!)
+            if not self.find_and_select_device_by_dna(self.selected_device_dna, "program_fpga"):
+                return False
             
             bit_file_abs = os.path.abspath(bit_file).replace('\\', '/')
             if self.debug:
@@ -449,32 +532,26 @@ class VivadoTCLConsole:
         """Clear/Reset FPGA device using boot_hw_device command. Only clears the currently selected device.
         
         After clearing, restarts the Vivado console to ensure clean state for subsequent operations.
+        Uses device DNA for reliable identification (device names may change between scans).
         """
         try:
-            if not self.device:
-                print("[RESULT]: CLEAR FAILED - No device selected (use 'device' to scan and select)")
+            if not self.selected_device_dna:
+                print("[RESULT]: CLEAR FAILED - No device selected (use 'open <dna>' to select)")
                 return False
             
-            # Store device name and connection info for restart
-            device_name = self.device
+            # Store device DNA and connection info for restart
+            device_dna = self.selected_device_dna
             hw_server_host = self.hw_server_host
             hw_server_port = self.hw_server_port
             
-            # Use simple sequential commands (same pattern as working device selection code)
-            # Step 1: Find the device by name
-            self.send_command("set all_devices [get_hw_devices]", timeout=5)
-            self.send_command("set target_device {}", timeout=2)
-            self.send_command(f'foreach d $all_devices {{ if {{[get_property NAME $d] == "{device_name}"}} {{ set target_device $d; break }} }}', timeout=5)
-            
-            # Step 2: Check if device was found
-            check_result = self.send_command("llength $target_device", timeout=2)
-            if "0" in check_result or not check_result.strip():
-                print(f"[RESULT]: CLEAR FAILED - Device {device_name} not found in JTAG chain")
+            # Find and select device by DNA (never use cached indices!)
+            if not self.find_and_select_device_by_dna(device_dna, "clear_fpga"):
                 return False
             
-            # Step 3: Set as current and clear
-            self.send_command("current_hw_device $target_device", timeout=2)
-            result = self.send_command("boot_hw_device -disable_done_check $target_device", timeout=15)
+            # Clear ONLY this device (DNA verified by search)
+            # Note: $device is set by find_and_select_device_by_dna
+            print(f"[DEBUG] clear_fpga: Clearing device (DNA: {device_dna})")
+            result = self.send_command("boot_hw_device -disable_done_check $device", timeout=15)
             
             # Check for errors
             if "ERROR" in result:
@@ -482,7 +559,7 @@ class VivadoTCLConsole:
                 return False
             
             # Clear was successful - now restart console for clean state
-            print(f"[RESULT]: CLEAR SUCCESS - FPGA device {device_name} cleared/reset")
+            print(f"[RESULT]: CLEAR SUCCESS - FPGA device (DNA: {device_dna}) cleared/reset")
             
             # Close the console completely
             self.close()
@@ -1063,6 +1140,28 @@ class VivadoTCLConsole:
             print(f"ERROR: Failed to set VIO value: {e}")
             return False
     
+    def _parse_ip_address(self, value: str) -> tuple:
+        """Parse and validate IP address string.
+        
+        Returns (int_value, error_message) tuple.
+        If valid, returns (int_value, None).
+        If invalid, returns (None, error_message).
+        """
+        try:
+            parts = value.split('.')
+            if len(parts) != 4:
+                return (None, f"Invalid IP format (expected 4 octets, got {len(parts)})")
+            
+            int_val = 0
+            for i, p in enumerate(parts):
+                octet = int(p)
+                if octet < 0 or octet > 255:
+                    return (None, f"IP octet {i+1} value {octet} is invalid (must be 0-255)")
+                int_val = (int_val << 8) | octet
+            return (int_val, None)
+        except ValueError as e:
+            return (None, f"Invalid IP format: {e}")
+    
     def _convert_value_to_hex_for_vivado(self, value: str, radix: str, width: int = None) -> str:
         """Convert value from any radix to hex format for Vivado (NO 0x prefix, padded)."""
         if not value or value == "":
@@ -1114,16 +1213,11 @@ class VivadoTCLConsole:
         
         elif radix == "ip":
             # IP address to hex (always 8 hex digits for 32 bits)
-            try:
-                parts = value.split('.')
-                if len(parts) == 4:
-                    int_val = 0
-                    for p in parts:
-                        int_val = (int_val << 8) | int(p)
-                    return format(int_val, '08x')
-            except:
-                pass
-            return value
+            int_val, error = self._parse_ip_address(value)
+            if error:
+                print(f"[RESULT]: IP VALIDATION FAILED - {error}")
+                return None
+            return format(int_val, '08x')
         
         elif radix == "mac":
             # MAC address to hex (always 12 hex digits for 48 bits)
@@ -1166,16 +1260,11 @@ class VivadoTCLConsole:
         
         elif radix == "ip":
             # IP address to decimal
-            try:
-                parts = value.split('.')
-                if len(parts) == 4:
-                    int_val = 0
-                    for p in parts:
-                        int_val = (int_val << 8) | int(p)
-                    return str(int_val)
-            except:
-                pass
-            return value
+            int_val, error = self._parse_ip_address(value)
+            if error:
+                print(f"[RESULT]: IP VALIDATION FAILED - {error}")
+                return None
+            return str(int_val)
         
         elif radix == "mac":
             # MAC address to decimal
@@ -1320,16 +1409,11 @@ class VivadoTCLConsole:
         
         elif radix == "ip":
             # IP address (192.168.1.1) to hex with 0x prefix
-            try:
-                parts = value.split('.')
-                if len(parts) == 4:
-                    int_val = 0
-                    for p in parts:
-                        int_val = (int_val << 8) | int(p)
-                    return "0x" + format(int_val, '08x')
-            except:
-                pass
-            return value
+            int_val, error = self._parse_ip_address(value)
+            if error:
+                print(f"[RESULT]: IP VALIDATION FAILED - {error}")
+                return None
+            return "0x" + format(int_val, '08x')
         
         elif radix == "mac":
             # MAC address (aa:bb:cc:dd:ee:ff) to hex with 0x prefix
@@ -1737,6 +1821,12 @@ class VivadoTCLConsole:
             except:
                 pass
             
+            # Refresh hw_server to re-enumerate targets after reconnection
+            try:
+                self.send_command("refresh_hw_server", timeout=10)
+            except:
+                pass
+            
             output = self.send_command("set all_targets [get_hw_targets]", timeout=5)
             # Debug: Check what we get from llength
             target_count_output = self.send_command("llength $all_targets", timeout=2)
@@ -1827,7 +1917,7 @@ class VivadoTCLConsole:
             
             # Report scan results - do NOT imply any device is selected
             if total_devices > 1:
-                print(f"[RESULT]: JTAG SCAN COMPLETE - {total_devices} devices found (use device-1/device-2 to select)")
+                print(f"[RESULT]: JTAG SCAN COMPLETE - {total_devices} devices found (use 'open <dna>' to select)")
             elif total_devices == 1:
                 print(f"[RESULT]: JTAG SCAN COMPLETE - 1 device found (use device-1 to select)")
             else:
@@ -2121,4 +2211,6 @@ class VivadoTCLConsole:
         if self.master_fd:
             os.close(self.master_fd)
             self.master_fd = None
+        # Clear connection state so _ensure_console_started knows to reconnect
+        self.connected = False
 

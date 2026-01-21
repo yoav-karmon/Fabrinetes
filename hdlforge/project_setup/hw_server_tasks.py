@@ -13,7 +13,29 @@ import shutil
 from pathlib import Path
 from typing import Dict, Optional, List
 
+from prettytable import PrettyTable
 from hw_server_console import VivadoTCLConsole
+
+
+# Menu database structure - single source of truth for menu display
+# Updated by _perform_scan(), used by _draw_menu_table()
+_menu_db = {
+    'devices': [],      # List of {'dna': str, 'name': str, 'usr_access': str, 'target_idx': int, 'device_idx': int, 'ila_list': [], 'vio_list': []}
+    'files': [],        # List of {'filename': str, 'usr_access': str, 'path': str}
+    'config_files': [], # List of JSON config files in invoked folder
+    'selected_dna': '', # Currently selected device DNA
+    'loaded_config': '',# Currently loaded config file path
+    'hw_server_ip': 'localhost',   # Hardware server IP
+    'hw_server_port': '3121',      # Hardware server port
+    'config_version': '',          # Version from config file (e.g., "v1.6.0")
+    'config_timestamp': '',        # Timestamp from config file (e.g., "2026-01-16 14:54")
+    'config_bitstream': '',        # Bitstream filename from config
+    'config_probes': '',           # Probes/ltx filename from config
+    'last_pulled_tag': '',         # Last tag that was pulled
+    'pulled_files': {},            # Dict of {filepath: mtime} for files pulled with the tag
+    'scanned': False,   # Whether scan has been performed
+    'invoked_cwd': '',  # Directory where hw_server was invoked
+}
 
 
 # Global debug flag (set by hw_server function)
@@ -116,6 +138,7 @@ def hw_server(c, cmd: str = None, **kwargs):
     
     # Handle new config format: DNA is the key, device settings are nested under it
     # e.g., { "DNA_VALUE": { "hw_server_host": "...", "bit_file": "...", ... } }
+    # Note: device_name is no longer used - filename is the device name now
     device_dna = ''
     device_config = config
     
@@ -180,6 +203,7 @@ def hw_server(c, cmd: str = None, **kwargs):
     
     # Store device DNA from config for later use (only if present and valid)
     console.config_device_dna = device_dna if device_dna and device_dna.strip() else None
+    # Note: device names are now derived from config filenames via _get_device_name_by_dna()
     
     # Determine if we need console immediately (non-interactive commands always need it)
     # Note: cmd_list is now handled in interactive loop, so we don't need console immediately for it
@@ -355,8 +379,11 @@ def _describe_chain_command(choice: str) -> str:
     if c in ("1", "pr", "prog", "program", "pro"):
         return "Program FPGA"
     # Scan removed - now runs automatically when device is selected
-    if c in ("2", "jt", "jtag", "device", "scan_jtag", "read_dna"):
+    if c in ("2", "jt", "jtag", "scan", "scan_jtag", "read_dna"):
         return "Scan JTAG / Read DNA"
+    if c.startswith("open "):
+        dna_part = c[5:].strip()
+        return f"Open device: {dna_part}"
     if c in ("3", "rb", "readbit", "read_bit", "read-file", "read_file", "read_usr_access"):
         return "Read USR_ACCESS/USERID from bitstream file"
     if c in ("4", "rd", "readdev", "read_dev", "read-device", "read_device", "read_usr_access_device"):
@@ -387,9 +414,18 @@ def _describe_chain_command(choice: str) -> str:
 
 
 def _ensure_console_started(console: VivadoTCLConsole, server_ip: str, server_port: str) -> bool:
-    """Ensure console is started and connected. Returns True if successful."""
+    """Ensure console is started and connected to the specified hw_server. Returns True if successful."""
+    # Check if already connected to the CORRECT hw_server
     if console.process and console.connected:
-        return True
+        # Check if connected to the right server
+        current_server = getattr(console, 'connected_server', '')
+        requested_server = f"{server_ip}:{server_port}"
+        if current_server == requested_server:
+            return True
+        else:
+            # Connected to wrong server - close and reconnect
+            log_message(f"Reconnecting to {requested_server} (was: {current_server})...")
+            console.close()
     
     if not console.process:
         log_message("Initializing Vivado TCL console...")
@@ -398,16 +434,73 @@ def _ensure_console_started(console: VivadoTCLConsole, server_ip: str, server_po
             return False
     
     if not console.connected:
-        log_message("Connecting to hardware server...")
+        log_message(f"Connecting to hardware server {server_ip}:{server_port}...")
         if not console.connect_hw_server(server_ip, server_port):
             log_message("[!x!] Failed to connect to hardware server")
             return False
+        
+        # Store which server we're connected to
+        console.connected_server = f"{server_ip}:{server_port}"
         
         log_message("Connected successfully!")
         log_message(f"Target: {console.target}")
         log_message(f"Device: {console.device}")
     
     return True
+
+
+def _confirm_action(action: str, details: list, warnings: list, force: bool = False) -> bool:
+    """Show action details and warnings, ask for confirmation.
+    
+    Args:
+        action: Name of the action (e.g., "PROGRAM", "CLEAR", "SET VIO")
+        details: List of detail lines to display
+        warnings: List of warning messages (displayed in yellow/highlighted)
+        force: If True, skip confirmation prompt but still display info
+        
+    Returns:
+        True if action should proceed, False if cancelled
+    """
+    print()
+    print(f"{'='*60}")
+    print(f" {action}")
+    print(f"{'='*60}")
+    
+    # Display details
+    for detail in details:
+        print(f"  {detail}")
+    
+    # Display warnings
+    if warnings:
+        print()
+        print("  [WARNINGS]")
+        for warning in warnings:
+            print(f"  !! {warning}")
+    
+    print(f"{'='*60}")
+    
+    # If force mode, proceed without asking
+    if force:
+        print("  (force mode: proceeding without confirmation)")
+        print()
+        return True
+    
+    # Ask for confirmation
+    try:
+        if sys.stdin.isatty():
+            response = input("  Proceed? (y/N): ").strip().lower()
+            if response in ('y', 'yes'):
+                return True
+            else:
+                print("  Cancelled.")
+                return False
+        else:
+            # Non-interactive mode - require force flag
+            print("  Non-interactive mode: use -f to force execution")
+            return False
+    except (EOFError, KeyboardInterrupt):
+        print("\n  Cancelled.")
+        return False
 
 
 def _execute_menu_choice(console: VivadoTCLConsole, choice: str, 
@@ -421,24 +514,383 @@ def _execute_menu_choice(console: VivadoTCLConsole, choice: str,
     Args:
         cmd_queue: Optional list of commands to consume for sub-prompts (e.g., tag selection)
     """
-    choice = choice.lower().strip()
+    global _menu_db
+    choice_lower = choice.lower().strip()
+    
+    # Handle load command (keep original case for path)
+    if choice_lower.startswith("load "):
+        config_file_arg = choice[5:].strip()  # Keep original case for path
+        if not config_file_arg:
+            result_message("LOAD FAILED - Usage: load <config_file.json>")
+            return True
+        
+        # Expand environment variables and resolve path
+        config_path_resolved = _expand_path(config_file_arg, invoked_cwd or os.getcwd())
+        
+        if not os.path.exists(config_path_resolved):
+            result_message(f"LOAD FAILED - Config file not found: {config_path_resolved}")
+            return True
+        
+        if not config_path_resolved.endswith('.json'):
+            result_message(f"LOAD FAILED - Config file must be .json: {config_path_resolved}")
+            return True
+        
+        # Close TCL console and disconnect from hw_server
+        if console.connected:
+            result_message("Disconnecting from hardware server...")
+            console.close()
+        
+        # Load the new config
+        try:
+            new_config, new_server_ip, new_server_port, new_bitstream, new_probes, new_vio_outputs, new_device_dna, _, _, new_version, new_timestamp = _load_and_resolve_config(config_path_resolved, invoked_cwd)
+            
+            if not new_config:
+                result_message(f"LOAD FAILED - Could not parse config: {config_path_resolved}")
+                return True
+            
+            # Update console state
+            if new_device_dna:
+                console.config_device_dna = new_device_dna
+            
+            # Clear device selection and cache (need to re-scan with new config)
+            console.device_explicitly_selected = False
+            console.selected_device_dna = ''
+            console.device = None
+            console.target = None
+            console.device_list_cache = []  # Clear old device cache to avoid stale data
+            
+            # Update menu database
+            _menu_db['loaded_config'] = config_path_resolved
+            _menu_db['devices'] = []
+            _menu_db['files'] = []
+            _menu_db['selected_dna'] = ''
+            _menu_db['scanned'] = False
+            _menu_db['hw_server_ip'] = new_server_ip or 'localhost'
+            _menu_db['hw_server_port'] = new_server_port or '3121'
+            _menu_db['config_version'] = new_version or ''
+            _menu_db['config_timestamp'] = new_timestamp or ''
+            _menu_db['config_bitstream'] = os.path.basename(new_bitstream) if new_bitstream else ''
+            _menu_db['config_probes'] = os.path.basename(new_probes) if new_probes else ''
+            
+            result_message(f"CONFIG LOADED - {os.path.basename(config_path_resolved)}")
+            result_message(f"  hw_server: {_menu_db['hw_server_ip']}:{_menu_db['hw_server_port']}")
+            result_message(f"  device DNA: {new_device_dna}")
+            if new_bitstream:
+                version_str = new_version if new_version else 'NA'
+                timestamp_str = new_timestamp if new_timestamp else 'NA'
+                result_message(f"  bitstream: {os.path.basename(new_bitstream)} {version_str} ({timestamp_str})")
+            
+            # Auto-scan and open device
+            if new_device_dna:
+                result_message("")
+                result_message("Scanning for device...")
+                
+                # Perform scan with new hw_server settings
+                _perform_scan(console, new_bitstream, new_probes, new_server_ip, new_server_port)
+                
+                # If files list is empty after scan, populate from folder
+                if not _menu_db.get('files') and invoked_cwd and os.path.isdir(invoked_cwd):
+                    files_in_folder = []
+                    for f in sorted(os.listdir(invoked_cwd)):
+                        filepath = os.path.join(invoked_cwd, f)
+                        if os.path.isfile(filepath) and (f.endswith('.bit') or f.endswith('.ltx')):
+                            decoded = ''
+                            if f.endswith('.bit'):
+                                try:
+                                    usr_access = _read_usr_access_value(filepath)
+                                    userid = _read_userid_raw(filepath)
+                                    version = _decode_version(usr_access) if usr_access else ''
+                                    timestamp = _decode_timestamp(userid) if userid else ''
+                                    if version or timestamp:
+                                        decoded = f"{version} ({timestamp})" if version and timestamp else (version or timestamp)
+                                except:
+                                    pass
+                            files_in_folder.append({'filename': f, 'path': filepath, 'decoded': decoded})
+                    _menu_db['files'] = files_in_folder
+                
+                # Try to open the device by DNA from config
+                found_device = False
+                matched_idx = -1
+                for idx, dev in enumerate(_menu_db.get('devices', [])):
+                    dev_dna = dev.get('dna', '')
+                    # Normalize DNAs for comparison
+                    dev_clean = dev_dna.strip('0').upper() or '0'
+                    config_clean = new_device_dna.strip('0').upper() or '0'
+                    if dev_clean == config_clean:
+                        matched_idx = idx
+                        # Found matching device - open it by DNA (never use cached indices!)
+                        if console.find_and_select_device_by_dna(dev_dna, "load"):
+                            # Update console state
+                            console.device_display_name = dev.get('name', '') or dev.get('dev_name', '')
+                            console.target = dev.get('target_name', '')
+                            console.device_explicitly_selected = True
+                            console.selected_device_dna = dev_dna
+                            _menu_db['selected_dna'] = dev_dna
+                            
+                            dev_name = dev.get('name', '')
+                            if dev_name:
+                                result_message(f"DEVICE OPENED - {dev_name} ({dev_dna})")
+                            else:
+                                result_message(f"DEVICE OPENED - {dev_dna}")
+                        
+                        # Scan ILA/VIO if probes file available
+                        # Auto-detect probes file if not specified
+                        probes_to_use = new_probes
+                        if not probes_to_use:
+                            probes_to_use = _menu_db.get('config_probes', '')
+                            if probes_to_use and invoked_cwd:
+                                probes_to_use = os.path.join(invoked_cwd, probes_to_use)
+                        if not probes_to_use:
+                            # Auto-detect from files list
+                            for f in _menu_db.get('files', []):
+                                if f.get('filename', '').endswith('.ltx'):
+                                    probes_to_use = f.get('path', '')
+                                    break
+                        
+                        if probes_to_use:
+                            scan_result = console.scan_ila_vio(probes_to_use)
+                            if scan_result:
+                                ila_list = console._get_ila_list()
+                                vio_list = console._get_vio_list()
+                                if matched_idx >= 0 and matched_idx < len(_menu_db.get('devices', [])):
+                                    _menu_db['devices'][matched_idx]['ila_list'] = ila_list
+                                    _menu_db['devices'][matched_idx]['vio_list'] = vio_list
+                                result_message(f"ILA/VIO scan: {len(ila_list)} ILA, {len(vio_list)} VIO found")
+                        else:
+                            result_message("(no probes file for ILA/VIO scan)")
+                        
+                        found_device = True
+                        break
+                
+                if not found_device:
+                    result_message(f"WARNING - Device DNA {new_device_dna} not found on JTAG chain")
+            
+            # Ask user if they want to pull tag (if version specified)
+            # Skip prompt in non-interactive mode (stdin is not a TTY or piped)
+            if new_version and sys.stdin.isatty():
+                result_message("")
+                try:
+                    pull_answer = input(f"Pull tag {new_version}? [y/N]: ").strip().lower()
+                    if pull_answer in ('y', 'yes'):
+                        # Execute pull command
+                        _execute_menu_choice(
+                            console, f"pull {new_version}", new_bitstream, new_probes, 
+                            new_vio_outputs, invoked_cwd
+                        )
+                except (EOFError, KeyboardInterrupt):
+                    pass  # Non-interactive mode, skip pull prompt
+            
+            return True
+        except Exception as e:
+            result_message(f"LOAD FAILED - Error loading config: {e}")
+            return True
+    
+    # Handle server command to edit hw_server settings
+    if choice_lower.startswith("server"):
+        args = choice_lower[6:].strip()
+        
+        if not args:
+            # Interactive mode - prompt for IP and port
+            try:
+                current_ip = _menu_db.get('hw_server_ip', 'localhost')
+                current_port = _menu_db.get('hw_server_port', '3121')
+                
+                result_message(f"Current hw_server: {current_ip}:{current_port}")
+                result_message("")
+                
+                new_ip = input(f"Enter IP [{current_ip}]: ").strip()
+                if not new_ip:
+                    new_ip = current_ip
+                
+                new_port = input(f"Enter port [{current_port}]: ").strip()
+                if not new_port:
+                    new_port = current_port
+                
+                # Validate port
+                try:
+                    port_num = int(new_port)
+                    if port_num < 1 or port_num > 65535:
+                        result_message("SERVER FAILED - Port must be between 1 and 65535")
+                        return True
+                except ValueError:
+                    result_message("SERVER FAILED - Port must be a number")
+                    return True
+                
+                # Close TCL console completely (need to restart with new hw_server)
+                if console.process or console.connected:
+                    result_message("Closing TCL console...")
+                    console.close()  # This terminates the process too
+                
+                # Update menu database
+                _menu_db['hw_server_ip'] = new_ip
+                _menu_db['hw_server_port'] = new_port
+                _menu_db['devices'] = []
+                _menu_db['scanned'] = False
+                _menu_db['selected_dna'] = ''
+                console.device_list_cache = []  # Clear old device cache
+                
+                result_message(f"SERVER UPDATED - {new_ip}:{new_port}")
+                result_message("(run 'scan' to connect with new settings)")
+                
+            except (EOFError, KeyboardInterrupt):
+                result_message("SERVER - Cancelled")
+            return True
+        else:
+            # Parse ip:port from args
+            if ':' in args:
+                parts = args.split(':')
+                new_ip = parts[0].strip()
+                new_port = parts[1].strip()
+            else:
+                new_ip = args
+                new_port = _menu_db.get('hw_server_port', '3121')
+            
+            # Validate port
+            try:
+                port_num = int(new_port)
+                if port_num < 1 or port_num > 65535:
+                    result_message("SERVER FAILED - Port must be between 1 and 65535")
+                    return True
+            except ValueError:
+                result_message("SERVER FAILED - Port must be a number")
+                return True
+            
+            # Close TCL console completely (need to restart with new hw_server)
+            if console.process or console.connected:
+                result_message("Closing TCL console...")
+                console.close()  # This terminates the process too
+            
+            # Update menu database
+            _menu_db['hw_server_ip'] = new_ip
+            _menu_db['hw_server_port'] = new_port
+            _menu_db['devices'] = []
+            _menu_db['scanned'] = False
+            _menu_db['selected_dna'] = ''
+            console.device_list_cache = []  # Clear old device cache
+            
+            result_message(f"SERVER UPDATED - {new_ip}:{new_port}")
+            result_message("(run 'scan' to connect with new settings)")
+            return True
+    
+    # Handle file-bit command to set bitstream file path
+    if choice_lower.startswith("file-bit"):
+        args = choice[8:].strip()  # Keep original case for path
+        
+        current_bit = _menu_db.get('config_bitstream', '')
+        
+        if not args:
+            # Interactive mode - prompt for path
+            try:
+                result_message(f"Current bitstream: {current_bit or '(none)'}")
+                new_path = input("Enter bitstream path: ").strip()
+                if not new_path:
+                    result_message("FILE-BIT - Cancelled (no path entered)")
+                    return True
+            except (EOFError, KeyboardInterrupt):
+                result_message("FILE-BIT - Cancelled")
+                return True
+        else:
+            new_path = args
+        
+        # Expand and resolve path
+        new_path = _expand_path(new_path, invoked_cwd or os.getcwd())
+        
+        if not os.path.exists(new_path):
+            result_message(f"FILE-BIT WARNING - File not found: {new_path}")
+        
+        if not new_path.endswith('.bit'):
+            result_message(f"FILE-BIT WARNING - File should be .bit: {new_path}")
+        
+        # Update menu database
+        _menu_db['config_bitstream'] = os.path.basename(new_path)
+        
+        # Update files list with new bitstream info
+        # Remove old .bit entry and add new one
+        files = _menu_db.get('files', [])
+        files = [f for f in files if not f.get('filename', '').endswith('.bit')]
+        
+        # Read version/timestamp from new bitstream
+        decoded = ''
+        if os.path.exists(new_path):
+            try:
+                usr_access = _read_usr_access_value(new_path)
+                userid = _read_userid_raw(new_path)
+                version = _decode_version(usr_access) if usr_access else ''
+                timestamp = _decode_timestamp(userid) if userid else ''
+                if version or timestamp:
+                    decoded = f"{version} ({timestamp})" if version and timestamp else (version or timestamp)
+            except:
+                pass
+        
+        files.insert(0, {'filename': os.path.basename(new_path), 'path': new_path, 'decoded': decoded})
+        _menu_db['files'] = files
+        
+        result_message(f"FILE-BIT UPDATED - {os.path.basename(new_path)}")
+        if decoded:
+            result_message(f"  {decoded}")
+        return True
+    
+    # Handle file-ltx command to set probes file path
+    if choice_lower.startswith("file-ltx"):
+        args = choice[8:].strip()  # Keep original case for path
+        
+        current_ltx = _menu_db.get('config_probes', '')
+        
+        if not args:
+            # Interactive mode - prompt for path
+            try:
+                result_message(f"Current probes file: {current_ltx or '(none)'}")
+                new_path = input("Enter probes file path: ").strip()
+                if not new_path:
+                    result_message("FILE-LTX - Cancelled (no path entered)")
+                    return True
+            except (EOFError, KeyboardInterrupt):
+                result_message("FILE-LTX - Cancelled")
+                return True
+        else:
+            new_path = args
+        
+        # Expand and resolve path
+        new_path = _expand_path(new_path, invoked_cwd or os.getcwd())
+        
+        if not os.path.exists(new_path):
+            result_message(f"FILE-LTX WARNING - File not found: {new_path}")
+        
+        if not new_path.endswith('.ltx'):
+            result_message(f"FILE-LTX WARNING - File should be .ltx: {new_path}")
+        
+        # Update menu database
+        _menu_db['config_probes'] = os.path.basename(new_path)
+        
+        # Update files list with new ltx info
+        # Remove old .ltx entry and add new one
+        files = _menu_db.get('files', [])
+        files = [f for f in files if not f.get('filename', '').endswith('.ltx')]
+        files.append({'filename': os.path.basename(new_path), 'path': new_path, 'decoded': ''})
+        _menu_db['files'] = files
+        
+        result_message(f"FILE-LTX UPDATED - {os.path.basename(new_path)}")
+        return True
+    
+    choice = choice_lower  # Use lowercase for other commands
+    
+    # Check for force flag (-f) at end of command
+    force_flag = False
+    if choice.endswith(' -f'):
+        force_flag = True
+        choice = choice[:-3].strip()  # Remove trailing ' -f'
+    elif choice == '-f':
+        force_flag = True
+        choice = ''
     
     if choice in ("1", "pr", "prog", "program", "pro"):
-        # Validate device DNA matches config before programming
-        if console.selected_device_dna and console.config_device_dna:
-            # Normalize DNAs for comparison (strip leading/trailing zeros)
-            selected_clean = console.selected_device_dna.strip('0') or '0'
-            config_clean = console.config_device_dna.strip('0') or '0'
-            if selected_clean.upper() != config_clean.upper():
-                result_message(f"PROGRAM BLOCKED - Selected device DNA ({console.selected_device_dna}) does not match config DNA ({console.config_device_dna})")
-                result_message("Use correct device or update config.json with matching DNA")
-                return True
-        
         # Reload config if available to get latest bitstream/probes paths
         current_bitstream = bitstream
         current_probes = probes
+        config_version = ''
+        config_timestamp = ''
         if config_path and os.path.exists(config_path):
-            _, _, _, current_bitstream, current_probes, _, _, _ = _load_and_resolve_config(config_path, invoked_cwd)
+            _, _, _, current_bitstream, current_probes, _, _, _, _, config_version, config_timestamp = _load_and_resolve_config(config_path, invoked_cwd, silent=True)
             if not current_bitstream:
                 current_bitstream = bitstream  # Fallback to original
             if not current_probes:
@@ -448,117 +900,227 @@ def _execute_menu_choice(console: VivadoTCLConsole, choice: str,
             log_message("[!x!] Bitstream file must be specified with --bitstream or in config file")
             return True
         
+        if not console.selected_device_dna:
+            log_message("[!x!] No device selected - use 'open <dna>' to select a device first")
+            return True
+        
+        # Build confirmation details
+        invoked_cwd_local = _menu_db.get('invoked_cwd', '') or invoked_cwd or ''
+        device_name = _get_device_name_by_dna(console.selected_device_dna, invoked_cwd_local)
+        
+        details = []
+        details.append(f"Device: {device_name or console.selected_device_dna}")
+        details.append(f"DNA: {console.selected_device_dna}")
+        if config_path:
+            details.append(f"Config: {os.path.basename(config_path)}")
+        details.append(f"Bitstream: {os.path.basename(current_bitstream)}")
+        
+        # Read bitstream version/timestamp
+        bitstream_version = ''
+        bitstream_timestamp = ''
+        try:
+            bitstream_usr_access = _read_usr_access_from_bitstream(current_bitstream)
+            if bitstream_usr_access:
+                major = (bitstream_usr_access >> 16) & 0xFF
+                minor = (bitstream_usr_access >> 8) & 0xFF
+                patch = bitstream_usr_access & 0xFF
+                bitstream_version = f"V{major}.{minor}.{patch}"
+                details.append(f"Bitstream Version: {bitstream_version}")
+        except:
+            pass
+        
+        # Collect warnings
+        warnings = []
+        
+        # Check DNA mismatch with config
+        if console.config_device_dna:
+            selected_clean = console.selected_device_dna.strip('0').upper() or '0'
+            config_clean = console.config_device_dna.strip('0').upper() or '0'
+            if selected_clean != config_clean:
+                warnings.append(f"Device DNA does not match config DNA!")
+                warnings.append(f"  Selected: {console.selected_device_dna}")
+                warnings.append(f"  Config:   {console.config_device_dna}")
+        
+        # Check if bitstream file exists
+        if not os.path.exists(current_bitstream):
+            warnings.append(f"Bitstream file not found: {current_bitstream}")
+        
+        # Ask for confirmation
+        if not _confirm_action("PROGRAM FPGA", details, warnings, force_flag):
+            return True
+        
         if not _ensure_console_started(console, server_ip, server_port):
             return True
-        result = _execute_command(console, 'program', current_bitstream, current_probes)
-        # After programming, clear ILA/VIO cache to force fresh scan on next device selection
-        if result:
+        
+        # Store the selected DNA before programming (to re-open after)
+        selected_dna = console.selected_device_dna
+        
+        program_success = _execute_command(console, 'program', current_bitstream, current_probes)
+        # After programming, clear ILA/VIO cache and re-open the device
+        if program_success:
             console.core_cache = {}
             console.scanned = False
-        return result
-    # Device scan - only lists devices, does NOT auto-select
-    # User must explicitly select with device-1, device-2, etc.
-    elif choice in ("2", "jt", "jtag", "device", "scan_jtag"):
-        if not _ensure_console_started(console, server_ip, server_port):
-            return True
-        result = _execute_command(console, 'scan_jtag', bitstream, probes)
-        # No auto-selection - user must explicitly select device
-        # VIO/ILA will only be shown after user selects a device
-        return result
-    elif choice.startswith("device-") and choice != "device":
-        # Handle device selection (device-1, device-2, etc.) or by DNA value
-        if not _ensure_console_started(console, server_ip, server_port):
-            return True
-        try:
-            idx_str = choice[len("device-"):]
-            # Force refresh device list if cache is empty (e.g., after clear/disconnect)
-            # Clear cache to force refresh
-            console.device_list_cache = []
-            device_list = console._get_device_list()
             
-            # Try to match by DNA value first (allowing trailing 0 removal)
+            # Re-open the device if we had one selected
+            if selected_dna:
+                result_message(f"Re-opening device {selected_dna}...")
+                # Re-open device by DNA (never use cached indices!)
+                try:
+                    if console.find_and_select_device_by_dna(selected_dna, "program_reopen"):
+                        # Restore console state
+                        console.device_explicitly_selected = True
+                        console.selected_device_dna = selected_dna
+                        _menu_db['selected_dna'] = selected_dna
+                        
+                        # Find device entry in menu database and update it
+                        matched_idx = -1
+                        for idx, dev in enumerate(_menu_db.get('devices', [])):
+                            dev_dna = dev.get('dna', '')
+                            dev_dna_clean = dev_dna.lstrip('0').upper() or '0'
+                            selected_clean = selected_dna.lstrip('0').upper() or '0'
+                            if dev_dna_clean == selected_clean:
+                                console.device_display_name = dev.get('name', '') or dev.get('dev_name', '') or dev.get('dna', '')
+                                console.target = dev.get('target_name', '')
+                                matched_idx = idx
+                                break
+                        
+                        # Scan ILA/VIO on the re-opened device
+                        if current_probes and os.path.exists(current_probes):
+                            console.scan_ila_vio(current_probes)
+                            result_message(f"ILA/VIO scan: {len(console._get_ila_list())} ILA, {len(console._get_vio_list())} VIO found")
+                            
+                            # Update menu database with ILA/VIO lists so menu shows them
+                            if matched_idx >= 0 and matched_idx < len(_menu_db.get('devices', [])):
+                                _menu_db['devices'][matched_idx]['ila_list'] = console._get_ila_list()
+                                _menu_db['devices'][matched_idx]['vio_list'] = console._get_vio_list()
+                        
+                        result_message(f"Device re-opened: {selected_dna}")
+                except Exception as e:
+                    log_message(f"Could not re-open device: {e}")
+        # Always return True to keep menu running - program failure is not exit condition
+        return True
+    # Device scan - scans JTAG chain, reads DNA and USR_ACCESS from each device
+    # User must explicitly select with 'open <dna>'
+    elif choice in ("2", "jt", "jtag", "scan", "scan_jtag"):
+        # Use hw_server settings from _menu_db (updated by 'server' command)
+        scan_ip = _menu_db.get('hw_server_ip', '') or server_ip or 'localhost'
+        scan_port = _menu_db.get('hw_server_port', '') or server_port or '3121'
+        
+        if not _ensure_console_started(console, scan_ip, scan_port):
+            return True
+        # Use isolated scan function
+        result = _perform_scan(console, bitstream, probes, scan_ip, scan_port)
+        # No auto-selection - user must explicitly select device with 'open <dna>'
+        return True
+    elif choice.startswith("open "):
+        # Handle device selection by DNA: open <dna>
+        # DNA can be trimmed of leading zeros
+        # If scan wasn't done, perform scan first
+        # Use hw_server settings from _menu_db (updated by 'server' command)
+        open_ip = _menu_db.get('hw_server_ip', '') or server_ip or 'localhost'
+        open_port = _menu_db.get('hw_server_port', '') or server_port or '3121'
+        
+        if not _ensure_console_started(console, open_ip, open_port):
+            return True
+        
+        # Check if scan was performed, if not do it now
+        if not _menu_db.get('scanned') or not _menu_db.get('devices'):
+            result_message("Performing scan before device selection...")
+            _perform_scan(console, bitstream, probes, open_ip, open_port)
+            
+            # Populate files list from folder if still empty (for probes auto-detection)
+            if not _menu_db.get('files') and invoked_cwd and os.path.isdir(invoked_cwd):
+                files_in_folder = []
+                for f in sorted(os.listdir(invoked_cwd)):
+                    filepath = os.path.join(invoked_cwd, f)
+                    if os.path.isfile(filepath) and (f.endswith('.bit') or f.endswith('.ltx')):
+                        decoded = ''
+                        if f.endswith('.bit'):
+                            try:
+                                usr_access = _read_usr_access_value(filepath)
+                                userid = _read_userid_raw(filepath)
+                                version = _decode_version(usr_access) if usr_access else ''
+                                timestamp = _decode_timestamp(userid) if userid else ''
+                                if version or timestamp:
+                                    decoded = f"{version} ({timestamp})" if version and timestamp else (version or timestamp)
+                            except:
+                                pass
+                        files_in_folder.append({'filename': f, 'path': filepath, 'decoded': decoded})
+                _menu_db['files'] = files_in_folder
+        
+        try:
+            idx_str = choice[5:].strip()  # Get DNA after "open "
+            # Use menu database for device list
+            device_list = _menu_db.get('devices', [])
+            
+            # Match by DNA value only (allowing leading zeros removal)
+            # DNA can be provided with or without leading zeros
             matched_dev = None
             matched_idx = -1  # Index in device_list for updating device database
+            input_dna_clean = idx_str.strip().lstrip('0').upper() or '0'
+            
             for i, dev in enumerate(device_list):
                 dev_dna = dev.get('dna', '')
                 if dev_dna and dev_dna != "N/A":
-                    # Remove trailing zeros from both for comparison
-                    dev_dna_clean = dev_dna.rstrip('0') or '0'
-                    idx_clean = idx_str.rstrip('0') or '0'
-                    if dev_dna_clean.upper() == idx_clean.upper():
+                    # Remove leading zeros from device DNA for comparison
+                    dev_dna_clean = dev_dna.lstrip('0').upper() or '0'
+                    if dev_dna_clean == input_dna_clean:
                         matched_dev = dev
                         matched_idx = i
                         break
             
-            # If no DNA match, try by index
-            if not matched_dev:
-                try:
-                    device_idx = int(idx_str) - 1
-                    if 0 <= device_idx < len(device_list):
-                        matched_dev = device_list[device_idx]
-                        matched_idx = device_idx
-                except ValueError:
-                    pass
-            
-            # If no match and config has device DNA, try to match by config DNA (auto-select from config)
-            if not matched_dev and console.config_device_dna and console.config_device_dna.strip():
-                config_dna_clean = console.config_device_dna.rstrip('0') or '0'
-                for i, dev in enumerate(device_list):
-                    dev_dna = dev.get('dna', '')
-                    if dev_dna and dev_dna != "N/A":
-                        dev_dna_clean = dev_dna.rstrip('0') or '0'
-                        if dev_dna_clean.upper() == config_dna_clean.upper():
-                            matched_dev = dev
-                            matched_idx = i
-                            result_message(f"AUTO-SELECTED device from config: DNA {dev_dna}")
-                            break
+            # No index-based matching - only DNA matching is allowed
             
             if matched_dev:
                 dev = matched_dev
+                dev_dna = dev.get('dna', '')
+                
                 # ALWAYS clear ILA/VIO cache before device selection (even if same device)
                 # This forces a fresh re-read of ILA/VIO cores every time a device is selected
                 console.core_cache = {}
                 console.scanned = False
                 
-                # Use the same logic as select_device_interactive but non-interactive
-                # Close any existing target first to ensure clean state (important after clear operations)
-                console.send_command("set all_targets [get_hw_targets]", timeout=5)
-                console.send_command("foreach t $all_targets { if {[get_property IS_OPEN $t]} { close_hw_target $t } }", timeout=5)
-                
-                # Now open the target for the selected device
-                console.send_command("set all_targets [get_hw_targets]", timeout=5)
-                console.send_command(f"set target [lindex $all_targets {dev['target_idx']}]", timeout=2)
-                console.send_command("open_hw_target $target", timeout=10)
-                
-                console.send_command("set devices [get_hw_devices]", timeout=5)
-                console.send_command(f"set device [lindex $devices {dev['device_idx']}]", timeout=2)
-                console.send_command("current_hw_device $device", timeout=2)
-                
-                # Refresh the device to ensure it's in a good state (especially after clear operations)
-                console.send_command("refresh_hw_device $device", timeout=10)
+                # Find and select device by DNA (never use cached indices!)
+                if not console.find_and_select_device_by_dna(dev_dna, "open"):
+                    result_message(f"OPEN FAILED - Could not find device with DNA {dev_dna}")
+                    return True
                 
                 # Update console state
-                console.device = dev['name']
-                console.target = dev['target_name']
+                console.device_display_name = dev.get('name', '') or dev.get('dev_name', '') or dev.get('dna', '')
+                console.target = dev.get('target_name', '')
                 
                 # Mark device as explicitly selected by user and store its DNA for menu matching
                 console.device_explicitly_selected = True
-                console.selected_device_dna = dev.get('dna', '')
+                console.selected_device_dna = dev_dna
+                
+                # Update menu database with selection
+                _menu_db['selected_dna'] = dev.get('dna', '')
                 
                 # Automatically scan ILA/VIO when device is selected
                 dna_display = dev.get('dna', 'N/A')
                 result_message(f"DEVICE SELECTED - DNA: {dna_display}")
                 
-                if probes:
+                # Use probes from parameter, or from _menu_db, or auto-detect from files
+                probes_to_use = probes
+                if not probes_to_use:
+                    probes_to_use = _menu_db.get('config_probes', '')
+                if not probes_to_use:
+                    # Auto-detect from files list
+                    for f in _menu_db.get('files', []):
+                        if f.get('filename', '').endswith('.ltx'):
+                            probes_to_use = f.get('path', '')
+                            break
+                
+                if probes_to_use:
                     # Scan ILA/VIO and store results in device database
-                    scan_result = console.scan_ila_vio(probes)
+                    scan_result = console.scan_ila_vio(probes_to_use)
                     if scan_result:
-                        # Store ILA/VIO lists in device entry (part of device database)
+                        # Store ILA/VIO lists in device entry (part of menu database)
                         ila_list = console._get_ila_list()
                         vio_list = console._get_vio_list()
-                        if matched_idx >= 0 and matched_idx < len(console.device_list_cache):
-                            console.device_list_cache[matched_idx]['ila_list'] = ila_list
-                            console.device_list_cache[matched_idx]['vio_list'] = vio_list
+                        if matched_idx >= 0 and matched_idx < len(_menu_db.get('devices', [])):
+                            _menu_db['devices'][matched_idx]['ila_list'] = ila_list
+                            _menu_db['devices'][matched_idx]['vio_list'] = vio_list
                     else:
                         result_message("SCAN FAILED - ILA/VIO scan could not complete")
                 else:
@@ -582,7 +1144,7 @@ def _execute_menu_choice(console: VivadoTCLConsole, choice: str,
     elif choice in ("4", "rd", "readdev", "read_dev", "read-device", "read_device", "read_usr_access_device"):
         # Check device cache BEFORE opening TCL console (read-device can work with any device, but check cache first)
         if not console.device:
-            result_message("READ FAILED - No device available (use 'device' to scan and select)")
+            result_message("READ FAILED - No device available (use 'scan' then 'open <dna>')")
             return True
         if not _ensure_console_started(console, server_ip, server_port):
             return True
@@ -620,10 +1182,14 @@ def _execute_menu_choice(console: VivadoTCLConsole, choice: str,
             result_message("PULL FAILED - Could not fetch release files")
             return True
         
+        # Clear menu database to force re-read of files
+        _menu_db['files'] = []
+        _menu_db['scanned'] = False
+        
         # Reload config after pull using central function
         if hw_config.exists():
             log_message("Reloading config after pull...")
-            new_config, new_server_ip, new_server_port, new_bitstream, new_probes, new_vio_outputs, new_device_dna, new_config_path = _load_and_resolve_config(str(hw_config), invoked_cwd)
+            new_config, new_server_ip, new_server_port, new_bitstream, new_probes, new_vio_outputs, new_device_dna, new_config_path, _, new_version, new_timestamp = _load_and_resolve_config(str(hw_config), invoked_cwd)
             
             if new_config:
                 # Update device DNA from config if present
@@ -636,8 +1202,25 @@ def _execute_menu_choice(console: VivadoTCLConsole, choice: str,
                 server_ip = new_server_ip
                 server_port = new_server_port
                 config_path = new_config_path
-                log_message("Use option 1 to program FPGA with pulled files.")
+                _menu_db['last_pulled_tag'] = tag_arg
+                # Store modification times of pulled files for verification
+                pulled_files = {}
+                if new_bitstream and os.path.exists(new_bitstream):
+                    pulled_files[new_bitstream] = os.path.getmtime(new_bitstream)
+                if new_probes and os.path.exists(new_probes):
+                    pulled_files[new_probes] = os.path.getmtime(new_probes)
+                if new_config_path and os.path.exists(new_config_path):
+                    pulled_files[new_config_path] = os.path.getmtime(new_config_path)
+                _menu_db['pulled_files'] = pulled_files
                 result_message(f"PULL SUCCESS - Tag {tag_arg} pulled to release folder")
+                
+                # Verify bitstream version/timestamp matches config if specified
+                if new_bitstream and os.path.exists(new_bitstream):
+                    _verify_bitstream_matches_config(new_bitstream, new_version, new_timestamp)
+                
+                # Re-scan JTAG chain after pull
+                result_message("Re-scanning JTAG chain after pull...")
+                _perform_scan(console, new_bitstream, new_probes, new_server_ip, new_server_port)
             else:
                 result_message("PULL FAILED - Could not reload config after pull")
                 return True
@@ -649,13 +1232,44 @@ def _execute_menu_choice(console: VivadoTCLConsole, choice: str,
     elif choice in ("6", "cl", "clear", "clear_fpga"):
         # Check device cache BEFORE opening TCL console
         if not console.device:
-            result_message("CLEAR FAILED - No device available (use 'device' to scan and select)")
+            result_message("CLEAR FAILED - No device available (use 'scan' then 'open <dna>')")
             return True
+        
+        if not console.selected_device_dna:
+            result_message("CLEAR FAILED - No device selected (use 'open <dna>' to select)")
+            return True
+        
+        # Build confirmation details
+        invoked_cwd_local = _menu_db.get('invoked_cwd', '') or invoked_cwd or ''
+        device_name = _get_device_name_by_dna(console.selected_device_dna, invoked_cwd_local)
+        
+        details = [
+            f"Device: {device_name or console.selected_device_dna}",
+            f"DNA: {console.selected_device_dna}",
+            "This will reset the FPGA to an unprogrammed state.",
+        ]
+        warnings = []
+        
+        # Ask for confirmation
+        if not _confirm_action("CLEAR FPGA", details, warnings, force_flag):
+            return True
+        
         if not _ensure_console_started(console, server_ip, server_port):
             return True
         result = console.clear_fpga()
         if not result:
             return True  # Continue with menu on error
+        
+        # Clear menu database and re-scan after clear
+        _menu_db['devices'] = []
+        _menu_db['selected_dna'] = ''
+        _menu_db['scanned'] = False
+        console.device_explicitly_selected = False
+        console.selected_device_dna = ''
+        
+        # Re-scan JTAG chain
+        result_message("Re-scanning JTAG chain after clear...")
+        _perform_scan(console, bitstream, probes, server_ip, server_port)
         return True
     elif choice in ("q", "quit", "exit"):
         return False
@@ -663,7 +1277,7 @@ def _execute_menu_choice(console: VivadoTCLConsole, choice: str,
     elif choice.startswith("ila-") and "-save-" not in choice:
         # Check device selection cache BEFORE opening TCL console
         if not console.device_explicitly_selected:
-            result_message("READ FAILED - Device must be explicitly selected first (use 'device' to scan and select)")
+            result_message("READ FAILED - Device must be explicitly selected first (use 'scan' then 'open <dna>')")
             return True
         if not _ensure_console_started(console, server_ip, server_port):
             return True
@@ -685,7 +1299,7 @@ def _execute_menu_choice(console: VivadoTCLConsole, choice: str,
     elif choice.startswith("ila-") and "-save-ila" in choice:
         # Check device selection cache BEFORE opening TCL console
         if not console.device_explicitly_selected:
-            result_message("SAVE FAILED - Device must be explicitly selected first (use 'device' to scan and select)")
+            result_message("SAVE FAILED - Device must be explicitly selected first (use 'scan' then 'open <dna>')")
             return True
         if not _ensure_console_started(console, server_ip, server_port):
             return True
@@ -699,7 +1313,7 @@ def _execute_menu_choice(console: VivadoTCLConsole, choice: str,
     elif choice.startswith("ila-") and "-save-vcd" in choice:
         # Check device selection cache BEFORE opening TCL console
         if not console.device_explicitly_selected:
-            result_message("SAVE FAILED - Device must be explicitly selected first (use 'device' to scan and select)")
+            result_message("SAVE FAILED - Device must be explicitly selected first (use 'scan' then 'open <dna>')")
             return True
         if not _ensure_console_started(console, server_ip, server_port):
             return True
@@ -713,7 +1327,7 @@ def _execute_menu_choice(console: VivadoTCLConsole, choice: str,
     elif choice.startswith("ila-") and "-save-csv" in choice:
         # Check device selection cache BEFORE opening TCL console
         if not console.device_explicitly_selected:
-            result_message("SAVE FAILED - Device must be explicitly selected first (use 'device' to scan and select)")
+            result_message("SAVE FAILED - Device must be explicitly selected first (use 'scan' then 'open <dna>')")
             return True
         if not _ensure_console_started(console, server_ip, server_port):
             return True
@@ -729,7 +1343,7 @@ def _execute_menu_choice(console: VivadoTCLConsole, choice: str,
     elif choice.startswith("vio-") and "-set-" not in choice:
         # Check device selection cache BEFORE opening TCL console
         if not console.device_explicitly_selected:
-            result_message("READ FAILED - Device must be explicitly selected first (use 'device' to scan and select)")
+            result_message("READ FAILED - Device must be explicitly selected first (use 'scan' then 'open <dna>')")
             return True
         if not _ensure_console_started(console, server_ip, server_port):
             return True
@@ -753,28 +1367,66 @@ def _execute_menu_choice(console: VivadoTCLConsole, choice: str,
     elif choice.startswith("vio-") and "-set-from-file" in choice:
         # Check device selection cache BEFORE opening TCL console
         if not console.device_explicitly_selected:
-            result_message("SET FAILED - Device must be explicitly selected first (use 'device' to scan and select)")
+            result_message("SET FAILED - Device must be explicitly selected first (use 'scan' then 'open <dna>')")
             return True
-        # Validate device DNA matches config before using config VIO values
+        
+        # Extract VIO index
+        try:
+            idx_str = choice[len("vio-"):].split("-set-from-file")[0]
+            vio_idx = int(idx_str) - 1
+        except ValueError:
+            result_message(f"Invalid VIO set-from-file selection: {choice}")
+            return True
+        
+        # Build confirmation details
+        invoked_cwd_local = _menu_db.get('invoked_cwd', '') or invoked_cwd or ''
+        device_name = _get_device_name_by_dna(console.selected_device_dna, invoked_cwd_local)
+        
+        details = [
+            f"Device: {device_name or console.selected_device_dna}",
+            f"DNA: {console.selected_device_dna}",
+            f"VIO Index: {vio_idx + 1}",
+        ]
+        
+        # Show config file info
+        if config_path:
+            details.append(f"Config: {os.path.basename(config_path)}")
+        
+        # Show VIO values that will be set
+        if vio_outputs:
+            details.append("Values to set:")
+            for probe_name, value in vio_outputs.items():
+                details.append(f"  {probe_name} = {value}")
+        
+        warnings = []
+        
+        # Check DNA mismatch with config
         if console.selected_device_dna and console.config_device_dna:
             selected_clean = console.selected_device_dna.strip('0') or '0'
             config_clean = console.config_device_dna.strip('0') or '0'
             if selected_clean.upper() != config_clean.upper():
-                result_message(f"SET BLOCKED - Selected device DNA ({console.selected_device_dna}) does not match config DNA ({console.config_device_dna})")
-                result_message("Use correct device or update config.json with matching DNA")
-                return True
+                warnings.append(f"Device DNA does not match config DNA!")
+                warnings.append(f"  Selected: {console.selected_device_dna}")
+                warnings.append(f"  Config:   {console.config_device_dna}")
+        
+        # Check if no VIO outputs defined
+        if not vio_outputs:
+            warnings.append("No VIO outputs defined in config file")
+        
+        # Ask for confirmation
+        if not _confirm_action("SET VIO FROM CONFIG", details, warnings, force_flag):
+            return True
+        
         if not _ensure_console_started(console, server_ip, server_port):
             return True
         try:
-            idx_str = choice[len("vio-"):].split("-set-from-file")[0]
-            vio_idx = int(idx_str) - 1
-            _set_vio_values_for_index(console, vio_idx, vio_outputs, force)
+            _set_vio_values_for_index(console, vio_idx, vio_outputs, True)  # Already confirmed
         except ValueError:
             result_message(f"Invalid VIO set-from-file selection: {choice}")
     elif choice.startswith("vio-") and "-set-hex" in choice:
         # Check device selection cache BEFORE opening TCL console
         if not console.device_explicitly_selected:
-            result_message("SET FAILED - Device must be explicitly selected first (use 'device' to scan and select)")
+            result_message("SET FAILED - Device must be explicitly selected first (use 'scan' then 'open <dna>')")
             return True
         if not _ensure_console_started(console, server_ip, server_port):
             return True
@@ -1014,152 +1666,878 @@ def _show_ila_vio_submenu(console: VivadoTCLConsole, vio_outputs: dict = None,
         return
 
 
-def _print_menu(console: VivadoTCLConsole, bitstream: str, probes: str, vio_outputs: dict = None) -> None:
-    """Print the interactive menu as a formatted table with 4 columns (Command, Description, ILA, VIO).
+def _verify_pulled_files_intact() -> bool:
+    """Verify that pulled files still exist and haven't been modified.
     
-    Menu data sources (all from device_list_cache and selection state):
-    - Device list: console.device_list_cache (regenerated by 'device', cleared by 'clear')
-    - Selection: console.selected_device_dna (set by 'device-N', cleared by 'clear')
-    - ILA/VIO: stored per-device in device_list_cache[i]['ila_list']/['vio_list']
+    Returns True if all pulled files exist and have the same modification time
+    as when they were pulled, False otherwise.
     """
-    menu_rows = []
+    pulled_files = _menu_db.get('pulled_files', {})
+    if not pulled_files:
+        return False
     
-    # Main menu items
-    if bitstream:
-        menu_rows.append(("program", "Program FPGA", "", ""))
-    else:
-        menu_rows.append(("program", "Program FPGA (requires --bitstream or -c config)", "", ""))
+    for filepath, original_mtime in pulled_files.items():
+        if not os.path.exists(filepath):
+            return False
+        current_mtime = os.path.getmtime(filepath)
+        # Allow small tolerance for floating point comparison
+        if abs(current_mtime - original_mtime) > 0.01:
+            return False
     
-    # Get selected device data from cache (if user explicitly selected)
-    selected_device_dna = "None"
+    return True
+
+
+def _get_git_status_info(invoked_cwd: str, file_version: str) -> dict:
+    """Get git status information for the release folder.
+    
+    Returns dict with:
+        - 'tag_match': True if file version matches a git tag
+        - 'matching_tag': Name of matching tag (if any)
+        - 'working_clean': True if release folder has no uncommitted changes
+        - 'status_lines': List of status strings
+    """
+    import subprocess
+    
+    result = {
+        'tag_match': False,
+        'matching_tag': '',
+        'working_clean': True,
+        'status_lines': []
+    }
+    
+    if not invoked_cwd or not os.path.isdir(invoked_cwd):
+        result['status_lines'].append("(no folder)")
+        return result
+    
+    try:
+        # Find git root
+        git_root_result = subprocess.run(
+            ['git', 'rev-parse', '--show-toplevel'],
+            cwd=invoked_cwd,
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if git_root_result.returncode != 0:
+            result['status_lines'].append("(not a git repo)")
+            return result
+        
+        git_root = git_root_result.stdout.strip()
+        
+        # Check if file version matches a git tag
+        if file_version:
+            # Get all tags
+            tags_result = subprocess.run(
+                ['git', 'tag', '-l'],
+                cwd=git_root,
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            if tags_result.returncode == 0:
+                tags = tags_result.stdout.strip().split('\n')
+                for tag in tags:
+                    tag = tag.strip()
+                    # Check if tag matches or contains the version
+                    if tag == file_version or file_version in tag or tag in file_version:
+                        result['tag_match'] = True
+                        result['matching_tag'] = tag
+                        break
+        
+        # Check git status for the release folder (uncommitted changes)
+        # Get relative path from git root
+        rel_path = os.path.relpath(invoked_cwd, git_root)
+        
+        status_result = subprocess.run(
+            ['git', 'status', '--porcelain', '--', rel_path],
+            cwd=git_root,
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        if status_result.returncode == 0:
+            status_output = status_result.stdout.strip()
+            if status_output:
+                result['working_clean'] = False
+                # Parse status lines
+                for line in status_output.split('\n'):
+                    if line.strip():
+                        # Format: XY filename
+                        status_code = line[:2]
+                        filename = os.path.basename(line[3:].strip())
+                        if status_code == '??':
+                            result['status_lines'].append(f"{filename}: untracked")
+                        elif status_code[0] == 'M' or status_code[1] == 'M':
+                            result['status_lines'].append(f"{filename}: modified")
+                        elif status_code[0] == 'A':
+                            result['status_lines'].append(f"{filename}: added")
+                        elif status_code[0] == 'D' or status_code[1] == 'D':
+                            result['status_lines'].append(f"{filename}: deleted")
+                        else:
+                            result['status_lines'].append(f"{filename}: {status_code.strip()}")
+        
+    except subprocess.TimeoutExpired:
+        result['status_lines'].append("(git timeout)")
+    except Exception as e:
+        result['status_lines'].append(f"(git error)")
+    
+    return result
+
+
+def _get_pull_status() -> tuple:
+    """Get detailed status of pulled files and release folder.
+    
+    Returns:
+        (tag_matches: bool, status_lines: list)
+        - tag_matches: True if all pulled files are intact
+        - status_lines: List of status strings for modified/added/removed files
+    """
+    pulled_files = _menu_db.get('pulled_files', {})
+    last_pulled_tag = _menu_db.get('last_pulled_tag', '')
+    release_dir = _menu_db.get('invoked_cwd', '')
+    
+    if not pulled_files or not last_pulled_tag:
+        return False, []
+    
+    status_lines = []
+    all_intact = True
+    
+    # Check each pulled file
+    for filepath, original_mtime in pulled_files.items():
+        filename = os.path.basename(filepath)
+        if not os.path.exists(filepath):
+            status_lines.append(f"{filename}: REMOVED")
+            all_intact = False
+        else:
+            current_mtime = os.path.getmtime(filepath)
+            if abs(current_mtime - original_mtime) > 0.01:
+                status_lines.append(f"{filename}: MODIFIED")
+                all_intact = False
+    
+    # Check for new files in release folder (not in pulled_files)
+    if release_dir and os.path.isdir(release_dir):
+        pulled_basenames = {os.path.basename(f) for f in pulled_files.keys()}
+        for f in os.listdir(release_dir):
+            filepath = os.path.join(release_dir, f)
+            if os.path.isfile(filepath):
+                # Skip hidden files and non-release files
+                if f.startswith('.'):
+                    continue
+                # Check if this file was part of the pull
+                if f not in pulled_basenames:
+                    # Check if it's a relevant file type (bit, ltx, json)
+                    if f.endswith(('.bit', '.ltx', '.json')):
+                        status_lines.append(f"{f}: ADDED")
+                        all_intact = False
+    
+    return all_intact, status_lines
+
+
+def _verify_bitstream_matches_config(bitstream_path: str, config_version: str, config_timestamp: str) -> bool:
+    """Verify that bitstream file's USR_ACCESS/USERID match config version/timestamp.
+    
+    Args:
+        bitstream_path: Path to bitstream file
+        config_version: Version string from config (e.g., "v1.6.0")
+        config_timestamp: Timestamp string from config (e.g., "2026-01-16 14:54")
+    
+    Returns:
+        True if matches or no config values specified, False if mismatch
+    """
+    # If no config values specified, nothing to verify
+    if not config_version and not config_timestamp:
+        return True
+    
+    # Read USR_ACCESS and USERID from bitstream
+    try:
+        bit_usr_access = _read_usr_access_value(bitstream_path)
+        bit_userid = _read_userid_raw(bitstream_path)
+    except Exception as e:
+        result_message(f"VERIFY WARNING - Could not read bitstream values: {e}")
+        return True  # Don't fail if we can't read
+    
+    all_match = True
+    
+    # Verify version (USR_ACCESS)
+    if config_version and bit_usr_access is not None:
+        # Decode USR_ACCESS to version string
+        bit_version = _decode_version(bit_usr_access)
+        if bit_version != config_version:
+            result_message(f"VERIFY MISMATCH - Version: config={config_version}, bitstream={bit_version}")
+            all_match = False
+        else:
+            result_message(f"VERIFY OK - Version: {config_version}")
+    
+    # Verify timestamp (USERID)
+    if config_timestamp and bit_userid is not None:
+        # Decode USERID to timestamp string
+        bit_timestamp = _decode_timestamp(bit_userid)
+        if bit_timestamp != config_timestamp:
+            result_message(f"VERIFY MISMATCH - Timestamp: config={config_timestamp}, bitstream={bit_timestamp}")
+            all_match = False
+        else:
+            result_message(f"VERIFY OK - Timestamp: {config_timestamp}")
+    
+    return all_match
+
+
+def _scan_config_files(invoked_cwd: str) -> list:
+    """Scan for JSON config files in the invoked folder.
+    
+    Returns list of config file names (relative to invoked_cwd).
+    """
+    config_files = []
+    if invoked_cwd and os.path.isdir(invoked_cwd):
+        for f in os.listdir(invoked_cwd):
+            if f.endswith('.json') and os.path.isfile(os.path.join(invoked_cwd, f)):
+                config_files.append(f)
+    return sorted(config_files)
+
+
+def _get_device_name_by_dna(dna: str, invoked_cwd: str) -> str:
+    """Get device name by searching all config files for matching DNA.
+    
+    The device name is derived from the config filename (without .json extension).
+    
+    Args:
+        dna: Device DNA to search for
+        invoked_cwd: Directory containing config files
+        
+    Returns:
+        Config filename (without .json) if DNA match found, empty string otherwise
+    """
+    if not dna or not invoked_cwd:
+        return ""
+    
+    dna_clean = dna.lstrip('0').upper() or '0'
+    
+    config_files = _scan_config_files(invoked_cwd)
+    for cfg_filename in config_files:
+        try:
+            cfg_path = os.path.join(invoked_cwd, cfg_filename)
+            if os.path.exists(cfg_path):
+                with open(cfg_path, 'r') as f:
+                    cfg_data = json.load(f)
+                
+                # Extract DNA from config (supports single-DNA and multi-DNA formats)
+                if 'dna' in cfg_data:
+                    # Single-DNA format
+                    cfg_dna = cfg_data.get('dna', '').lstrip('0').upper() or '0'
+                    if dna_clean == cfg_dna:
+                        # Return filename without .json extension
+                        return cfg_filename[:-5] if cfg_filename.endswith('.json') else cfg_filename
+                else:
+                    # Multi-DNA format: keys are DNA values
+                    for key in cfg_data.keys():
+                        if isinstance(cfg_data.get(key), dict) and key not in ['hw_server_host', 'hw_server_port', 'bit_file', 'ltx_file', 'device']:
+                            cfg_dna = key.lstrip('0').upper() or '0'
+                            if dna_clean == cfg_dna:
+                                return cfg_filename[:-5] if cfg_filename.endswith('.json') else cfg_filename
+        except (json.JSONDecodeError, IOError):
+            pass  # Skip invalid config files
+    
+    return ""
+
+
+def _expand_path(path: str, invoked_cwd: str) -> str:
+    """Expand environment variables and resolve path relative to invoked_cwd.
+    
+    Args:
+        path: Path string (may contain env vars like $HOME or ${VAR})
+        invoked_cwd: Base directory for relative paths
+        
+    Returns:
+        Absolute path with env vars expanded
+    """
+    # Expand environment variables
+    expanded = os.path.expandvars(path)
+    expanded = os.path.expanduser(expanded)
+    
+    # If relative, make absolute relative to invoked_cwd
+    if not os.path.isabs(expanded):
+        expanded = os.path.join(invoked_cwd, expanded)
+    
+    return os.path.abspath(expanded)
+
+
+def _perform_scan(console: VivadoTCLConsole, bitstream: str, probes: str, 
+                  server_ip: str = 'localhost', server_port: str = '3121') -> bool:
+    """Perform full JTAG scan and update menu database.
+    
+    Scans JTAG chain, reads DNA and USR_ACCESS/USERID from each device,
+    reads USR_ACCESS from bitstream files, and updates _menu_db.
+    
+    Returns True on success, False on failure.
+    """
+    global _menu_db
+    
+    # Ensure console is started and connected
+    if not _ensure_console_started(console, server_ip, server_port):
+        result_message("SCAN FAILED - Could not connect to hardware server")
+        return False
+    
+    # 1. Scan JTAG chain for devices
+    result = console.scan_jtag()
+    if not result:
+        result_message("SCAN FAILED - JTAG scan failed")
+        return False
+    
+    # 2. Get device list from cache
+    device_list = console.device_list_cache
+    
+    # 3. Loop over each device, read DNA and USR_ACCESS
+    scanned_devices = []
+    for i, dev in enumerate(device_list):
+        dev_dna = dev.get('dna', '')
+        target_idx = dev.get('target_idx', 0)
+        device_idx = dev.get('device_idx', 0)
+        target_name = dev.get('target_name', '')
+        dev_name = dev.get('name', '')
+        
+        # Get device name by searching config files for DNA match
+        invoked_cwd = _menu_db.get('invoked_cwd', '')
+        device_display_name = _get_device_name_by_dna(dev_dna, invoked_cwd)
+        
+        # Read USR_ACCESS and USERID from device
+        usr_access_value = None
+        userid_value = None
+        try:
+            # Open target and select device to read USR_ACCESS
+            console.send_command("set all_targets [get_hw_targets]", timeout=5)
+            console.send_command("foreach t $all_targets { if {[get_property IS_OPEN $t]} { close_hw_target $t } }", timeout=5)
+            console.send_command("set all_targets [get_hw_targets]", timeout=5)
+            console.send_command(f"set target [lindex $all_targets {target_idx}]", timeout=2)
+            console.send_command("open_hw_target $target", timeout=10)
+            console.send_command("set devices [get_hw_devices]", timeout=5)
+            console.send_command(f"set device [lindex $devices {device_idx}]", timeout=2)
+            console.send_command("current_hw_device $device", timeout=2)
+            console.send_command("refresh_hw_device $device", timeout=10)
+            
+            # Read USR_ACCESS (version)
+            usr_access_value = _read_usr_access_from_device_value(console)
+            # Read USERID (timestamp)
+            userid_value = _read_userid_from_device_value(console)
+        except Exception as e:
+            log_message(f"Could not read USR_ACCESS/USERID from device {i}: {e}")
+        
+        # Format decoded display string
+        decoded_str = _format_version_and_timestamp(usr_access_value, userid_value)
+        
+        scanned_devices.append({
+            'dna': dev_dna,
+            'name': device_display_name,
+            'usr_access': usr_access_value,
+            'userid': userid_value,
+            'decoded': decoded_str,
+            'target_idx': target_idx,
+            'device_idx': device_idx,
+            'target_name': target_name,
+            'dev_name': dev_name,
+            'ila_list': [],
+            'vio_list': [],
+        })
+    
+    # 4. Read USR_ACCESS and USERID from bitstream files
+    scanned_files = []
+    if bitstream and os.path.exists(bitstream):
+        filename = os.path.basename(bitstream)
+        usr_access_value = _read_usr_access_value(bitstream)
+        userid_value = _read_userid_raw(bitstream)
+        decoded_str = _format_version_and_timestamp(usr_access_value, userid_value)
+        scanned_files.append({
+            'filename': filename,
+            'usr_access': usr_access_value,
+            'userid': userid_value,
+            'decoded': decoded_str,
+            'path': bitstream,
+        })
+        # Cache for display
+        console.bitstream_usr_access = usr_access_value
+        console.bitstream_userid = userid_value
+    
+    if probes and os.path.exists(probes):
+        filename = os.path.basename(probes)
+        scanned_files.append({
+            'filename': filename,
+            'usr_access': None,  # .ltx files don't have USR_ACCESS
+            'userid': None,
+            'decoded': '',
+            'path': probes,
+        })
+    
+    # 5. Update menu database
+    _menu_db['devices'] = scanned_devices
+    _menu_db['files'] = scanned_files
+    _menu_db['scanned'] = True
+    
+    # Update console cache to match menu database
+    console.device_list_cache = scanned_devices
+    
+    result_message(f"SCAN COMPLETE - {len(scanned_devices)} device(s), {len(scanned_files)} file(s)")
+    return True
+
+
+def _draw_menu_table(console: VivadoTCLConsole, vio_outputs: dict = None) -> None:
+    """Draw the menu table using prettytable based on _menu_db.
+    
+    Each column represents a category of information:
+    - Program: files in folder with version and timestamps
+    - VIO/ILA: list of VIO/ILA actions/commands  
+    - JTAG Chain: list of devices
+    - Config Files: list of config files
+    - Device: opened device
+    - HW Server: ip:port
+    - Commands: available commands
+    """
+    global _menu_db
+    
+    # Scan for config files in invoked folder
+    invoked_cwd = _menu_db.get('invoked_cwd', '')
+    if invoked_cwd and not _menu_db.get('config_files'):
+        _menu_db['config_files'] = _scan_config_files(invoked_cwd)
+    
+    # Get selected device data
     selected_device = None
-    if console.device_explicitly_selected and console.selected_device_dna:
-        selected_device_dna = console.selected_device_dna
-        # Find selected device in cache to get its ILA/VIO data
-        for dev in console.device_list_cache:
-            if dev.get('dna') == console.selected_device_dna:
+    selected_dna = _menu_db.get('selected_dna', '') or (console.selected_device_dna if hasattr(console, 'selected_device_dna') else '')
+    if selected_dna:
+        for dev in _menu_db.get('devices', []):
+            if dev.get('dna') == selected_dna:
                 selected_device = dev
                 break
     
-    # Build ILA options from selected device's data (stored in device database)
-    ila_options = ""
-    if selected_device:
-        ila_list = selected_device.get('ila_list', [])
-        if ila_list:
-            ila_lines = []
-            for i, ila in enumerate(ila_list):
-                idx = i + 1
-                ila_lines.append(f"ila-{idx}: read")
-                ila_lines.append(f"ila-{idx}-save-ila")
-                ila_lines.append(f"ila-{idx}-save-vcd")
-                ila_lines.append(f"ila-{idx}-save-csv")
-            ila_options = "\n".join(ila_lines)
+    # Build ILA options
+    ila_list = selected_device.get('ila_list', []) if selected_device else []
     
-    # Build VIO options from selected device's data (stored in device database)
-    vio_options = ""
-    if selected_device:
-        vio_list = selected_device.get('vio_list', [])
-        if vio_list:
-            vio_lines = []
-            for i, vio in enumerate(vio_list):
-                idx = i + 1
-                vio_lines.append(f"vio-{idx}")
-                if vio_outputs:
-                    vio_lines.append(f"vio-{idx}-set-from-file")
-                vio_lines.append(f"vio-{idx}-set-hex")
-            vio_options = "\n".join(vio_lines)
+    # Build VIO options  
+    vio_list = selected_device.get('vio_list', []) if selected_device else []
     
-    menu_rows.append(("device", f"Scan JTAG Targets: [{selected_device_dna}]", ila_options, vio_options))
+    # Get config info
+    loaded_config = _menu_db.get('loaded_config', '')
+    hw_server_ip = _menu_db.get('hw_server_ip', 'localhost')
+    hw_server_port = _menu_db.get('hw_server_port', '3121')
+    hw_server_str = f"{hw_server_ip}:{hw_server_port}"
     
-    # Device list from cache (regenerated by 'device' command, cleared by 'clear')
-    for i, dev in enumerate(console.device_list_cache):
-        idx = i + 1
-        dev_dna = dev.get('dna', '')
-        is_current = (console.device_explicitly_selected and 
-                      console.selected_device_dna and 
-                      dev_dna and dev_dna != 'N/A' and
-                      dev_dna == console.selected_device_dna)
-        current_marker = " [CURRENT]" if is_current else ""
-        dna_display = dev_dna or 'N/A'
-        menu_rows.append(("", f"device-{idx}: {dna_display}{current_marker}", "", ""))
+    # ===== BUILD COLUMN CONTENT =====
     
-    if bitstream:
-        # Extract just the filename from the path
-        bitstream_filename = os.path.basename(bitstream)
-        menu_rows.append(("read-file", f"Read USR_ACCESS/USERID from bitstream file: {bitstream_filename}", "", ""))
-    else:
-        menu_rows.append(("read-file", "Read USR_ACCESS/USERID from bitstream file (requires --bitstream or -c config)", "", ""))
+    # --- Program File column: .bit and .ltx files in folder ---
+    # If no files in menu_db, scan the invoked folder for .bit and .ltx files
+    if not _menu_db.get('files') and invoked_cwd and os.path.isdir(invoked_cwd):
+        files_in_folder = []
+        for f in sorted(os.listdir(invoked_cwd)):
+            filepath = os.path.join(invoked_cwd, f)
+            if os.path.isfile(filepath) and (f.endswith('.bit') or f.endswith('.ltx')):
+                decoded = ''
+                if f.endswith('.bit'):
+                    try:
+                        usr_access = _read_usr_access_value(filepath)
+                        userid = _read_userid_raw(filepath)
+                        version = _decode_version(usr_access) if usr_access else ''
+                        timestamp = _decode_timestamp(userid) if userid else ''
+                        if version or timestamp:
+                            decoded = f"{version} ({timestamp})" if version and timestamp else (version or timestamp)
+                    except:
+                        pass
+                files_in_folder.append({'filename': f, 'path': filepath, 'decoded': decoded})
+        _menu_db['files'] = files_in_folder
     
-    menu_rows.append(("read-device", "Read USR_ACCESS/USERID from FPGA device", "", ""))
-    menu_rows.append(("pull", "Pull release (fetch files from git tag)", "", ""))
-    menu_rows.append(("clear", "Clear/Reset FPGA Device", "", ""))
-    
-    # Calculate column widths (similar to hw_server_tables.py pattern)
-    headers = ["Command", "Description", "ILA", "VIO"]
-    cmd_width = max(len(headers[0]), max(len(row[0]) for row in menu_rows))
-    desc_width = max(len(headers[1]), max(len(row[1]) for row in menu_rows))
-    
-    # Calculate ILA/VIO column widths (need to check multi-line content)
-    ila_width = len(headers[2])
-    vio_width = len(headers[3])
-    for row in menu_rows:
-        if row[2]:  # ILA options
-            for line in row[2].split('\n'):
-                ila_width = max(ila_width, len(line))
-        if row[3]:  # VIO options
-            for line in row[3].split('\n'):
-                vio_width = max(vio_width, len(line))
-    ila_width = max(ila_width, 20)  # Minimum width
-    vio_width = max(vio_width, 20)  # Minimum width
-    
-    widths = [cmd_width, desc_width, ila_width, vio_width]
-    
-    # Print table header (using same pattern as hw_server_tables.py)
-    print("=" * 60)
-    print(" MENU: HW Server Menu")
-    print("=" * 60)
-    
-    # Print table separator
-    sep = "+" + "+".join("-" * (w + 2) for w in widths) + "+"
-    print(sep)
-    
-    # Print header row
-    header_row = "|" + "|".join(f" {h:<{w}} " for h, w in zip(headers, widths)) + "|"
-    print(header_row)
-    print(sep)
-    
-    # Print menu rows (handle multi-line ILA/VIO options)
-    for cmd, desc, ila_opt, vio_opt in menu_rows:
-        ila_lines = ila_opt.split('\n') if ila_opt else [""]
-        vio_lines = vio_opt.split('\n') if vio_opt else [""]
-        max_lines = max(len(ila_lines), len(vio_lines), 1)
+    program_lines = []
+    for f in _menu_db.get('files', []):
+        filename = f.get('filename', '')
+        filepath = f.get('path', '')
+        decoded = f.get('decoded', '')
         
-        for line_idx in range(max_lines):
-            ila_line = ila_lines[line_idx] if line_idx < len(ila_lines) else ""
-            vio_line = vio_lines[line_idx] if line_idx < len(vio_lines) else ""
-            # Only show cmd/desc on first line
-            if line_idx == 0:
-                row = "|" + "|".join([
-                    f" {cmd:<{widths[0]}} ",
-                    f" {desc:<{widths[1]}} ",
-                    f" {ila_line:<{widths[2]}} ",
-                    f" {vio_line:<{widths[3]}} "
-                ]) + "|"
+        if filename.endswith('.bit'):
+            label = "bit"
+        elif filename.endswith('.ltx'):
+            label = "ltx"
+        else:
+            label = "file"
+        
+        # Check if file exists
+        file_exists = filepath and os.path.exists(filepath)
+        if not file_exists and invoked_cwd:
+            # Try to find in invoked folder
+            check_path = os.path.join(invoked_cwd, filename)
+            file_exists = os.path.exists(check_path)
+        
+        if file_exists:
+            display = f"{label}: {filename}"
+            if decoded:
+                display += f"\n     {decoded}"
             else:
-                row = "|" + "|".join([
-                    f" {'':<{widths[0]}} ",
-                    f" {'':<{widths[1]}} ",
-                    f" {ila_line:<{widths[2]}} ",
-                    f" {vio_line:<{widths[3]}} "
-                ]) + "|"
-            print(row)
+                display += "\n     (no ver/time)"
+        else:
+            display = f"{label}: {filename}\n     (FILE NOT FOUND)"
+        
+        program_lines.append(display)
     
-    # Print table footer
-    print(sep)
-    print(" " * (widths[0] + widths[1] + 6) + "q. Exit | m. Menu")
-    print("=" * 60)
-    # Print "Select an option: " without newline, then get input on same line
-    print(" Select an option: ", end="", flush=True)
+    # Add verification status: compare config vs bitstream file
+    config_version = _menu_db.get('config_version', '')
+    config_timestamp = _menu_db.get('config_timestamp', '')
+    config_bitstream = _menu_db.get('config_bitstream', '')
+    
+    if loaded_config:
+        # Config is loaded - show verification section
+        program_lines.append("---")
+        program_lines.append("[Config vs File]")
+        
+        if (config_version or config_timestamp) and config_bitstream and invoked_cwd:
+            bitstream_path = os.path.join(invoked_cwd, config_bitstream)
+            if os.path.exists(bitstream_path):
+                try:
+                    bit_usr_access = _read_usr_access_value(bitstream_path)
+                    bit_userid = _read_userid_raw(bitstream_path)
+                    verify_lines = []
+                    if config_version and bit_usr_access is not None:
+                        bit_version = _decode_version(bit_usr_access)
+                        if bit_version != config_version:
+                            verify_lines.append(f"ver: MISMATCH")
+                            verify_lines.append(f"  cfg:  {config_version}")
+                            verify_lines.append(f"  file: {bit_version}")
+                        else:
+                            verify_lines.append(f"ver: OK ({config_version})")
+                    if config_timestamp and bit_userid is not None:
+                        bit_timestamp = _decode_timestamp(bit_userid)
+                        if bit_timestamp != config_timestamp:
+                            verify_lines.append(f"time: MISMATCH")
+                            verify_lines.append(f"  cfg:  {config_timestamp}")
+                            verify_lines.append(f"  file: {bit_timestamp}")
+                        else:
+                            verify_lines.append(f"time: OK ({config_timestamp})")
+                    if verify_lines:
+                        program_lines.extend(verify_lines)
+                except Exception:
+                    program_lines.append("(read error)")
+            else:
+                program_lines.append("(file not found)")
+        else:
+            program_lines.append("(no ver/time in config)")
+    
+    # Add pull status
+    last_pulled_tag = _menu_db.get('last_pulled_tag', '')
+    if last_pulled_tag:
+        tag_matches, status_lines = _get_pull_status()
+        program_lines.append("---")
+        if tag_matches:
+            program_lines.append(f"tag: {last_pulled_tag}")
+        else:
+            program_lines.append(f"tag: {last_pulled_tag} (changed)")
+            program_lines.extend(status_lines)
+    
+    # --- VIO/ILA column: show core names and available commands ---
+    vio_ila_lines = []
+    config_loaded = bool(_menu_db.get('loaded_config', ''))
+    
+    if ila_list:
+        vio_ila_lines.append("ILA:")
+        for i, ila in enumerate(ila_list):
+            idx = i + 1
+            ila_name = ila.get('name', f'ila_{idx}')
+            vio_ila_lines.append(f"  {ila_name}")
+            vio_ila_lines.append(f"    ila-{idx}")
+    if vio_list:
+        if vio_ila_lines:
+            vio_ila_lines.append("")
+        vio_ila_lines.append("VIO:")
+        for i, vio in enumerate(vio_list):
+            idx = i + 1
+            vio_name = vio.get('name', f'vio_{idx}')
+            probe_count = vio.get('probe_count', 0)
+            vio_ila_lines.append(f"  {vio_name} ({probe_count} probes)")
+            vio_ila_lines.append(f"    vio-{idx}          (read)")
+            vio_ila_lines.append(f"    vio-{idx}-set-hex  (set manual)")
+            if config_loaded:
+                vio_ila_lines.append(f"    vio-{idx}-set-from-file")
+    
+    # --- JTAG Chain column: list of devices ---
+    # Build a map of DNA -> config filename by reading each config file
+    dna_to_config = {}
+    invoked_cwd = _menu_db.get('invoked_cwd', '')
+    for cfg_filename in _menu_db.get('config_files', []):
+        try:
+            cfg_path = os.path.join(invoked_cwd, cfg_filename) if invoked_cwd else cfg_filename
+            if os.path.exists(cfg_path):
+                with open(cfg_path, 'r') as f:
+                    cfg_data = json.load(f)
+                # Extract DNA from config (supports single-DNA and multi-DNA formats)
+                if 'dna' in cfg_data:
+                    # Single-DNA format
+                    cfg_dna = cfg_data.get('dna', '').lstrip('0').upper() or '0'
+                    dna_to_config[cfg_dna] = cfg_filename
+                else:
+                    # Multi-DNA format: keys are DNA values
+                    for key in cfg_data.keys():
+                        if isinstance(cfg_data.get(key), dict) and key not in ['hw_server_host', 'hw_server_port', 'bit_file', 'ltx_file', 'device']:
+                            cfg_dna = key.lstrip('0').upper() or '0'
+                            dna_to_config[cfg_dna] = cfg_filename
+        except (json.JSONDecodeError, IOError):
+            pass  # Skip invalid config files
+    
+    jtag_lines = []
+    for dev in _menu_db.get('devices', []):
+        dev_dna = dev.get('dna', '')
+        decoded = dev.get('decoded', '')
+        
+        jtag_lines.append(f"dna: {dev_dna}")
+        if decoded:
+            jtag_lines.append(f"  {decoded}")
+        
+        # Check if this device's DNA matches any config file
+        dev_dna_clean = dev_dna.lstrip('0').upper() or '0'
+        if dev_dna_clean in dna_to_config:
+            jtag_lines.append(f"  -> {dna_to_config[dev_dna_clean]}")
+        
+        if _menu_db.get('devices', []).index(dev) < len(_menu_db.get('devices', [])) - 1:
+            jtag_lines.append("---")
+    
+    # --- Config Files column: list of config files with summary ---
+    config_lines = []
+    invoked_cwd_cfg = _menu_db.get('invoked_cwd', '')
+    config_files_list = _menu_db.get('config_files', [])
+    for cfg_idx, cfg in enumerate(config_files_list):
+        is_loaded = loaded_config and os.path.basename(loaded_config) == cfg
+        
+        # Read config file to get summary
+        cfg_summary = []
+        try:
+            cfg_path = os.path.join(invoked_cwd_cfg, cfg) if invoked_cwd_cfg else cfg
+            if os.path.exists(cfg_path):
+                with open(cfg_path, 'r') as f:
+                    cfg_data = json.load(f)
+                
+                # Get DNA
+                cfg_dna = cfg_data.get('dna', '')
+                if cfg_dna:
+                    cfg_summary.append(f"  dna: {cfg_dna}")
+                
+                # Get HW server
+                hw_host = cfg_data.get('hw_server_host', '')
+                hw_port = cfg_data.get('hw_server_port', '')
+                if hw_host:
+                    cfg_summary.append(f"  server: {hw_host}:{hw_port}")
+                
+                # Get files
+                files_cfg = cfg_data.get('files', {})
+                bit_file = files_cfg.get('bit_file', '') or cfg_data.get('bit_file', '')
+                ltx_file = files_cfg.get('ltx_file', '') or cfg_data.get('ltx_file', '')
+                if bit_file:
+                    cfg_summary.append(f"  bit: {bit_file}")
+                if ltx_file:
+                    cfg_summary.append(f"  ltx: {ltx_file}")
+                
+                # Get version
+                cfg_version = cfg_data.get('version', '')
+                if cfg_version:
+                    cfg_summary.append(f"  ver: {cfg_version}")
+                
+                # Get VIO outputs with non-empty values
+                vio_outputs = cfg_data.get('vio_outputs', {})
+                vio_values = []
+                for probe_name, probe_cfg in vio_outputs.items():
+                    if isinstance(probe_cfg, dict):
+                        value = probe_cfg.get('value', '')
+                        if value:  # Only show non-empty values
+                            vio_values.append(f"{probe_name}={value}")
+                if vio_values:
+                    cfg_summary.append(f"  vio: {', '.join(vio_values)}")
+        except (json.JSONDecodeError, IOError):
+            pass
+        
+        # Add config filename (compact: remove .json extension)
+        cfg_display = cfg[:-5] if cfg.endswith('.json') else cfg
+        if is_loaded:
+            config_lines.append(f"{cfg_display} (loaded)")
+        else:
+            config_lines.append(f"{cfg_display}")
+        
+        # Add summary
+        if cfg_summary:
+            config_lines.extend(cfg_summary)
+        
+        # Add separator between configs (except after last one)
+        if cfg_idx < len(config_files_list) - 1:
+            config_lines.append("")
+    
+    # --- Device column: opened device ---
+    device_lines = []
+    if selected_device and selected_dna:
+        dev_name = selected_device.get('name', '')
+        if dev_name:
+            device_lines.append(f"name: {dev_name}")
+        device_lines.append(f"dna: {selected_dna}")
+        decoded = selected_device.get('decoded', '')
+        if decoded:
+            device_lines.append(f"ver: {decoded}")
+    else:
+        device_lines.append("(none)")
+    
+    # --- HW Server column: ip:port ---
+    hw_server_lines = [hw_server_str]
+    
+    # --- Git Status column: git tag match, working folder status ---
+    git_status_lines = []
+    
+    # Get file version from bitstream (for tag matching)
+    file_version = ''
+    for f in _menu_db.get('files', []):
+        if f.get('filename', '').endswith('.bit'):
+            decoded = f.get('decoded', '')
+            if decoded:
+                parts = decoded.split(' ')
+                if parts:
+                    file_version = parts[0]
+            break
+    
+    git_info = _get_git_status_info(invoked_cwd, file_version)
+    
+    # Section 1: Git tag status
+    git_status_lines.append("[Tag]")
+    if file_version and git_info['tag_match']:
+        git_status_lines.append(f"{git_info['matching_tag']}")
+    else:
+        git_status_lines.append("(none)")
+    
+    # Section 2: Working folder git status
+    git_status_lines.append("")
+    git_status_lines.append("[Uncommitted]")
+    if git_info['working_clean']:
+        git_status_lines.append("(none)")
+    else:
+        for line in git_info['status_lines']:
+            git_status_lines.append(line)
+    
+    # --- Commands column: all available commands ---
+    commands_lines = [
+        "server   - Set HW server",
+        "scan     - Scan JTAG chain",
+        "open <dna> - Open device",
+        "load <cfg> - Load config",
+        "---",
+        "file-bit - Set bitstream",
+        "file-ltx - Set probes",
+        "program  - Program FPGA",
+        "clear    - Clear FPGA",
+        "pull     - Pull release",
+        "---",
+        "q - Exit | m - Menu",
+    ]
+    
+    # ===== CREATE TABLE =====
+    table = PrettyTable()
+    # Column headers: short names, commands shown in Commands column
+    table.field_names = [
+        "HW Server",
+        "JTAG Chain", 
+        "Program Files",
+        "Opened Device", 
+        "VIO/ILA",
+        "Config Files",
+        "Git Status",
+        "Commands"
+    ]
+    table.align = "l"
+    table.vrules = 1  # Vertical rules between columns
+    
+    # Determine VIO/ILA fallback message based on state
+    if vio_ila_lines:
+        vio_ila_content = "\n".join(vio_ila_lines)
+    elif _menu_db.get('selected_dna'):
+        # Device is selected but has no VIO/ILA cores
+        vio_ila_content = "(none)"
+    elif _menu_db.get('scanned') and _menu_db.get('devices'):
+        # Scan done, devices found, but no device selected
+        vio_ila_content = "(open <dna>)"
+    else:
+        vio_ila_content = "(scan first)"
+    
+    # Add single row with all content (order matches field_names)
+    table.add_row([
+        "\n".join(hw_server_lines),
+        "\n".join(jtag_lines) if jtag_lines else "(scan first)",
+        "\n".join(program_lines) if program_lines else "(no files)",
+        "\n".join(device_lines),
+        vio_ila_content,
+        "\n".join(config_lines) if config_lines else "(no configs)",
+        "\n".join(git_status_lines) if git_status_lines else "(no version)",
+        "\n".join(commands_lines),
+    ])
+    
+    # Print table
+    print("=" * 120)
+    print(" HW Client Menu")
+    print("=" * 120)
+    print(table)
+    print("=" * 120)
+    print(" Select: ", end="", flush=True)
+
+
+def _print_menu(console: VivadoTCLConsole, bitstream: str, probes: str, vio_outputs: dict = None) -> None:
+    """Print the interactive menu using prettytable.
+    
+    Syncs menu database from console state, then draws the table.
+    """
+    global _menu_db
+    
+    # Sync menu database from console state
+    # Update selected DNA
+    if hasattr(console, 'selected_device_dna') and console.selected_device_dna:
+        _menu_db['selected_dna'] = console.selected_device_dna
+    
+    # Update files if not already populated
+    if not _menu_db.get('files'):
+        files = []
+        if bitstream and os.path.exists(bitstream):
+            filename = os.path.basename(bitstream)
+            usr_access_value = _read_usr_access_value(bitstream)
+            userid_value = _read_userid_raw(bitstream)
+            decoded_str = _format_version_and_timestamp(usr_access_value, userid_value)
+            files.append({
+                'filename': filename, 
+                'usr_access': usr_access_value, 
+                'userid': userid_value,
+                'decoded': decoded_str,
+                'path': bitstream
+            })
+            console.bitstream_usr_access = usr_access_value
+            console.bitstream_userid = userid_value
+        if probes and os.path.exists(probes):
+            filename = os.path.basename(probes)
+            files.append({
+                'filename': filename, 
+                'usr_access': None, 
+                'userid': None,
+                'decoded': '',
+                'path': probes
+            })
+        _menu_db['files'] = files
+    
+    # Sync device list from console cache
+    if console.device_list_cache and not _menu_db.get('devices'):
+        devices = []
+        invoked_cwd = _menu_db.get('invoked_cwd', '')
+        for dev in console.device_list_cache:
+            dev_dna = dev.get('dna', '')
+            # Get device name by searching config files for DNA match
+            device_display_name = _get_device_name_by_dna(dev_dna, invoked_cwd)
+            # Get decoded version/timestamp
+            usr_access_val = dev.get('usr_access')
+            userid_val = dev.get('userid')
+            decoded_str = dev.get('decoded', '') or _format_version_and_timestamp(usr_access_val, userid_val)
+            devices.append({
+                'dna': dev_dna,
+                'name': device_display_name,
+                'usr_access': usr_access_val,
+                'userid': userid_val,
+                'decoded': decoded_str,
+                'target_idx': dev.get('target_idx', 0),
+                'device_idx': dev.get('device_idx', 0),
+                'ila_list': dev.get('ila_list', []),
+                'vio_list': dev.get('vio_list', []),
+            })
+        _menu_db['devices'] = devices
+    
+    # Draw the table
+    _draw_menu_table(console, vio_outputs)
 
 
 def _print_prompt():
@@ -1176,6 +2554,8 @@ def _interactive_loop(console: VivadoTCLConsole, bitstream: str, probes: str,
     Args:
         cmd_buffer: List of commands to process as if user typed them (from --cmd)
     """
+    global _menu_db
+    
     # Use lists to allow updates from menu choices (Python doesn't have pass-by-reference for strings)
     state = {
         'bitstream': bitstream,
@@ -1185,6 +2565,19 @@ def _interactive_loop(console: VivadoTCLConsole, bitstream: str, probes: str,
         'server_port': server_port,
         'config_path': config_path
     }
+    
+    # Store invoked_cwd and hw_server info in menu database
+    _menu_db['invoked_cwd'] = invoked_cwd or os.getcwd()
+    _menu_db['loaded_config'] = config_path
+    _menu_db['hw_server_ip'] = server_ip
+    _menu_db['hw_server_port'] = server_port
+    _menu_db['config_bitstream'] = os.path.basename(bitstream) if bitstream else ''
+    _menu_db['config_probes'] = os.path.basename(probes) if probes else ''
+    # Load version/timestamp from config if available
+    if config_path and os.path.exists(config_path):
+        _, _, _, _, _, _, _, _, _, cfg_version, cfg_timestamp = _load_and_resolve_config(config_path, invoked_cwd, silent=True)
+        _menu_db['config_version'] = cfg_version or ''
+        _menu_db['config_timestamp'] = cfg_timestamp or ''
     
     # Initialize command buffer from cmd_buffer if provided
     cmd_queue = list(cmd_buffer) if cmd_buffer else []
@@ -1197,19 +2590,26 @@ def _interactive_loop(console: VivadoTCLConsole, bitstream: str, probes: str,
         if not menu_shown:
             # Reload config before menu display if config_path exists (to pick up changes from pull)
             if state['config_path'] and os.path.exists(state['config_path']):
-                _, new_server_ip, new_server_port, new_bitstream, new_probes, new_vio_outputs, new_device_dna, _ = _load_and_resolve_config(state['config_path'], invoked_cwd, silent=True)
+                _, new_server_ip, new_server_port, new_bitstream, new_probes, new_vio_outputs, new_device_dna, _, _, new_version, new_timestamp = _load_and_resolve_config(state['config_path'], invoked_cwd, silent=True)
                 if new_device_dna and new_device_dna.strip():
                     console.config_device_dna = new_device_dna
                 if new_bitstream:
                     state['bitstream'] = new_bitstream
+                    _menu_db['config_bitstream'] = os.path.basename(new_bitstream)
                 if new_probes:
                     state['probes'] = new_probes
+                    _menu_db['config_probes'] = os.path.basename(new_probes)
                 if new_vio_outputs:
                     state['vio_outputs'] = new_vio_outputs
                 if new_server_ip:
                     state['server_ip'] = new_server_ip
+                    _menu_db['hw_server_ip'] = new_server_ip
                 if new_server_port:
                     state['server_port'] = new_server_port
+                    _menu_db['hw_server_port'] = new_server_port
+                # Always update version/timestamp from config
+                _menu_db['config_version'] = new_version or ''
+                _menu_db['config_timestamp'] = new_timestamp or ''
             _print_menu(console, state['bitstream'], state['probes'], state['vio_outputs'])
             menu_shown = True
         
@@ -1236,7 +2636,7 @@ def _interactive_loop(console: VivadoTCLConsole, bitstream: str, probes: str,
         if choice.lower() in ('m', 'menu'):
             # Reload config before menu display if config_path exists (to pick up changes from pull)
             if state['config_path'] and os.path.exists(state['config_path']):
-                _, new_server_ip, new_server_port, new_bitstream, new_probes, new_vio_outputs, new_device_dna, _ = _load_and_resolve_config(state['config_path'], invoked_cwd, silent=True)
+                _, new_server_ip, new_server_port, new_bitstream, new_probes, new_vio_outputs, new_device_dna, _, _, new_version, new_timestamp = _load_and_resolve_config(state['config_path'], invoked_cwd, silent=True)
                 if new_device_dna and new_device_dna.strip():
                     console.config_device_dna = new_device_dna
                 if new_bitstream:
@@ -1259,30 +2659,62 @@ def _interactive_loop(console: VivadoTCLConsole, bitstream: str, probes: str,
                                    cmd_queue=cmd_queue):
             break
         
-        # After device scan or selection, always reprint the full menu
-        # - "device" command scans and shows device list
-        # - "device-N" command selects and shows VIO/ILA options
+        # After device scan, selection, pull, clear, or load, always reprint the full menu
+        # - "load <file>" command loads new config
+        # - "scan" command scans and shows device list
+        # - "open <dna>" command selects and shows VIO/ILA options
+        # - "pull" command pulls release and re-scans
+        # - "clear" command clears device and re-scans
         should_reprint_menu = (
-            choice.startswith("device-") or  # device-1, device-2, etc.
-            choice in ("2", "jt", "jtag", "device", "scan_jtag")  # device scan
+            choice.lower().startswith("load ") or  # load <file>
+            choice.lower().startswith("server") or  # server [ip:port]
+            choice.lower().startswith("file-bit") or  # file-bit [path]
+            choice.lower().startswith("file-ltx") or  # file-ltx [path]
+            choice.startswith("open ") or  # open <dna>
+            choice in ("2", "jt", "jtag", "scan", "scan_jtag") or  # device scan
+            choice in ("5", "pu", "pull", "pull_and_program") or  # pull
+            choice in ("6", "cl", "clear", "clear_fpga")  # clear
         )
+        
+        # If load command was executed, update state from menu database
+        if choice.lower().startswith("load ") and _menu_db.get('loaded_config'):
+            loaded_config = _menu_db['loaded_config']
+            _, new_server_ip, new_server_port, new_bitstream, new_probes, new_vio_outputs, _, _, _, new_version, new_timestamp = _load_and_resolve_config(loaded_config, invoked_cwd, silent=True)
+            state['config_path'] = loaded_config
+            if new_bitstream:
+                state['bitstream'] = new_bitstream
+            if new_probes:
+                state['probes'] = new_probes
+            if new_vio_outputs:
+                state['vio_outputs'] = new_vio_outputs
+            if new_server_ip:
+                state['server_ip'] = new_server_ip
+            if new_server_port:
+                state['server_port'] = new_server_port
         
         if should_reprint_menu:
             # Reload config before menu display if config_path exists (to pick up changes)
             if state['config_path'] and os.path.exists(state['config_path']):
-                _, new_server_ip, new_server_port, new_bitstream, new_probes, new_vio_outputs, new_device_dna, _ = _load_and_resolve_config(state['config_path'], invoked_cwd, silent=True)
+                _, new_server_ip, new_server_port, new_bitstream, new_probes, new_vio_outputs, new_device_dna, _, _, new_version, new_timestamp = _load_and_resolve_config(state['config_path'], invoked_cwd, silent=True)
                 if new_device_dna and new_device_dna.strip():
                     console.config_device_dna = new_device_dna
                 if new_bitstream:
                     state['bitstream'] = new_bitstream
+                    _menu_db['config_bitstream'] = os.path.basename(new_bitstream)
                 if new_probes:
                     state['probes'] = new_probes
+                    _menu_db['config_probes'] = os.path.basename(new_probes)
                 if new_vio_outputs:
                     state['vio_outputs'] = new_vio_outputs
                 if new_server_ip:
                     state['server_ip'] = new_server_ip
+                    _menu_db['hw_server_ip'] = new_server_ip
                 if new_server_port:
                     state['server_port'] = new_server_port
+                    _menu_db['hw_server_port'] = new_server_port
+                # Always update version/timestamp from config
+                _menu_db['config_version'] = new_version or ''
+                _menu_db['config_timestamp'] = new_timestamp or ''
             _print_menu(console, state['bitstream'], state['probes'], state['vio_outputs'])
             menu_shown = True
         else:
@@ -1394,6 +2826,65 @@ def _format_userid(userid: Optional[int]) -> str:
             return f"0x{userid:08X} (not a timestamp)"
     except Exception:
         return f"0x{userid:08X}"
+
+
+def _decode_version(usr_access: int) -> str:
+    """Decode USR_ACCESS value as version string (major.minor.patch).
+    
+    Format: 0xMMmmpppp where:
+    - MM = major version (byte 2-3)
+    - mm = minor version (byte 1)  
+    - pppp = patch/build (byte 0)
+    
+    Example: 0x00010600 -> v1.6.0
+    """
+    if usr_access is None:
+        return ""
+    try:
+        major = (usr_access >> 16) & 0xFFFF
+        minor = (usr_access >> 8) & 0xFF
+        patch = usr_access & 0xFF
+        return f"v{major}.{minor}.{patch}"
+    except Exception:
+        return ""
+
+
+def _decode_timestamp(userid: int) -> str:
+    """Decode USERID value as timestamp if it's a valid Unix timestamp.
+    
+    Returns formatted date/time string or empty string if not a valid timestamp.
+    """
+    if userid is None:
+        return ""
+    try:
+        from datetime import datetime
+        # Check if it's a valid Unix timestamp (2020-01-01 to 2040-01-01)
+        if 1577836800 <= userid <= 2208988800:
+            dt = datetime.fromtimestamp(userid)
+            return dt.strftime('%Y-%m-%d %H:%M')
+        return ""
+    except Exception:
+        return ""
+
+
+def _format_version_and_timestamp(usr_access: Optional[int], userid: Optional[int] = None) -> str:
+    """Format USR_ACCESS and USERID as version and timestamp.
+    
+    Returns string like "v1.6.0" or "v1.6.0 (2024-01-20 15:30)"
+    """
+    parts = []
+    
+    if usr_access is not None:
+        version = _decode_version(usr_access)
+        if version:
+            parts.append(version)
+    
+    if userid is not None:
+        timestamp = _decode_timestamp(userid)
+        if timestamp:
+            parts.append(f"({timestamp})")
+    
+    return " ".join(parts) if parts else ""
 
 
 def _read_userid_from_device_value(console) -> Optional[int]:
@@ -1915,158 +3406,122 @@ def _validate_ref(project_dir: Path, ref: str) -> bool:
 
 def _pull_release_to_folder(project_dir: Path, release_dir: Path, git_repo_root: Path,
                             release_config: Path, hw_config: Path, ref: str) -> bool:
-    """Pull release files from a tag/commit directly to release folder (overwrites existing files).
+    """Pull entire release folder recursively from a tag/commit (overwrites existing files).
+    
+    Uses git checkout to restore the entire release folder from the specified tag/ref.
+    This ensures all files in the release folder match exactly what's in the tag.
     
     Order of operations:
-    1. First fetch config.json from the tag (hardcoded entry point)
-    2. Read bit_file and ltx_file from config.json
-    3. Fetch those files (bit, ltx)
+    1. Fetch LFS objects for the ref (to ensure large files are available)
+    2. Use git checkout to restore the entire release folder from the ref
     """
-    log_message(f"Pulling release files from: {ref}")
+    log_message(f"Pulling release folder from: {ref}")
     log_message(f"Destination: {release_dir}")
     
-    # Step 1: Fetch config.json from the tag (hardcoded entry point)
-    config_rel_path = hw_config.relative_to(git_repo_root)
+    # Get release folder path relative to git root
+    release_rel_path = release_dir.relative_to(git_repo_root)
     
-    print(f"[LOG]:   Fetching config.json... ", end="", flush=True)
-    try:
-        result = subprocess.run(
-            ["git", "-C", str(git_repo_root), "show", f"{ref}:{config_rel_path}"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            check=True
-        )
-        # Ensure parent directory exists
-        hw_config.parent.mkdir(parents=True, exist_ok=True)
-        with open(hw_config, 'wb') as f:
-            f.write(result.stdout)
-        size = hw_config.stat().st_size
-        log_message(f"OK ({size} bytes)")
-    except subprocess.CalledProcessError:
-        log_message("FAILED (config.json not in tag)")
-        return False
-    
-    # Step 2: Read the fetched config.json to get the file list
-    try:
-        with open(hw_config, 'r') as f:
-            config = json.load(f)
-    except (json.JSONDecodeError, FileNotFoundError) as e:
-        log_message(f"[!x!] Error: Failed to parse config.json: {e}")
-        return False
-    
-    # Get files to fetch from config.json (bit_file and ltx_file)
-    files = []
-    bit_file = config.get("bit_file", "")
-    ltx_file = config.get("ltx_file", "")
-    
-    if bit_file:
-        files.append({"dest": bit_file, "use_lfs": True})
-    if ltx_file:
-        files.append({"dest": ltx_file, "use_lfs": True})
-    
-    # Check if any files use LFS - if so, fetch LFS objects first
-    has_lfs_files = any(f.get("use_lfs", False) for f in files)
-    if has_lfs_files:
-        log_message(f"Fetching LFS objects for {ref}...")
-        lfs_result = subprocess.run(
-            ["git", "-C", str(git_repo_root), "lfs", "fetch", "origin", ref],
+    # Step 1: Fetch the ref from origin to ensure it's available locally
+    log_message(f"Fetching ref {ref} from origin...")
+    fetch_result = subprocess.run(
+        ["git", "-C", str(git_repo_root), "fetch", "origin", ref],
+        capture_output=True,
+        text=True
+    )
+    if fetch_result.returncode != 0:
+        # Try fetching all tags if specific ref fetch fails
+        log_message(f"Specific fetch failed, trying to fetch all tags...")
+        subprocess.run(
+            ["git", "-C", str(git_repo_root), "fetch", "--tags", "origin"],
             capture_output=True,
             text=True
         )
-        if lfs_result.returncode != 0:
-            log_message(f"[!x!] Warning: LFS fetch failed: {lfs_result.stderr.strip()}")
-        else:
-            log_message("LFS objects fetched successfully")
     
-    # Track success/failure for each file
-    fetch_results = {}
-    has_critical_failure = False
+    # Step 2: Fetch LFS objects for the ref
+    log_message(f"Fetching LFS objects for {ref}...")
+    lfs_result = subprocess.run(
+        ["git", "-C", str(git_repo_root), "lfs", "fetch", "origin", ref],
+        capture_output=True,
+        text=True
+    )
+    if lfs_result.returncode != 0:
+        log_message(f"[!x!] Warning: LFS fetch failed: {lfs_result.stderr.strip()}")
+    else:
+        log_message("LFS objects fetched successfully")
     
-    for file_info in files:
-        dest_file = file_info.get("dest", "")
-        use_lfs = file_info.get("use_lfs", False)
-        file_path = release_dir / dest_file
-        rel_path = file_path.relative_to(git_repo_root)
+    # Step 3: Use git checkout to restore the entire release folder from the ref
+    # This command checks out the release folder from the specified ref, overwriting local files
+    log_message(f"Checking out release folder from {ref}...")
+    
+    try:
+        # First, verify the ref exists and the release folder is in it
+        verify_result = subprocess.run(
+            ["git", "-C", str(git_repo_root), "ls-tree", "-r", "--name-only", ref, str(release_rel_path)],
+            capture_output=True,
+            text=True
+        )
+        if verify_result.returncode != 0:
+            log_message(f"[!x!] Error: Could not find release folder in ref {ref}")
+            log_message(f"    stderr: {verify_result.stderr.strip()}")
+            return False
         
-        # Bit files are critical - must succeed
-        is_critical = dest_file.endswith('.bit')
+        files_in_ref = verify_result.stdout.strip().split('\n')
+        files_in_ref = [f for f in files_in_ref if f]  # Remove empty strings
         
-        print(f"[LOG]:   Fetching {dest_file}... ", end="", flush=True)
+        if not files_in_ref:
+            log_message(f"[!x!] Error: No files found in {release_rel_path} for ref {ref}")
+            return False
         
-        fetch_success = False
+        log_message(f"Found {len(files_in_ref)} files to checkout")
         
-        # Try to get file from ref (tag or commit)
-        if use_lfs:
-            # For LFS files, use git show piped through git lfs smudge
-            try:
-                git_show = subprocess.Popen(
-                    ["git", "-C", str(git_repo_root), "show", f"{ref}:{rel_path}"],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE
-                )
-                lfs_smudge = subprocess.Popen(
-                    ["git", "-C", str(git_repo_root), "lfs", "smudge"],
-                    stdin=git_show.stdout,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE
-                )
-                git_show.stdout.close()
-                
-                # Ensure parent directory exists
-                file_path.parent.mkdir(parents=True, exist_ok=True)
-                
-                with open(file_path, 'wb') as f:
-                    shutil.copyfileobj(lfs_smudge.stdout, f)
-                
-                # Read any remaining stderr before wait
-                lfs_stderr = lfs_smudge.stderr.read().decode('utf-8', errors='ignore').strip()
-                git_stderr = git_show.stderr.read().decode('utf-8', errors='ignore').strip()
-                
-                lfs_smudge.wait()
-                git_show.wait()
-                
-                if lfs_smudge.returncode == 0 and git_show.returncode == 0:
-                    size = file_path.stat().st_size
-                    # Check if file is valid (LFS pointer files are small, ~130 bytes)
-                    if size > 200:
-                        log_message(f"OK ({size} bytes, LFS)")
-                        fetch_success = True
-                    else:
-                        log_message(f"FAILED (LFS pointer not resolved, {size} bytes)")
-                else:
-                    err_msg = lfs_stderr or git_stderr or "unknown error"
-                    log_message(f"FAILED (git={git_show.returncode}, lfs={lfs_smudge.returncode}: {err_msg})")
-            except Exception as e:
-                log_message(f"FAILED (LFS error: {e})")
-        else:
-            # For regular files, use git show directly
-            try:
-                result = subprocess.run(
-                    ["git", "-C", str(git_repo_root), "show", f"{ref}:{rel_path}"],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.DEVNULL,
-                    check=True
-                )
-                # Ensure parent directory exists
-                file_path.parent.mkdir(parents=True, exist_ok=True)
-                with open(file_path, 'wb') as f:
-                    f.write(result.stdout)
+        # Checkout the entire release folder from the ref
+        # Using -- to separate ref from path
+        checkout_result = subprocess.run(
+            ["git", "-C", str(git_repo_root), "checkout", ref, "--", str(release_rel_path)],
+            capture_output=True,
+            text=True
+        )
+        
+        if checkout_result.returncode != 0:
+            log_message(f"[!x!] Error: git checkout failed")
+            log_message(f"    stderr: {checkout_result.stderr.strip()}")
+            return False
+        
+        # Step 4: Run LFS checkout to ensure LFS files are properly smudged
+        log_message("Running LFS checkout to resolve large files...")
+        lfs_checkout_result = subprocess.run(
+            ["git", "-C", str(git_repo_root), "lfs", "checkout", str(release_rel_path)],
+            capture_output=True,
+            text=True
+        )
+        if lfs_checkout_result.returncode != 0:
+            log_message(f"[!x!] Warning: LFS checkout had issues: {lfs_checkout_result.stderr.strip()}")
+        
+        # Verify critical files exist
+        config_exists = hw_config.exists()
+        log_message(f"Config file: {'OK' if config_exists else 'MISSING'}")
+        
+        if not config_exists:
+            log_message(f"[!x!] Error: config.json not found after checkout")
+            return False
+        
+        # List files that were checked out
+        log_message(f"Checkout complete. Files restored:")
+        for f in files_in_ref[:10]:  # Show first 10 files
+            file_path = git_repo_root / f
+            if file_path.exists():
                 size = file_path.stat().st_size
-                log_message(f"OK ({size} bytes)")
-                fetch_success = True
-            except subprocess.CalledProcessError:
-                log_message("FAILED (not in ref)")
+                log_message(f"  {f} ({size} bytes)")
+            else:
+                log_message(f"  {f} (missing)")
+        if len(files_in_ref) > 10:
+            log_message(f"  ... and {len(files_in_ref) - 10} more files")
         
-        fetch_results[dest_file] = fetch_success
-        if is_critical and not fetch_success:
-            has_critical_failure = True
-    
-    # Return False if any critical file (bit file) failed to fetch
-    if has_critical_failure:
-        log_message("[!x!] Critical file(s) failed to fetch")
+        return True
+        
+    except Exception as e:
+        log_message(f"[!x!] Error during checkout: {e}")
         return False
-    
-    return True
 
 
 def _load_config(config_path: str) -> Dict:
@@ -2115,18 +3570,25 @@ def _load_and_resolve_config(config_path: str, invoked_cwd: str = None, silent: 
     # Load config
     config = _load_config(config_path_resolved)
     if not config:
-        return {}, '', '', '', '', {}, '', config_path_resolved
+        return {}, '', '', '', '', {}, '', config_path_resolved, {}, '', ''
     
-    # New config format: DNA is the key, device settings are nested under it
-    # e.g., { "DNA_VALUE": { "hw_server_host": "...", "bit_file": "...", ... } }
-    # Get the first (and usually only) DNA key to extract device settings
+    # Config format detection:
+    # 1. Single-DNA format: { "dna": "...", "hw_server_host": "...", ... }
+    # 2. Multi-DNA format: { "DNA_VALUE": { "hw_server_host": "...", ... }, "DNA_VALUE2": {...} }
+    # 3. Old format: { "device": "...", "hw_server_host": "...", ... }
+    # Note: device_name is NO LONGER used - filename is used as device name instead
     device_dna = ''
     device_config = config
     
-    # Check if config uses new format (DNA as key)
     config_keys = list(config.keys())
-    if config_keys and not any(k in config_keys for k in ['hw_server_host', 'hw_server_port', 'bit_file', 'ltx_file', 'device']):
-        # New format: first key is the DNA, value is the device config
+    
+    # Check for single-DNA format (dna as top-level field)
+    if 'dna' in config:
+        # Single-DNA format: dna is a top-level field
+        device_dna = config.get('dna', '')
+        device_config = config
+    elif config_keys and not any(k in config_keys for k in ['hw_server_host', 'hw_server_port', 'bit_file', 'ltx_file', 'device']):
+        # Multi-DNA format: first key is the DNA, value is the device config
         device_dna = config_keys[0]
         device_config = config.get(device_dna, {})
     else:
@@ -2136,9 +3598,23 @@ def _load_and_resolve_config(config_path: str, invoked_cwd: str = None, silent: 
     # Extract values from device config
     server_ip = device_config.get('hw_server_host', 'localhost')
     server_port = str(device_config.get('hw_server_port', '3121'))
-    bitstream = device_config.get('bit_file', '')
-    probes = device_config.get('ltx_file', '')
     vio_outputs = device_config.get('vio_outputs', {})
+    
+    # Extract files - support both old format (bit_file, ltx_file at top level)
+    # and new format (files: {bit_file, ltx_file})
+    files_config = device_config.get('files', {})
+    if files_config:
+        # New format: files are under "files" record
+        bitstream = files_config.get('bit_file', '')
+        probes = files_config.get('ltx_file', '')
+    else:
+        # Old format: files at top level
+        bitstream = device_config.get('bit_file', '')
+        probes = device_config.get('ltx_file', '')
+    
+    # Extract version and timestamp from config (if specified)
+    config_version = device_config.get('version', '')
+    config_timestamp = device_config.get('timestamp', '')
     
     # Resolve bitstream path
     if bitstream:
@@ -2175,7 +3651,8 @@ def _load_and_resolve_config(config_path: str, invoked_cwd: str = None, silent: 
         if probes:
             log_message(f"  Probes: {probes} {'(exists)' if os.path.exists(probes) else '(not found)'}")
     
-    return config, server_ip, server_port, bitstream, probes, vio_outputs, device_dna, config_path_resolved
+    # Return empty dict for device_names (no longer used - filename is the device name now)
+    return config, server_ip, server_port, bitstream, probes, vio_outputs, device_dna, config_path_resolved, {}, config_version, config_timestamp
 
 
 def help_hw_server():
