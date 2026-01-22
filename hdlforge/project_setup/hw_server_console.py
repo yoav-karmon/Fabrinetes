@@ -389,7 +389,7 @@ class VivadoTCLConsole:
         
         dna_clean = device_dna.lstrip('0').upper() or '0'
         
-        if debug_prefix:
+        if self.debug and debug_prefix:
             print(f"[DEBUG] {debug_prefix}: Searching for device with DNA {device_dna}")
         
         # Close any open targets first
@@ -432,14 +432,14 @@ class VivadoTCLConsole:
                 check_dna = self._read_dna_value()
                 check_dna_clean = (check_dna or '').lstrip('0').upper() or '0'
                 
-                if debug_prefix:
+                if self.debug and debug_prefix:
                     print(f"[DEBUG] {debug_prefix}: Target {target_idx} Device {device_idx}: DNA = {check_dna}")
                 
                 if check_dna_clean == dna_clean:
                     # Found the device!
                     found_device = True
                     target_device_name = self.get_property_value("NAME", "$device", timeout=2)
-                    if debug_prefix:
+                    if self.debug and debug_prefix:
                         print(f"[DEBUG] {debug_prefix}: MATCH FOUND - Target {target_idx} ({target_name}), Device {device_idx} ({target_device_name})")
                     
                     # Refresh the device
@@ -550,7 +550,8 @@ class VivadoTCLConsole:
             
             # Clear ONLY this device (DNA verified by search)
             # Note: $device is set by find_and_select_device_by_dna
-            print(f"[DEBUG] clear_fpga: Clearing device (DNA: {device_dna})")
+            if self.debug:
+                print(f"[DEBUG] clear_fpga: Clearing device (DNA: {device_dna})")
             result = self.send_command("boot_hw_device -disable_done_check $device", timeout=15)
             
             # Check for errors
@@ -1830,7 +1831,8 @@ class VivadoTCLConsole:
             output = self.send_command("set all_targets [get_hw_targets]", timeout=5)
             # Debug: Check what we get from llength
             target_count_output = self.send_command("llength $all_targets", timeout=2)
-            print(f"[DEBUG] scan_jtag: llength output = {repr(target_count_output)}")
+            if self.debug:
+                print(f"[DEBUG] scan_jtag: llength output = {repr(target_count_output)}")
             # Extract the number from the output (handle various formats)
             target_count_str = target_count_output.strip()
             # Try to find the number in the output

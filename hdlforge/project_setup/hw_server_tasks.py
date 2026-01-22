@@ -10,6 +10,7 @@ import sys
 import struct
 import subprocess
 import shutil
+import time
 from pathlib import Path
 from typing import Dict, Optional, List
 
@@ -55,8 +56,14 @@ def log_message(text: str) -> None:
         print(f"[LOG]: {text}", flush=True)
 
 
+# Track if last command failed (for --cmd batch mode exit on failure)
+_last_command_failed = False
+
 def result_message(text: str) -> None:
     """Output a result message with [RESULT]: prefix."""
+    global _last_command_failed
+    # Track failures for batch mode
+    _last_command_failed = "FAILED" in text.upper()
     print(f"[RESULT]: {text}", flush=True)
 
 
@@ -517,6 +524,20 @@ def _execute_menu_choice(console: VivadoTCLConsole, choice: str,
     global _menu_db
     choice_lower = choice.lower().strip()
     
+    # Handle sleep command
+    if choice_lower.startswith("sleep "):
+        try:
+            sleep_arg = choice_lower[6:].strip()
+            sleep_seconds = float(sleep_arg)
+            if sleep_seconds < 0:
+                result_message("SLEEP FAILED - Duration must be positive")
+                return True
+            time.sleep(sleep_seconds)
+            return True
+        except ValueError:
+            result_message(f"SLEEP FAILED - Invalid duration: {sleep_arg}")
+            return True
+    
     # Handle load command (keep original case for path)
     if choice_lower.startswith("load "):
         config_file_arg = choice[5:].strip()  # Keep original case for path
@@ -664,21 +685,6 @@ def _execute_menu_choice(console: VivadoTCLConsole, choice: str,
                 
                 if not found_device:
                     result_message(f"WARNING - Device DNA {new_device_dna} not found on JTAG chain")
-            
-            # Ask user if they want to pull tag (if version specified)
-            # Skip prompt in non-interactive mode (stdin is not a TTY or piped)
-            if new_version and sys.stdin.isatty():
-                result_message("")
-                try:
-                    pull_answer = input(f"Pull tag {new_version}? [y/N]: ").strip().lower()
-                    if pull_answer in ('y', 'yes'):
-                        # Execute pull command
-                        _execute_menu_choice(
-                            console, f"pull {new_version}", new_bitstream, new_probes, 
-                            new_vio_outputs, invoked_cwd
-                        )
-                except (EOFError, KeyboardInterrupt):
-                    pass  # Non-interactive mode, skip pull prompt
             
             return True
         except Exception as e:
@@ -2418,6 +2424,7 @@ def _draw_menu_table(console: VivadoTCLConsole, vio_outputs: dict = None) -> Non
         "program  - Program FPGA",
         "clear    - Clear FPGA",
         "pull     - Pull release",
+        "sleep <N> - Wait N seconds",
         "---",
         "q - Exit | m - Menu",
     ]
@@ -2614,10 +2621,12 @@ def _interactive_loop(console: VivadoTCLConsole, bitstream: str, probes: str,
             menu_shown = True
         
         # Get choice from buffer if available, otherwise from user input
+        from_cmd_queue = False
         try:
             if cmd_queue:
                 # Use command from buffer (simulate user input)
                 choice = cmd_queue.pop(0).strip()
+                from_cmd_queue = True
                 # Print it as if user typed it
                 print(choice, flush=True)
             else:
@@ -2657,6 +2666,10 @@ def _interactive_loop(console: VivadoTCLConsole, bitstream: str, probes: str,
                                    force=False, server_ip=state['server_ip'], server_port=state['server_port'], 
                                    invoked_cwd=invoked_cwd, config_path=state['config_path'],
                                    cmd_queue=cmd_queue):
+            break
+        
+        # In batch mode (--cmd), exit immediately if command failed
+        if from_cmd_queue and _last_command_failed:
             break
         
         # After device scan, selection, pull, clear, or load, always reprint the full menu
@@ -3303,7 +3316,10 @@ def _get_project_paths(invoked_cwd: str) -> tuple:
 
 def _show_available_releases(project_dir: Path) -> List[str]:
     """Show available release tags and return list of tags."""
-    result_message("Available Release Tags:")
+    print()
+    print("=" * 80)
+    print(" Available Release Tags")
+    print("=" * 80)
     
     # Get list of version tags (V*)
     result = subprocess.run(
@@ -3315,11 +3331,14 @@ def _show_available_releases(project_dir: Path) -> List[str]:
     tags = [tag.strip() for tag in result.stdout.strip().split('\n') if tag.strip()]
     
     if not tags:
-        result_message("No release tags found.")
+        print("  No release tags found.")
+        print("=" * 80)
         return []
     
-    result_message(f"{'Tag':<10} {'Commit':<14} {'Date':<20} {'Message'}")
-    result_message(f"{'----------':<10} {'--------------':<14} {'--------------------':<20} {'-------'}")
+    # Create table using PrettyTable
+    table = PrettyTable()
+    table.field_names = ["Tag", "Commit", "Date", "Message"]
+    table.align = "l"
     
     for tag in tags:
         commit_result = subprocess.run(
@@ -3341,11 +3360,13 @@ def _show_available_releases(project_dir: Path) -> List[str]:
             capture_output=True,
             text=True
         )
-        message = message_result.stdout.strip()[:40] if message_result.returncode == 0 else "unknown"
+        message = message_result.stdout.strip()[:50] if message_result.returncode == 0 else "unknown"
         
-        result_message(f"{tag:<10} {commit:<14} {date:<20} {message}")
+        table.add_row([tag, commit, date, message])
     
-    result_message("")
+    print(table)
+    print("=" * 80)
+    print()
     return tags
 
 
@@ -3757,6 +3778,8 @@ def help_hw_server():
     print("  vio-<n>-set-hex    Set VIO manually (hex only)")
     print()
     print("  device-<n>         Select device (device-1, device-2, ...)")
+    print()
+    print("  sleep <N>          Wait N seconds (e.g., sleep 1, sleep 0.5)")
     print()
     print("VIO VALUES:")
     print("  <- = Input (read from FPGA)")
