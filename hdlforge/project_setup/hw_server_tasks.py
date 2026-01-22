@@ -11,6 +11,7 @@ import struct
 import subprocess
 import shutil
 import time
+import readline  # Enable command history with up/down arrows
 from pathlib import Path
 from typing import Dict, Optional, List
 
@@ -32,8 +33,8 @@ _menu_db = {
     'config_timestamp': '',        # Timestamp from config file (e.g., "2026-01-16 14:54")
     'config_bitstream': '',        # Bitstream filename from config
     'config_probes': '',           # Probes/ltx filename from config
-    'last_pulled_tag': '',         # Last tag that was pulled
-    'pulled_files': {},            # Dict of {filepath: mtime} for files pulled with the tag
+    'last_checkout_tag': '',       # Last tag that was checked out
+    'checkout_files': {},          # Dict of {filepath: mtime} for files from checkout
     'scanned': False,   # Whether scan has been performed
     'invoked_cwd': '',  # Directory where hw_server was invoked
 }
@@ -395,8 +396,8 @@ def _describe_chain_command(choice: str) -> str:
         return "Read USR_ACCESS/USERID from bitstream file"
     if c in ("4", "rd", "readdev", "read_dev", "read-device", "read_device", "read_usr_access_device"):
         return "Read USR_ACCESS/USERID from FPGA device"
-    if c in ("5", "pu", "pull", "pull_release"):
-        return "Pull release (fetch files from git tag)"
+    if c in ("5", "co", "checkout", "checkout_release"):
+        return "Checkout release (restore files from git tag)"
     if c in ("6", "cl", "clear", "clear_fpga"):
         return "Clear/Reset FPGA Device"
     if c in ("q", "quit", "exit"):
@@ -1163,8 +1164,8 @@ def _execute_menu_choice(console: VivadoTCLConsole, choice: str,
             console.send_command("current_hw_device $device", timeout=2)
         result = _read_usr_access_from_device(console)
         return result
-    elif choice in ("5", "pu", "pull", "pull_and_program"):
-        # Option 6: Pull release (fetch files from git tag)
+    elif choice in ("5", "co", "checkout", "checkout_release"):
+        # Option 5: Checkout release (restore files from git tag)
         if not invoked_cwd:
             invoked_cwd = os.getcwd()
         
@@ -1180,21 +1181,25 @@ def _execute_menu_choice(console: VivadoTCLConsole, choice: str,
         
         # Close console if it's running (we'll restart after reloading config)
         if console.process:
-            log_message("Closing Vivado console before pull...")
+            log_message("Closing Vivado console before checkout...")
             console.close()
         
-        # Pull files to release folder (overwrites existing)
+        # Checkout files to release folder (overwrites existing)
         if not _pull_release_to_folder(project_dir, release_dir, git_repo_root, release_config, hw_config, tag_arg):
-            result_message("PULL FAILED - Could not fetch release files")
+            result_message("CHECKOUT FAILED - Could not fetch release files")
             return True
         
         # Clear menu database to force re-read of files
         _menu_db['files'] = []
         _menu_db['scanned'] = False
         
-        # Reload config after pull using central function
+        # Record the checked out tag
+        _menu_db['last_checkout_tag'] = tag_arg
+        result_message(f"CHECKOUT SUCCESS - release folder restored from tag {tag_arg} (only release folder is checked out)")
+        
+        # Reload config after checkout if it exists
         if hw_config.exists():
-            log_message("Reloading config after pull...")
+            log_message("Reloading config after checkout...")
             new_config, new_server_ip, new_server_port, new_bitstream, new_probes, new_vio_outputs, new_device_dna, new_config_path, _, new_version, new_timestamp = _load_and_resolve_config(str(hw_config), invoked_cwd)
             
             if new_config:
@@ -1208,33 +1213,23 @@ def _execute_menu_choice(console: VivadoTCLConsole, choice: str,
                 server_ip = new_server_ip
                 server_port = new_server_port
                 config_path = new_config_path
-                _menu_db['last_pulled_tag'] = tag_arg
-                # Store modification times of pulled files for verification
-                pulled_files = {}
+                # Store modification times of checked out files for verification
+                checkout_files = {}
                 if new_bitstream and os.path.exists(new_bitstream):
-                    pulled_files[new_bitstream] = os.path.getmtime(new_bitstream)
+                    checkout_files[new_bitstream] = os.path.getmtime(new_bitstream)
                 if new_probes and os.path.exists(new_probes):
-                    pulled_files[new_probes] = os.path.getmtime(new_probes)
+                    checkout_files[new_probes] = os.path.getmtime(new_probes)
                 if new_config_path and os.path.exists(new_config_path):
-                    pulled_files[new_config_path] = os.path.getmtime(new_config_path)
-                _menu_db['pulled_files'] = pulled_files
-                result_message(f"PULL SUCCESS - Tag {tag_arg} pulled to release folder")
+                    checkout_files[new_config_path] = os.path.getmtime(new_config_path)
+                _menu_db['checkout_files'] = checkout_files
                 
                 # Verify bitstream version/timestamp matches config if specified
                 if new_bitstream and os.path.exists(new_bitstream):
                     _verify_bitstream_matches_config(new_bitstream, new_version, new_timestamp)
-                
-                # Re-scan JTAG chain after pull
-                result_message("Re-scanning JTAG chain after pull...")
-                _perform_scan(console, new_bitstream, new_probes, new_server_ip, new_server_port)
-            else:
-                result_message("PULL FAILED - Could not reload config after pull")
-                return True
         else:
-            result_message("PULL FAILED - Config file not found after pull")
-            return True
+            log_message("No config.json found - checkout complete, use 'load' to load a config file")
         
-        return True  # Continue with menu (pull only, no programming)
+        return True  # Continue with menu (checkout only, no programming)
     elif choice in ("6", "cl", "clear", "clear_fpga"):
         # Check device cache BEFORE opening TCL console
         if not console.device:
@@ -1672,11 +1667,11 @@ def _show_ila_vio_submenu(console: VivadoTCLConsole, vio_outputs: dict = None,
         return
 
 
-def _verify_pulled_files_intact() -> bool:
-    """Verify that pulled files still exist and haven't been modified.
+def _verify_checkout_files_intact() -> bool:
+    """Verify that checked out files still exist and haven't been modified.
     
-    Returns True if all pulled files exist and have the same modification time
-    as when they were pulled, False otherwise.
+    Returns True if all checked out files exist and have the same modification time
+    as when they were checked out, False otherwise.
     """
     pulled_files = _menu_db.get('pulled_files', {})
     if not pulled_files:
@@ -1791,52 +1786,63 @@ def _get_git_status_info(invoked_cwd: str, file_version: str) -> dict:
 
 
 def _get_pull_status() -> tuple:
-    """Get detailed status of pulled files and release folder.
+    """Check if release folder matches the checked out tag using git diff.
     
     Returns:
         (tag_matches: bool, status_lines: list)
-        - tag_matches: True if all pulled files are intact
-        - status_lines: List of status strings for modified/added/removed files
+        - tag_matches: True if release folder matches the tag exactly
+        - status_lines: List of status strings for differences
     """
-    pulled_files = _menu_db.get('pulled_files', {})
     last_pulled_tag = _menu_db.get('last_pulled_tag', '')
     release_dir = _menu_db.get('invoked_cwd', '')
     
-    if not pulled_files or not last_pulled_tag:
+    if not last_pulled_tag or not release_dir:
         return False, []
     
     status_lines = []
-    all_intact = True
     
-    # Check each pulled file
-    for filepath, original_mtime in pulled_files.items():
-        filename = os.path.basename(filepath)
-        if not os.path.exists(filepath):
-            status_lines.append(f"{filename}: REMOVED")
-            all_intact = False
-        else:
-            current_mtime = os.path.getmtime(filepath)
-            if abs(current_mtime - original_mtime) > 0.01:
-                status_lines.append(f"{filename}: MODIFIED")
-                all_intact = False
-    
-    # Check for new files in release folder (not in pulled_files)
-    if release_dir and os.path.isdir(release_dir):
-        pulled_basenames = {os.path.basename(f) for f in pulled_files.keys()}
-        for f in os.listdir(release_dir):
-            filepath = os.path.join(release_dir, f)
-            if os.path.isfile(filepath):
-                # Skip hidden files and non-release files
-                if f.startswith('.'):
-                    continue
-                # Check if this file was part of the pull
-                if f not in pulled_basenames:
-                    # Check if it's a relevant file type (bit, ltx, json)
-                    if f.endswith(('.bit', '.ltx', '.json')):
-                        status_lines.append(f"{f}: ADDED")
-                        all_intact = False
-    
-    return all_intact, status_lines
+    try:
+        # Find git root
+        git_root_result = subprocess.run(
+            ['git', 'rev-parse', '--show-toplevel'],
+            cwd=release_dir,
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if git_root_result.returncode != 0:
+            return False, ["(git error)"]
+        
+        git_root = git_root_result.stdout.strip()
+        rel_path = os.path.relpath(release_dir, git_root)
+        
+        # Use git diff to compare release folder against the tag
+        diff_result = subprocess.run(
+            ['git', 'diff', '--name-only', last_pulled_tag, '--', rel_path],
+            cwd=git_root,
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        
+        if diff_result.returncode != 0:
+            return False, ["(diff error)"]
+        
+        diff_output = diff_result.stdout.strip()
+        if not diff_output:
+            # No differences - tag matches
+            return True, []
+        
+        # Parse diff output
+        for line in diff_output.split('\n'):
+            if line.strip():
+                filename = os.path.basename(line.strip())
+                status_lines.append(f"{filename}: modified")
+        
+        return False, status_lines
+        
+    except Exception as e:
+        return False, [f"(error: {e})"]
 
 
 def _verify_bitstream_matches_config(bitstream_path: str, config_version: str, config_timestamp: str) -> bool:
@@ -2219,7 +2225,7 @@ def _draw_menu_table(console: VivadoTCLConsole, vio_outputs: dict = None) -> Non
         else:
             program_lines.append("(no ver/time in config)")
     
-    # Add pull status
+    # Add checkout status
     last_pulled_tag = _menu_db.get('last_pulled_tag', '')
     if last_pulled_tag:
         tag_matches, status_lines = _get_pull_status()
@@ -2380,38 +2386,6 @@ def _draw_menu_table(console: VivadoTCLConsole, vio_outputs: dict = None) -> Non
     # --- HW Server column: ip:port ---
     hw_server_lines = [hw_server_str]
     
-    # --- Git Status column: git tag match, working folder status ---
-    git_status_lines = []
-    
-    # Get file version from bitstream (for tag matching)
-    file_version = ''
-    for f in _menu_db.get('files', []):
-        if f.get('filename', '').endswith('.bit'):
-            decoded = f.get('decoded', '')
-            if decoded:
-                parts = decoded.split(' ')
-                if parts:
-                    file_version = parts[0]
-            break
-    
-    git_info = _get_git_status_info(invoked_cwd, file_version)
-    
-    # Section 1: Git tag status
-    git_status_lines.append("[Tag]")
-    if file_version and git_info['tag_match']:
-        git_status_lines.append(f"{git_info['matching_tag']}")
-    else:
-        git_status_lines.append("(none)")
-    
-    # Section 2: Working folder git status
-    git_status_lines.append("")
-    git_status_lines.append("[Uncommitted]")
-    if git_info['working_clean']:
-        git_status_lines.append("(none)")
-    else:
-        for line in git_info['status_lines']:
-            git_status_lines.append(line)
-    
     # --- Commands column: all available commands ---
     commands_lines = [
         "server   - Set HW server",
@@ -2423,7 +2397,7 @@ def _draw_menu_table(console: VivadoTCLConsole, vio_outputs: dict = None) -> Non
         "file-ltx - Set probes",
         "program  - Program FPGA",
         "clear    - Clear FPGA",
-        "pull     - Pull release",
+        "checkout - Checkout release",
         "sleep <N> - Wait N seconds",
         "---",
         "q - Exit | m - Menu",
@@ -2439,7 +2413,6 @@ def _draw_menu_table(console: VivadoTCLConsole, vio_outputs: dict = None) -> Non
         "Opened Device", 
         "VIO/ILA",
         "Config Files",
-        "Git Status",
         "Commands"
     ]
     table.align = "l"
@@ -2465,7 +2438,6 @@ def _draw_menu_table(console: VivadoTCLConsole, vio_outputs: dict = None) -> Non
         "\n".join(device_lines),
         vio_ila_content,
         "\n".join(config_lines) if config_lines else "(no configs)",
-        "\n".join(git_status_lines) if git_status_lines else "(no version)",
         "\n".join(commands_lines),
     ])
     
@@ -2549,7 +2521,7 @@ def _print_menu(console: VivadoTCLConsole, bitstream: str, probes: str, vio_outp
 
 def _print_prompt():
     """Print just the prompt without the menu."""
-    print(" Select an option: ", end="", flush=True)
+    print(" Select: ", end="", flush=True)
 
 
 def _interactive_loop(console: VivadoTCLConsole, bitstream: str, probes: str, 
@@ -2595,7 +2567,7 @@ def _interactive_loop(console: VivadoTCLConsole, bitstream: str, probes: str,
     while True:
         # Show menu only initially or when user requests it with 'm' or 'menu'
         if not menu_shown:
-            # Reload config before menu display if config_path exists (to pick up changes from pull)
+            # Reload config before menu display if config_path exists (to pick up changes from checkout)
             if state['config_path'] and os.path.exists(state['config_path']):
                 _, new_server_ip, new_server_port, new_bitstream, new_probes, new_vio_outputs, new_device_dna, _, _, new_version, new_timestamp = _load_and_resolve_config(state['config_path'], invoked_cwd, silent=True)
                 if new_device_dna and new_device_dna.strip():
@@ -2643,7 +2615,7 @@ def _interactive_loop(console: VivadoTCLConsole, bitstream: str, probes: str,
         
         # Check if this is 'm' or 'menu' to show menu
         if choice.lower() in ('m', 'menu'):
-            # Reload config before menu display if config_path exists (to pick up changes from pull)
+            # Reload config before menu display if config_path exists (to pick up changes from checkout)
             if state['config_path'] and os.path.exists(state['config_path']):
                 _, new_server_ip, new_server_port, new_bitstream, new_probes, new_vio_outputs, new_device_dna, _, _, new_version, new_timestamp = _load_and_resolve_config(state['config_path'], invoked_cwd, silent=True)
                 if new_device_dna and new_device_dna.strip():
@@ -2672,11 +2644,11 @@ def _interactive_loop(console: VivadoTCLConsole, bitstream: str, probes: str,
         if from_cmd_queue and _last_command_failed:
             break
         
-        # After device scan, selection, pull, clear, or load, always reprint the full menu
+        # After device scan, selection, checkout, clear, or load, always reprint the full menu
         # - "load <file>" command loads new config
         # - "scan" command scans and shows device list
         # - "open <dna>" command selects and shows VIO/ILA options
-        # - "pull" command pulls release and re-scans
+        # - "checkout" command checks out release and re-scans
         # - "clear" command clears device and re-scans
         should_reprint_menu = (
             choice.lower().startswith("load ") or  # load <file>
@@ -2685,7 +2657,7 @@ def _interactive_loop(console: VivadoTCLConsole, bitstream: str, probes: str,
             choice.lower().startswith("file-ltx") or  # file-ltx [path]
             choice.startswith("open ") or  # open <dna>
             choice in ("2", "jt", "jtag", "scan", "scan_jtag") or  # device scan
-            choice in ("5", "pu", "pull", "pull_and_program") or  # pull
+            choice in ("5", "co", "checkout", "checkout_release") or  # checkout
             choice in ("6", "cl", "clear", "clear_fpga")  # clear
         )
         
@@ -3427,7 +3399,7 @@ def _validate_ref(project_dir: Path, ref: str) -> bool:
 
 def _pull_release_to_folder(project_dir: Path, release_dir: Path, git_repo_root: Path,
                             release_config: Path, hw_config: Path, ref: str) -> bool:
-    """Pull entire release folder recursively from a tag/commit (overwrites existing files).
+    """Checkout entire release folder recursively from a tag/commit (overwrites existing files).
     
     Uses git checkout to restore the entire release folder from the specified tag/ref.
     This ensures all files in the release folder match exactly what's in the tag.
@@ -3436,8 +3408,9 @@ def _pull_release_to_folder(project_dir: Path, release_dir: Path, git_repo_root:
     1. Fetch LFS objects for the ref (to ensure large files are available)
     2. Use git checkout to restore the entire release folder from the ref
     """
-    log_message(f"Pulling release folder from: {ref}")
+    log_message(f"Pulling ONLY release folder from tag: {ref}")
     log_message(f"Destination: {release_dir}")
+    log_message("Note: Only files in the release folder are updated, other project files are unchanged")
     
     # Get release folder path relative to git root
     release_rel_path = release_dir.relative_to(git_repo_root)
@@ -3518,13 +3491,9 @@ def _pull_release_to_folder(project_dir: Path, release_dir: Path, git_repo_root:
         if lfs_checkout_result.returncode != 0:
             log_message(f"[!x!] Warning: LFS checkout had issues: {lfs_checkout_result.stderr.strip()}")
         
-        # Verify critical files exist
+        # Check if config file exists (optional - checkout works without it)
         config_exists = hw_config.exists()
-        log_message(f"Config file: {'OK' if config_exists else 'MISSING'}")
-        
-        if not config_exists:
-            log_message(f"[!x!] Error: config.json not found after checkout")
-            return False
+        log_message(f"Config file: {'OK' if config_exists else 'not present (optional)'}")
         
         # List files that were checked out
         log_message(f"Checkout complete. Files restored:")
@@ -3765,7 +3734,7 @@ def help_hw_server():
     print("  3                  Scan JTAG / Read DNA")
     print("  4                  Read USR_ACCESS/USERID from bitstream file")
     print("  5                  Read USR_ACCESS/USERID from FPGA device")
-    print("  6                  Pull release (fetch files from git tag)")
+    print("  5                  Checkout release (restore files from git tag)")
     print("  q                  Exit")
     print()
     print("  ila-<n>            Read ILA (ila-1, ila-2, ...)")
