@@ -754,8 +754,6 @@ def verify_arguments(args: argparse.Namespace, analyzer: VCDIndexedAnalyzer) -> 
     active_commands: int = 0
     if args.timestamps:
         active_commands += 1
-    if args.find_signal_names is not None:
-        active_commands += 1
     if args.signal is not None:
         active_commands += 1
     
@@ -763,8 +761,6 @@ def verify_arguments(args: argparse.Namespace, analyzer: VCDIndexedAnalyzer) -> 
         conflicting_args: List[str] = []
         if args.timestamps:
             conflicting_args.append('--timestamps')
-        if args.find_signal_names is not None:
-            conflicting_args.append('--find_signal_names')
         if args.signal is not None:
             conflicting_args.append('--signal')
         
@@ -813,8 +809,6 @@ def main() -> None:
     parser.add_argument('--list_value_changes_in_module', help='Module path to list value changes (excludes sub-modules)')
     parser.add_argument('--get_modules_list', action='store_true', help='List all modules')
     parser.add_argument('--all', action='store_true', help='Show all signals in module (default: pin signals only)')
-    parser.add_argument('--find_signal_names', '--signalnames', nargs='?', const='*', 
-                        help='List signal names (optionally filter with wildcard pattern)')
     parser.add_argument('--signal', help='Signal name (supports wildcards)')
     parser.add_argument('--time', nargs='+', help='Filter signal results by timestamp(s) - can specify multiple timestamps')
     parser.add_argument('--edge', nargs='?', const=True, type=int, help='Show signal edges after the --time timestamp (requires --time). Optional number limits edges shown (must be >0)')
@@ -841,16 +835,6 @@ def main() -> None:
         if args.timestamps:    
             for timestamp in analyzer.get_all_timestamps():
                 print(timestamp)
-        
-        if args.find_signal_names is not None:
-            pattern: str = args.find_signal_names
-            filtered_signals: List[str] = analyzer.find_signals(pattern)
-            
-            if filtered_signals:
-                for signal_name in filtered_signals:
-                    print(signal_name)
-            else:
-                print("None")
         
         if args.signal is not None:
             matching_signals: List[str] = analyzer.find_signals(args.signal)

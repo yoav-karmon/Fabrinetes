@@ -373,8 +373,8 @@ HdlForge uses `REPO_TOP` to:
 # HdlForge automatically detects REPO_TOP
 $ hdlforge Verilator --project phy10gbaser.hdlforge.toml --step sim --SimTargetName basic_test
 
-# If REPO_TOP is not set, HdlForge provides clear error:
-❌ REPO_TOP is not set. Please export REPO_TOP first.
+# If not in a git repo, HdlForge provides clear error:
+❌ Not inside a Git repository. Please run hdlforge from within a Git repository.
 ```
 
 ### Custom Tool Integration

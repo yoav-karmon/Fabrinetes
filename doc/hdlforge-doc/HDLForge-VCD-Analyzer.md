@@ -230,20 +230,19 @@ hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --get_modules_list | grep ar
 
 The `--get_modules_list` flag does not accept arguments. Use `grep` to filter the output instead.
 
-## Migration from Old API
+## Finding Signals
 
-The previous signal-based API (`--find_signal_names`, `--signal`, `--value`, `--edge`) has been replaced with the module-based API for better organization and performance.
+Use module-based commands with `grep` to find signals by pattern:
 
-**Old approach** (removed):
 ```bash
-hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --find_signal_names "*state*"
-hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --signal "top.state" --edge --count 10
-```
+# List all modules
+hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --get_modules_list
 
-**New approach**:
-```bash
+# Filter modules by pattern
 hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --get_modules_list | grep state
-hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --get_values_all 'top.module_inst' | grep state
+
+# Get signal values and filter
+hdlforge --tool vcd_analyzer --vcdfilename dump.vcd --get_values_all 'top.module_inst' --human | grep state
 ```
 
 The new API provides:

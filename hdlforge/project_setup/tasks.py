@@ -475,8 +475,6 @@ if __name__ == "__main__":
     # VCD analyzer arguments
     parser.add_argument('--vcdfilename', type=str, help='VCD file to analyze')
     parser.add_argument('--get_modules_list', action='store_true', help='List all modules in the design')
-    parser.add_argument('--find_signal_names', '--signalnames', nargs='?', const='*', 
-                        help='List signal names (optionally filter with wildcard pattern)')
     parser.add_argument('--get_values_pins', type=str, help='Module path to list value changes for pins only (excludes sub-modules)')
     parser.add_argument('--get_values_all', type=str, help='Module path to list value changes for all signals (excludes sub-modules)')
     parser.add_argument('--human', action='store_true', help='Human-readable output format with padding (for --get_values_pins or --get_values_all)')
@@ -691,7 +689,6 @@ if __name__ == "__main__":
         kwargs = {
             'vcd': args.vcdfilename,
             'get_modules_list': args.get_modules_list,
-            'find_signal_names': args.find_signal_names,
             'list_value_changes_in_module': args.get_values_pins or args.get_values_all,  # Use whichever is provided
             'all': args.get_values_all is not None,  # True if --get_values_all was provided, False if --get_values_pins
             'human': args.human,

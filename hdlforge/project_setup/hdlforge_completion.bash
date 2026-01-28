@@ -341,7 +341,7 @@ _hdlforge_completions() {
             _word_in_args "--vcdfilename" && has_vcdfile=true
             
             # Check if we're after a flag that needs a value
-            if [[ "$prev" == "--get_values_pins" || "$prev" == "--get_values_all" || "$prev" == "--find_signal_names" || "$prev" == "--signalnames" ]]; then
+            if [[ "$prev" == "--get_values_pins" || "$prev" == "--get_values_all" ]]; then
                 # User is typing the module path - no completion
                 return
             fi
@@ -365,7 +365,7 @@ _hdlforge_completions() {
                     fi
                 else
                     # Show action flags (after --vcdfilename is set)
-                    local action_flags="--get_modules_list --get_values_pins --get_values_all --find_signal_names --signalnames"
+                    local action_flags="--get_modules_list --get_values_pins --get_values_all"
                     for flag in $action_flags; do
                         _word_in_args "$flag" || available_flags="$available_flags $flag"
                     done
