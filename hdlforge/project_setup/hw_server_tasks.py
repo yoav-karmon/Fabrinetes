@@ -1001,6 +1001,20 @@ def _execute_menu_choice(console: VivadoTCLConsole, choice: str,
                                 _menu_db['devices'][matched_idx]['ila_list'] = console._get_ila_list()
                                 _menu_db['devices'][matched_idx]['vio_list'] = console._get_vio_list()
                         
+                        # Refresh device version info after programming
+                        if matched_idx >= 0 and matched_idx < len(_menu_db.get('devices', [])):
+                            try:
+                                new_usr_access = _read_usr_access_from_device_value(console)
+                                new_userid = _read_userid_from_device_value(console)
+                                new_version = _decode_version(new_usr_access) if new_usr_access else ''
+                                new_timestamp = _decode_timestamp(new_userid) if new_userid else ''
+                                new_decoded = f"{new_version} ({new_timestamp})" if new_version and new_timestamp else (new_version or new_timestamp)
+                                _menu_db['devices'][matched_idx]['decoded'] = new_decoded
+                                _menu_db['devices'][matched_idx]['usr_access'] = new_usr_access
+                                _menu_db['devices'][matched_idx]['userid'] = new_userid
+                            except Exception as e:
+                                log_message(f"Could not refresh device version info: {e}")
+                        
                         result_message(f"Device re-opened: {selected_dna}")
                 except Exception as e:
                     log_message(f"Could not re-open device: {e}")
@@ -1015,6 +1029,25 @@ def _execute_menu_choice(console: VivadoTCLConsole, choice: str,
         
         if not _ensure_console_started(console, scan_ip, scan_port):
             return True
+        
+        # Close any open device/target first before scanning
+        try:
+            console.send_command("set all_targets [get_hw_targets]", timeout=5)
+            console.send_command("foreach t $all_targets { if {[get_property IS_OPEN $t]} { close_hw_target $t } }", timeout=5)
+        except:
+            pass
+        
+        # Clear ALL cached data and selection state
+        # After scan, user must select device with 'open <dna>'
+        _menu_db['devices'] = []
+        _menu_db['scanned'] = False
+        _menu_db['selected_dna'] = ''  # Clear selection - "Opened Device" shows "(none)"
+        console.core_cache = {}
+        console.device_list_cache = []
+        console.scanned = False
+        console.device_explicitly_selected = False
+        console.selected_device_dna = None
+        
         # Use isolated scan function
         result = _perform_scan(console, bitstream, probes, scan_ip, scan_port)
         # No auto-selection - user must explicitly select device with 'open <dna>'
@@ -1082,10 +1115,23 @@ def _execute_menu_choice(console: VivadoTCLConsole, choice: str,
                 dev = matched_dev
                 dev_dna = dev.get('dna', '')
                 
-                # ALWAYS clear ILA/VIO cache before device selection (even if same device)
-                # This forces a fresh re-read of ILA/VIO cores every time a device is selected
+                # Close any open device/target first before opening new one
+                try:
+                    console.send_command("set all_targets [get_hw_targets]", timeout=5)
+                    console.send_command("foreach t $all_targets { if {[get_property IS_OPEN $t]} { close_hw_target $t } }", timeout=5)
+                except:
+                    pass
+                
+                # Clear all caches - no caching, always fresh read
                 console.core_cache = {}
                 console.scanned = False
+                console.device_list_cache = []
+                
+                # Refresh hw_server to ensure JTAG chain is up-to-date
+                try:
+                    console.send_command("refresh_hw_server", timeout=10)
+                except:
+                    pass
                 
                 # Find and select device by DNA (never use cached indices!)
                 if not console.find_and_select_device_by_dna(dev_dna, "open"):
@@ -1132,6 +1178,20 @@ def _execute_menu_choice(console: VivadoTCLConsole, choice: str,
                         result_message("SCAN FAILED - ILA/VIO scan could not complete")
                 else:
                     result_message("(no probes file for ILA/VIO scan)")
+                
+                # Refresh device version info from hardware (not from cache)
+                if matched_idx >= 0 and matched_idx < len(_menu_db.get('devices', [])):
+                    try:
+                        new_usr_access = _read_usr_access_from_device_value(console)
+                        new_userid = _read_userid_from_device_value(console)
+                        new_version = _decode_version(new_usr_access) if new_usr_access else ''
+                        new_timestamp = _decode_timestamp(new_userid) if new_userid else ''
+                        new_decoded = f"{new_version} ({new_timestamp})" if new_version and new_timestamp else (new_version or new_timestamp)
+                        _menu_db['devices'][matched_idx]['decoded'] = new_decoded
+                        _menu_db['devices'][matched_idx]['usr_access'] = new_usr_access
+                        _menu_db['devices'][matched_idx]['userid'] = new_userid
+                    except Exception as e:
+                        log_message(f"Could not refresh device version info: {e}")
                 
                 return True
             else:

@@ -392,11 +392,27 @@ class VivadoTCLConsole:
         if self.debug and debug_prefix:
             print(f"[DEBUG] {debug_prefix}: Searching for device with DNA {device_dna}")
         
-        # Close any open targets first
+        # Disconnect and reconnect to hw_server to get clean state
+        try:
+            self.send_command("disconnect_hw_server", timeout=5)
+        except:
+            pass
+        
+        import time
+        time.sleep(0.5)
+        
+        # Reconnect to hw_server
+        server_str = f"{self.hw_server_host}:{self.hw_server_port}"
+        try:
+            self.send_command(f"connect_hw_server -url {server_str}", timeout=10)
+        except:
+            pass
+        
+        # Close any open targets
         self.send_command("set all_targets [get_hw_targets]", timeout=5)
         self.send_command("foreach t $all_targets { if {[get_property IS_OPEN $t]} { close_hw_target $t } }", timeout=5)
         
-        # Search through all targets and devices
+        # Search through all targets and devices (get fresh target list after refresh)
         self.send_command("set all_targets [get_hw_targets]", timeout=5)
         target_count_output = self.send_command("llength $all_targets", timeout=2)
         
@@ -405,6 +421,9 @@ class VivadoTCLConsole:
         except:
             print(f"[RESULT]: {debug_prefix} FAILED - Could not enumerate targets")
             return False
+        
+        if self.debug and debug_prefix:
+            print(f"[DEBUG] {debug_prefix}: Searching for DNA {device_dna}, found {target_count} target(s)")
         
         found_device = False
         for target_idx in range(target_count):
@@ -427,8 +446,10 @@ class VivadoTCLConsole:
             for device_idx in range(device_count):
                 self.send_command(f"set device [lindex $devices {device_idx}]", timeout=2)
                 self.send_command("current_hw_device $device", timeout=2)
+                # Refresh device to ensure we read current register values
+                self.send_command("refresh_hw_device [current_hw_device]", timeout=10)
                 
-                # Read DNA of this device
+                # Read DNA directly using current_hw_device
                 check_dna = self._read_dna_value()
                 check_dna_clean = (check_dna or '').lstrip('0').upper() or '0'
                 
