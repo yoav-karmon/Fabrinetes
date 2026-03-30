@@ -146,40 +146,8 @@ switch -- $cmd {
             }
         }
         
-        # Output child runs (space-separated)
-        puts [join $child_runs " "]
-    }
-
-    default {
-        puts "Unknown command: $cmd"
-        puts "Available commands: list_all_runs, reset_run, get_child_runs"
-        close_project
-        exit 1
-    }
-}
-
-# Cleanup
-close_project
-exit 0
-
-            close_project
-            exit 1
-        }
-        
-        # Find all implementation runs with this synth run as parent
-        set child_runs []
-        foreach run [get_runs] {
-            set is_impl [get_property IS_IMPLEMENTATION $run]
-            if { $is_impl == 1 } {
-                set parent [get_property PARENT $run]
-                if { $parent == $synth_run_name } {
-                    lappend child_runs $run
-                }
-            }
-        }
-        
-        # Output child runs (space-separated)
-        puts [join $child_runs " "]
+        # Machine-readable line so Python can ignore Vivado banner noise on stdout
+        puts "HDLFORGE_CHILD_RUNS [join $child_runs " "]"
     }
 
     default {

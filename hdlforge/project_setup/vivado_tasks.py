@@ -16,6 +16,48 @@ from tabulate import tabulate
 
 from project_file import ProjectFile
 
+HDLFORGE_CHILD_RUNS_PREFIX = "HDLFORGE_CHILD_RUNS "
+
+
+def parse_vivado_child_runs_stdout(stdout: str) -> List[str]:
+    """
+    Parse child implementation run names from project_tool.tcl get_child_runs output.
+    Uses line 'HDLFORGE_CHILD_RUNS run1 run2 ...' so Vivado banner text on stdout is ignored.
+    """
+    if not stdout:
+        return []
+    for line in stdout.splitlines():
+        s = line.strip()
+        if s.startswith(HDLFORGE_CHILD_RUNS_PREFIX):
+            rest = s[len(HDLFORGE_CHILD_RUNS_PREFIX) :].strip()
+            return rest.split() if rest else []
+    noise_markers = (
+        "INFO:",
+        "WARNING:",
+        "ERROR:",
+        "Copyright",
+        "Vivado",
+        "SW Build",
+        "****",
+        "source ",
+        "open_project",
+        "Scanning sources",
+        "Memory (MB)",
+        "Finished scanning",
+        "Start of session",
+        "SharedData Build",
+        "IP Build",
+    )
+    child_lines: List[str] = []
+    for line in stdout.splitlines():
+        t = line.strip()
+        if not t or any(m in t for m in noise_markers):
+            continue
+        child_lines.append(t)
+    if not child_lines:
+        return []
+    return " ".join(child_lines).split()
+
 
 def _clean_logs_from_current_dir(verbose: bool = False, force: bool = False):
     """
@@ -171,8 +213,10 @@ def vivado(c, project, verbose=False, step: List[str] = [], clean=False, force=F
                 enabled_impls.append(impl_item)
         
         if not enabled_impls:
-            print("[!] No enabled implementation runs found. Skipping.")
-            return
+            if step != "syn":
+                print("[!] No enabled implementation runs found. Skipping.")
+                return
+            print("[i] No child implementation runs; running synthesis-only flow.")
         
         # Join enabled impl names with space for TCL script
         impl_names_str = " ".join(enabled_impls)
@@ -393,14 +437,8 @@ def vivado(c, project, verbose=False, step: List[str] = [], clean=False, force=F
                 print(f"[i] Getting child implementation runs for synth run: {run_name}")
                 with c.cd(str(project_file.vivado_build_dir)):
                     result = c.run(f"vivado -mode batch -source {SCRIPT_DIR}/project_tool.tcl -notrace -tclargs  get_child_runs  {project_file.vivado_project_xpr_relative} {run_name}", pty=False, echo=False, warn=True, hide='stdout')
-                    child_runs_str = result.stdout.strip() if hasattr(result, 'stdout') else ""
-                    # Filter out any lines that look like Vivado output (contain "INFO:", "WARNING:", etc.)
-                    lines = child_runs_str.split('\n') if child_runs_str else []
-                    child_runs = [line.strip() for line in lines if line.strip() and not any(marker in line for marker in ['INFO:', 'WARNING:', 'ERROR:', 'Copyright', 'Vivado', 'SW Build'])]
-                    # If we got multiple lines, join them; otherwise use the original string
-                    if child_runs:
-                        child_runs_str = ' '.join(child_runs)
-                    child_runs = child_runs_str.split() if child_runs_str else []
+                    raw = result.stdout.strip() if hasattr(result, 'stdout') else ""
+                    child_runs = parse_vivado_child_runs_stdout(raw)
                 
                 # Reset the synth run
                 print(f"[i] Resetting Vivado synth run: {run_name} in project: {project_file.vivado_project_name}")
@@ -431,14 +469,8 @@ def vivado(c, project, verbose=False, step: List[str] = [], clean=False, force=F
                 print(f"[i] Getting child implementation runs for synth run: {run_name}")
                 with c.cd(str(project_file.vivado_build_dir)):
                     result = c.run(f"vivado -mode batch -source {SCRIPT_DIR}/project_tool.tcl -notrace -tclargs  get_child_runs  {project_file.vivado_project_xpr_relative} {run_name}", pty=False, echo=False, warn=True, hide='stdout')
-                    child_runs_str = result.stdout.strip() if hasattr(result, 'stdout') else ""
-                    # Filter out any lines that look like Vivado output (contain "INFO:", "WARNING:", etc.)
-                    lines = child_runs_str.split('\n') if child_runs_str else []
-                    child_runs = [line.strip() for line in lines if line.strip() and not any(marker in line for marker in ['INFO:', 'WARNING:', 'ERROR:', 'Copyright', 'Vivado', 'SW Build'])]
-                    # If we got multiple lines, join them; otherwise use the original string
-                    if child_runs:
-                        child_runs_str = ' '.join(child_runs)
-                    child_runs = child_runs_str.split() if child_runs_str else []
+                    raw = result.stdout.strip() if hasattr(result, 'stdout') else ""
+                    child_runs = parse_vivado_child_runs_stdout(raw)
                 
                 if not child_runs:
                     print(f"[!] Warning: No child implementation runs found for synth run: {run_name}")
@@ -468,14 +500,8 @@ def vivado(c, project, verbose=False, step: List[str] = [], clean=False, force=F
                 print(f"[i] Getting child implementation runs for synth run: {run_name}")
                 with c.cd(str(project_file.vivado_build_dir)):
                     result = c.run(f"vivado -mode batch -source {SCRIPT_DIR}/project_tool.tcl -notrace -tclargs  get_child_runs  {project_file.vivado_project_xpr_relative} {run_name}", pty=False, echo=False, warn=True, hide='stdout')
-                    child_runs_str = result.stdout.strip() if hasattr(result, 'stdout') else ""
-                    # Filter out any lines that look like Vivado output (contain "INFO:", "WARNING:", etc.)
-                    lines = child_runs_str.split('\n') if child_runs_str else []
-                    child_runs = [line.strip() for line in lines if line.strip() and not any(marker in line for marker in ['INFO:', 'WARNING:', 'ERROR:', 'Copyright', 'Vivado', 'SW Build'])]
-                    # If we got multiple lines, join them; otherwise use the original string
-                    if child_runs:
-                        child_runs_str = ' '.join(child_runs)
-                    child_runs = child_runs_str.split() if child_runs_str else []
+                    raw = result.stdout.strip() if hasattr(result, 'stdout') else ""
+                    child_runs = parse_vivado_child_runs_stdout(raw)
                 
                 if not child_runs:
                     print(f"[!] Warning: No child implementation runs found for synth run: {run_name}")

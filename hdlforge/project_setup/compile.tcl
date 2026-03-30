@@ -9,6 +9,33 @@ set define_string [lindex $argv 5]
 # Parse implementation runs (space-separated list)
 set impl_runs [split $impl_runs_str " "]
 
+# Vivado may return multiple objects for get_runs <name>; APIs need a single run.
+proc hdlforge_one_run { run_name } {
+    set matches [get_runs -quiet $run_name]
+    set n [llength $matches]
+    if { $n == 0 } {
+        error "No Vivado run matched name: $run_name"
+    }
+    if { $n > 1 } {
+        puts "(w) Multiple Vivado runs ($n) matched '$run_name'; using first"
+    }
+    return [lindex $matches 0]
+}
+
+proc hdlforge_safe_report_run { run_name } {
+    if { $run_name eq "" } { return }
+    set matches [get_runs -quiet $run_name]
+    set n [llength $matches]
+    if { $n == 0 } {
+        puts "(w) No Vivado run matched for final report: $run_name"
+        return
+    }
+    if { $n > 1 } {
+        puts "(w) Multiple Vivado runs ($n) matched '$run_name' for final report; reporting first"
+    }
+    report_property [lindex $matches 0]
+}
+
 puts "(i) print all arguments"
 puts "=========== TCL Arguments ==========="
 puts "Project file:     $path_xpr"
@@ -26,7 +53,7 @@ puts "================== stage = synthesis =================="
 
 if { $stage == "syn"  } {
     # Get the run object for the synthesis run
-    set run_obj [get_runs $synth_run]
+    set run_obj [hdlforge_one_run $synth_run]
     
     set progress     [get_property PROGRESS $run_obj ]
     set need_refresh [get_property NEEDS_REFRESH $run_obj ]
@@ -58,7 +85,7 @@ if { $stage == "syn"  } {
     }
 
 } else {
-    set run_obj [get_runs $synth_run]
+    set run_obj [hdlforge_one_run $synth_run]
     report_property  $run_obj
     puts "(!) Skipping synthesis stage"
 }
@@ -72,7 +99,7 @@ if { $stage == "impl" } {
     # Implementation - run all enabled implementation runs
     foreach impl_run $impl_runs {
         if { $impl_run ne "" } {
-            set run_obj [get_runs $impl_run]
+            set run_obj [hdlforge_one_run $impl_run]
             set progress     [get_property PROGRESS $run_obj]
             set need_refresh [get_property NEEDS_REFRESH $run_obj]
             set status       [get_property STATUS $run_obj]
@@ -128,7 +155,7 @@ if { $stage == "bit" } {
         puts "(i) Found [llength $impl_child_runs] child implementation run(s): $impl_child_runs"
         
         # Check if synth run needs reset
-        set synth_run_obj [get_runs $synth_run]
+        set synth_run_obj [hdlforge_one_run $synth_run]
         set synth_need_refresh [get_property NEEDS_REFRESH $synth_run_obj]
         set synth_status [get_property STATUS $synth_run_obj]
         set synth_status_lower [string tolower $synth_status]
@@ -140,7 +167,7 @@ if { $stage == "bit" } {
         if { $synth_needs_reset } {
             puts "(i) Synth run $synth_run needs reset. Resetting all child runs first..."
             foreach child_run $impl_child_runs {
-                set child_run_obj [get_runs $child_run]
+                set child_run_obj [hdlforge_one_run $child_run]
                 set child_parent [get_property PARENT $child_run_obj]
                 if { $child_parent == $synth_run } {
                     puts "  Resetting child run: $child_run"
@@ -153,7 +180,7 @@ if { $stage == "bit" } {
         
         # Check each child impl run if it needs reset
         foreach child_run $impl_child_runs {
-            set child_run_obj [get_runs $child_run]
+            set child_run_obj [hdlforge_one_run $child_run]
             set child_parent [get_property PARENT $child_run_obj]
             if { $child_parent == $synth_run } {
                 set child_need_refresh [get_property NEEDS_REFRESH $child_run_obj]
@@ -174,7 +201,7 @@ if { $stage == "bit" } {
         # Launch all child impl runs with write_bitstream
         puts "(i) Launching all child implementation runs to write_bitstream with -jobs 52"
         foreach child_run $impl_child_runs {
-            set child_run_obj [get_runs $child_run]
+            set child_run_obj [hdlforge_one_run $child_run]
             set child_parent [get_property PARENT $child_run_obj]
             if { $child_parent == $synth_run } {
                 puts "  Launching: $child_run"
@@ -185,7 +212,7 @@ if { $stage == "bit" } {
         # Wait for each child run to complete sequentially
         set child_index 0
         foreach child_run $impl_child_runs {
-            set child_run_obj [get_runs $child_run]
+            set child_run_obj [hdlforge_one_run $child_run]
             set child_parent [get_property PARENT $child_run_obj]
             if { $child_parent == $synth_run } {
                 puts "(i) Waiting for child run $child_index ($child_run) to complete..."
@@ -207,11 +234,11 @@ puts ""
 puts "(i) Final status report"
 puts "==================== Final run statuses ===================="
 puts "$synth_run status"
-report_property  [get_runs $synth_run]
+hdlforge_safe_report_run $synth_run
 foreach impl_run $impl_runs {
     if { $impl_run ne "" } {
         puts "$impl_run: status"
-        report_property  [get_runs $impl_run]
+        hdlforge_safe_report_run $impl_run
     }
 }
 puts "============================================================"
