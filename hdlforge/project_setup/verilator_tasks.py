@@ -219,6 +219,7 @@ def Verilator(c, project, step=None, clean=False, SimTargetName=None, flags=None
                 except Exception as e:
                     print("\n[!x!]  Verilator build/simulation failed!", flush=True)
                     print(f"Error: {e}", flush=True)
+                    raise
 
 
 
