@@ -33,6 +33,114 @@ _hdlforge_completions() {
     # Common flags
     local common_flags="--project --tool --verbose --help"
 
+    # Helper: find active project file for completion
+    _get_project_file() {
+        local project_file=$(_get_flag_value "--project")
+        if [[ -n "$project_file" && -f "$project_file" ]]; then
+            echo "$project_file"
+            return
+        fi
+
+        local detected_json
+        detected_json=$(ls *.hdlforge.json 2>/dev/null | head -1)
+        if [[ -n "$detected_json" && -f "$detected_json" ]]; then
+            echo "$detected_json"
+            return
+        fi
+
+        local detected_toml
+        detected_toml=$(ls *.hdlforge.toml 2>/dev/null | head -1)
+        if [[ -n "$detected_toml" && -f "$detected_toml" ]]; then
+            echo "$detected_toml"
+        fi
+    }
+
+    # Helper: complete dotted LLM_orch path segments from active JSON project
+    _complete_llm_orch_path() {
+        local project_file="$1"
+        local cur_word="$2"
+
+        [[ -z "$project_file" || ! -f "$project_file" ]] && return
+        [[ "$project_file" != *.json ]] && return
+        command -v jq >/dev/null 2>&1 || return
+
+        local all_paths
+        all_paths=$(jq -r '.LLM_orch | if . == null then [] else paths | map(tostring) | join(".") end' "$project_file" 2>/dev/null)
+        [[ -z "$all_paths" ]] && return
+
+        local exact_branch_prefix=""
+        if [[ -n "$cur_word" ]]; then
+            local branch_check_path
+            while IFS= read -r branch_check_path; do
+                if [[ "$branch_check_path" == "${cur_word}."* ]]; then
+                    exact_branch_prefix="${cur_word}."
+                    break
+                fi
+            done <<< "$all_paths"
+        fi
+
+        local parent_prefix=""
+        local base_prefix=""
+        if [[ -n "$exact_branch_prefix" ]]; then
+            parent_prefix="${cur_word}"
+            base_prefix="${exact_branch_prefix}"
+        elif [[ "$cur_word" == *"." ]]; then
+            parent_prefix="${cur_word%.}"
+            base_prefix="${parent_prefix}."
+        elif [[ "$cur_word" == *"."* ]]; then
+            parent_prefix="${cur_word%.*}"
+            base_prefix="${parent_prefix}."
+        fi
+
+        local -A completion_has_children=()
+        local path remainder next_seg candidate
+        while IFS= read -r path; do
+            [[ -z "$path" ]] && continue
+
+            if [[ -z "$base_prefix" ]]; then
+                candidate="${path%%.*}"
+            else
+                [[ "$path" == "${base_prefix}"* ]] || continue
+                remainder="${path#${base_prefix}}"
+                next_seg="${remainder%%.*}"
+                [[ -z "$next_seg" ]] && continue
+                candidate="${base_prefix}${next_seg}"
+            fi
+
+            if [[ "$path" == "${candidate}."* ]]; then
+                completion_has_children["$candidate"]=1
+            elif [[ -z "${completion_has_children[$candidate]+x}" ]]; then
+                completion_has_children["$candidate"]=0
+            fi
+        done <<< "$all_paths"
+
+        local completions=()
+        if [[ -n "$exact_branch_prefix" ]]; then
+            completions+=("$exact_branch_prefix")
+        fi
+        local candidate_key
+        for candidate_key in "${!completion_has_children[@]}"; do
+            if [[ "${completion_has_children[$candidate_key]}" == "1" ]]; then
+                completions+=("${candidate_key}.")
+            else
+                completions+=("${candidate_key}")
+            fi
+        done
+
+        [[ ${#completions[@]} -eq 0 ]] && return
+        local unique_completions
+        unique_completions=$(printf '%s\n' "${completions[@]}" | sort -u)
+        COMPREPLY=($(compgen -W "$unique_completions" -- "$cur_word"))
+
+        local reply
+        for reply in "${COMPREPLY[@]}"; do
+            if [[ "$reply" == *"." ]]; then
+                compopt -o nospace 2>/dev/null
+                break
+            fi
+        done
+    }
+
     # Helper function to check if a word exists in the command line
     _word_in_args() {
         local word="$1"
@@ -53,13 +161,74 @@ _hdlforge_completions() {
         done
     }
 
+    # LLM_orch dotted-path completion when --tool is not used
+    local has_tool_flag=false
+    for w in "${COMP_WORDS[@]}"; do
+        if [[ "$w" == "--tool" ]]; then
+            has_tool_flag=true
+            break
+        fi
+    done
+
+    if [[ "$has_tool_flag" == false ]]; then
+        local seen_dd=false
+        local path_token=""
+        local expecting_project_value=false
+        local saw_nonflag=false
+        local project_file="$(_get_project_file)"
+        local llm_orch_flags="--project --tool --verbose --help"
+
+        for ((i=1; i < ${#COMP_WORDS[@]}; i++)); do
+            local word="${COMP_WORDS[i]}"
+            [[ "$i" -eq "$COMP_CWORD" ]] && continue
+
+            if [[ "$expecting_project_value" == true ]]; then
+                expecting_project_value=false
+                continue
+            fi
+
+            if [[ "$word" == "--project" ]]; then
+                expecting_project_value=true
+                continue
+            fi
+
+            if [[ "$word" == "--" ]]; then
+                seen_dd=true
+                continue
+            fi
+
+            if [[ "$seen_dd" == false && "$word" != --* ]]; then
+                path_token="$word"
+                saw_nonflag=true
+                break
+            fi
+        done
+
+        if [[ "$seen_dd" == false ]]; then
+            if [[ "$cur" == -* && "$saw_nonflag" == false ]]; then
+                COMPREPLY=($(compgen -W "$llm_orch_flags" -- "$cur"))
+                return
+            fi
+
+            if [[ "$saw_nonflag" == false || "$cur" == "$path_token" ]]; then
+                _complete_llm_orch_path "$project_file" "$cur"
+                local path_reply=("${COMPREPLY[@]}")
+                if [[ "$saw_nonflag" == false ]]; then
+                    local flag_reply=($(compgen -W "$llm_orch_flags" -- "$cur"))
+                    COMPREPLY=("${path_reply[@]}" "${flag_reply[@]}")
+                else
+                    COMPREPLY=("${path_reply[@]}")
+                fi
+                return
+            fi
+        else
+            COMPREPLY=()
+            return
+        fi
+    fi
+
     # Check what context we're in
     case "$prev" in
-        hdlforge)
-            # After hdlforge, suggest --tool only
-            COMPREPLY=($(compgen -W "--tool" -- "$cur"))
-            return
-            ;;
         --tool)
             # After --tool, suggest available tools
             COMPREPLY=($(compgen -W "$tools" -- "$cur"))
