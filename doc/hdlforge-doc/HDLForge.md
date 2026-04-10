@@ -43,17 +43,23 @@ hdlforge --tool vivado --syn <synth_run_name>
 
 ### LLM_orch shortcut mode
 
-If `--tool` is omitted, HDLForge interprets positional arguments as a path inside `LLM_orch` in the active project file.
+If `--tool` is omitted, HDLForge interprets one dotted argument as a path inside `LLM_orch` in the active project file.
 
 ```bash
-hdlforge <path...>
+hdlforge <dotted.path> [-- <extra-args-for-leaf-command>]
+```
+
+Optional `--` separates the `LLM_orch` lookup path from additional arguments that are appended (shell-quoted) to the resolved leaf command. This avoids duplicating shortcuts when you only need extra flags (for example `--extra-env` on a nested `hdlforge --tool Verilator ...` invocation).
+
+```bash
+hdlforge testing.base.sim.run -- --extra-env "TESTCASE=arp_test,DEBUG=1"
 ```
 
 Examples:
 
 ```bash
-hdlforge trigger_test sim all
-hdlforge vivado project write_tcl
+hdlforge testing.trigger_test.sim.run
+hdlforge vivado.project.write_tcl
 ```
 
 ---
@@ -314,8 +320,10 @@ Example structure:
 Resolution example:
 
 ```bash
-hdlforge group action run
+hdlforge group.action.run
 ```
+
+Optional arguments after `--` are appended to the leaf command (same behavior as in the LLM_orch shortcut mode section above).
 
 Resolves to:
 
@@ -395,10 +403,10 @@ hdlforge --tool Verilator --step build --SimTargetName <target>
 hdlforge --tool vivado --syn synth_1
 ```
 
-Shortcut mode remains positional:
+Shortcut mode remains dotted:
 
 ```bash
-hdlforge trigger_test sim all
+hdlforge testing.trigger_test.sim.run
 ```
 
 Legacy schema names to replace:

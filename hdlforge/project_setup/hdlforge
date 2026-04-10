@@ -234,9 +234,12 @@ if [ "$has_tool_flag" = false ]; then
         exit 1
     fi
     
-    # Build JSON path from remaining arguments (skip flags like --project)
-    # Convert args to JSON path: LLM_orch.arg1.arg2.arg3...
+    # Build JSON path from remaining arguments (skip flags like --project).
+    # Optional `--` separates the dotted LLM_orch path from extra args forwarded to the leaf command.
+    # Example: hdlforge testing.base.sim.run -- --extra-env "TESTCASE=arp_test,DEBUG=1"
     JSON_PATH_PARTS=()
+    PASSTHROUGH_ARGS=()
+    seen_dd=false
     skip_next=false
     for arg in "$@"; do
         # Skip --project and its value if present
@@ -248,20 +251,34 @@ if [ "$has_tool_flag" = false ]; then
             skip_next=false
             continue
         fi
-        # Only add non-flag arguments (those that don't start with --)
+        if [ "$seen_dd" = true ]; then
+            PASSTHROUGH_ARGS+=("$arg")
+            continue
+        fi
+        if [[ "$arg" == "--" ]]; then
+            seen_dd=true
+            continue
+        fi
+        # Only add non-flag arguments (those that don't start with --) to the path
         if [[ "$arg" != --* ]]; then
             JSON_PATH_PARTS+=("$arg")
         fi
     done
     
-    # Build final JSON path
+    # Enforce a single dotted LLM_orch path token before `--`
     if [ ${#JSON_PATH_PARTS[@]} -eq 0 ]; then
         echo "[!x!] Error: No command path provided"
-        echo "[i] Usage: hdlforge <path> [path...] (e.g., hdlforge arp_test sim build)"
+        echo "[i] Usage: hdlforge <dotted.path> [-- <extra-args-for-leaf-command>]"
+        echo "[i] Example: hdlforge testing.base.sim.run -- --extra-env \"TESTCASE=arp_test\""
+        exit 1
+    fi
+    if [ ${#JSON_PATH_PARTS[@]} -ne 1 ]; then
+        echo "[!x!] Error: LLM_orch path must be a single dotted token"
+        echo "[i] Use dots instead of spaces, e.g.: hdlforge testing.arp_test.sim.run"
         exit 1
     fi
     
-    JSON_PATH="LLM_orch.$(IFS='.'; echo "${JSON_PATH_PARTS[*]}")"
+    JSON_PATH="LLM_orch.${JSON_PATH_PARTS[0]}"
     
     # Fetch command from JSON using jq
     COMMAND=$(jq -r ".${JSON_PATH}" "$PROJECT_JSON" 2>/dev/null)
@@ -273,9 +290,15 @@ if [ "$has_tool_flag" = false ]; then
         exit 1
     fi
     
+    # Append shell-escaped passthrough args (everything after `--`) to the leaf command
+    COMMAND_SUFFIX=""
+    for _pt in "${PASSTHROUGH_ARGS[@]}"; do
+        COMMAND_SUFFIX="${COMMAND_SUFFIX} $(printf '%q' "$_pt")"
+    done
+    
     # Execute the fetched command recursively
     echo "[i] LLM Orchestration Mode: ${JSON_PATH}"
-    echo "[i] Executing: ${COMMAND}"
+    echo "[i] Executing: ${COMMAND}${COMMAND_SUFFIX}"
     echo ""
     
     # Change to project directory (where JSON file is located) before executing
@@ -286,8 +309,8 @@ if [ "$has_tool_flag" = false ]; then
     }
     
     # Execute the command (recursive call to hdlforge)
-    # Use eval to properly handle quoted arguments in the command
-    eval "$COMMAND"
+    # Use eval to properly handle quoted arguments in the command and passthrough
+    eval "$COMMAND${COMMAND_SUFFIX}"
     exit $?
 fi
 
