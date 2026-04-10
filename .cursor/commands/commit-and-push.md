@@ -36,10 +36,16 @@ After listing all commits, ask the user to selection option by number (in this o
 
 ## push Confirmation 
 After listing all commits, ask the user to selection option by number (in this order):
-1. Push and commit all commits to open source server & local server
-2. Push and commit all commits to local server using: git push 
-3. Push and commit all commits to open source server using: `git push ssh://git@github.com/yoav-karmon/Fabrinetes.git'
-3. (other option you think shoule be here) + and loop backhere
+1. Push all commits to both servers: `git push origin main && git push github main`
+2. Push to local server only: `git push origin main`
+3. Push to open source only: `git push github main`
+4. (other option you think should be here) + and loop back here
+
+### Remotes
+| Name | URL | Description |
+|------|-----|-------------|
+| `origin` | GitLab (internal) | Local/internal server |
+| `github` | `ssh://git@github.com/yoav-karmon/Fabrinetes.git` | Open source (GitHub) |
 
 
 ## post commit or push
