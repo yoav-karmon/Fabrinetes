@@ -61,6 +61,6 @@ When adding new examples:
 ## Documentation
 
 - [HDLForge Reference Guide](../README.md#hdlforge-reference-guide)
-- [HDLForge v2.0 Migration Guide](../HDLForge_v2_Migration_Guide.md) - **Important**: Read this if upgrading from v1.x
+- [HDLForge API Reference](../doc/hdlforge-doc/HDLForge.md) - Generic HDLForge CLI and schema documentation
 - [Fabrinetes Main Documentation](../README.md)
 - [Testing Guide](../testing_guide.md)

@@ -23,12 +23,10 @@ Fabrinetes/
 │   │   └── github-container-registry.md
 │   └── hdlforge-doc/                  # HDLForge build system documentation
 │       ├── README.md                  # HDLForge documentation guide
-│       ├── HDLForge.md                # Main HDLForge documentation
-│       ├── HDLForge-Verilator.md      # Verilator integration
-│       ├── HDLForge-Vivado.md         # Vivado integration
-│       ├── HDLForge-Architecture.md   # Internal architecture
-│       ├── HDLForge-Verilator-Examples.md
-│       ├── HDLForge-Vivado-Examples.md
+│       ├── HDLForge.md                # Canonical HDLForge API reference
+│       ├── HDLForge-Verilator.md      # Compatibility pointer
+│       ├── HDLForge-Vivado.md         # Compatibility pointer
+│       ├── HDLForge-Architecture.md   # Compatibility pointer
 │       └── HDLForge_v2_Migration_Guide.md
 ├── command/                           # Command documentation
 │   ├── README.md
@@ -80,17 +78,11 @@ Fabrinetes/
 > **📁 Complete HDLForge Documentation:** [hdlforge-doc/README.md](hdlforge-doc/README.md)
 
 ### Quick Links
-- **[HDLForge Overview](hdlforge-doc/HDLForge.md)** - Main HDLForge documentation and quick start
-- **[Verilator Integration](hdlforge-doc/HDLForge-Verilator.md)** - Verilator simulation guide
-- **[Vivado Integration](hdlforge-doc/HDLForge-Vivado.md)** - Vivado FPGA implementation guide
-- **[Architecture Details](hdlforge-doc/HDLForge-Architecture.md)** - Internal architecture for developers
-
-### Examples
-- **[Verilator Examples](hdlforge-doc/HDLForge-Verilator-Examples.md)** - Complete working examples for Verilator
-- **[Vivado Examples](hdlforge-doc/HDLForge-Vivado-Examples.md)** - Complete working examples for Vivado
-
-### Migration
-- **[HDLForge v2.0 Migration Guide](hdlforge-doc/HDLForge_v2_Migration_Guide.md)** - Migration guide for HDLForge v2.0
+- **[HDLForge API Reference](hdlforge-doc/HDLForge.md)** - Single HDLForge source of truth for CLI, schema, Verilator, Vivado, architecture, and migration
+- **[Verilator Pointer](hdlforge-doc/HDLForge-Verilator.md)** - Compatibility pointer to the canonical API reference
+- **[Vivado Pointer](hdlforge-doc/HDLForge-Vivado.md)** - Compatibility pointer to the canonical API reference
+- **[Architecture Pointer](hdlforge-doc/HDLForge-Architecture.md)** - Compatibility pointer to the canonical API reference
+- **[Migration Pointer](hdlforge-doc/HDLForge_v2_Migration_Guide.md)** - Compatibility pointer to the canonical API reference
 
 ---
 
@@ -133,14 +125,12 @@ Fabrinetes/
 
 ### ⚙️ FPGA/HDL Developers
 **HDLForge workflow:**
-1. [HDLForge Overview](hdlforge-doc/HDLForge.md) - Build system introduction
-2. [Verilator Guide](hdlforge-doc/HDLForge-Verilator.md) - Simulation setup
-3. [Vivado Guide](hdlforge-doc/HDLForge-Vivado.md) - FPGA implementation
-4. [Examples](hdlforge-doc/HDLForge-Verilator-Examples.md) - Working examples
+1. [HDLForge API Reference](hdlforge-doc/HDLForge.md) - Build system CLI, schema, Verilator, Vivado, and internals
+2. Project-specific HDLForge usage - see the consuming project repository docs
 
 ### 🚀 Advanced Users
 **Deep dives:**
-- [HDLForge Architecture](hdlforge-doc/HDLForge-Architecture.md) - Internal implementation
+- [HDLForge API Reference](hdlforge-doc/HDLForge.md#7-internal-architecture) - Internal implementation
 - [GitHub Container Registry](container-doc/github-container-registry.md) - Container distribution
 - [Container HDLForge Test](container-doc/container-hdlforge-test.md) - Advanced testing
 
@@ -160,11 +150,10 @@ Fabrinetes/
 ### 🔧 Build System (HDLForge)
 | Document | Purpose |
 |----------|---------|
-| [HDLForge Main](hdlforge-doc/HDLForge.md) | Overview, quick start, architecture |
-| [Verilator](hdlforge-doc/HDLForge-Verilator.md) | Simulation with Cocotb/Verilator |
-| [Vivado](hdlforge-doc/HDLForge-Vivado.md) | FPGA synthesis and implementation |
-| [Architecture](hdlforge-doc/HDLForge-Architecture.md) | Internal implementation details |
-| [Examples](hdlforge-doc/README.md#level-3-detailed-examples-370-380-lines-each) | Complete working examples |
+| [HDLForge API Reference](hdlforge-doc/HDLForge.md) | Single source of truth for HDLForge API and internals |
+| [Verilator Pointer](hdlforge-doc/HDLForge-Verilator.md) | Compatibility pointer to the canonical API reference |
+| [Vivado Pointer](hdlforge-doc/HDLForge-Vivado.md) | Compatibility pointer to the canonical API reference |
+| [Architecture Pointer](hdlforge-doc/HDLForge-Architecture.md) | Compatibility pointer to the canonical API reference |
 
 ### 🧪 Testing & Quality
 | Document | Purpose |

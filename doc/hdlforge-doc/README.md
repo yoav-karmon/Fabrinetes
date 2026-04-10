@@ -1,99 +1,45 @@
 # HDLForge Documentation
 
-This directory contains comprehensive documentation for the HDLForge build system.
+This directory now follows a single-source-of-truth model for HDLForge API documentation.
 
-## 📚 Documentation Structure
+## Canonical Document
 
-### Level 1: Overview & Quick Start
-- **[HDLForge.md](HDLForge.md)** - Main documentation entry point
-  - Quick start guide
-  - Architecture overview
-  - Basic usage
-  - Links to detailed documentation
+- **[HDLForge.md](HDLForge.md)** - the only canonical HDLForge API document
 
-### Level 2: Tool-Specific Guides (~320-410 lines each)
-- **[HDLForge-Verilator.md](HDLForge-Verilator.md)** - Verilator/Cocotb simulation
-  - Configuration structure
-  - Essential commands
-  - Common errors & solutions
-  - Best practices
+It contains:
 
-- **[HDLForge-Vivado.md](HDLForge-Vivado.md)** - Vivado FPGA implementation
-  - Configuration structure
-  - Essential commands
-  - Run flows
-  - Common errors & solutions
+- CLI behavior
+- project-file schema
+- Verilator reference
+- Vivado reference
+- `LLM_orch` behavior
+- internal architecture
+- migration notes
+- ownership boundaries between Fabrinetes and consuming repos
 
-- **[HDLForge-Architecture.md](HDLForge-Architecture.md)** - Internal architecture
-  - Design philosophy
-  - Bash/Python execution model
-  - ProjectLoader details
-  - Extension points
+## Compatibility Pointer Files
 
-### Level 3: Detailed Examples (~370-380 lines each)
-- **[HDLForge-Verilator-Examples.md](HDLForge-Verilator-Examples.md)** - Complete working examples
-  - Simple counter test
-  - Advanced FIFO test with monitors
-  - Full code samples
+These files remain only so older links do not break:
 
-- **[HDLForge-Vivado-Examples.md](HDLForge-Vivado-Examples.md)** - Complete working examples
-  - LED blinker project
-  - Multi-flow design
-  - Constraint examples
+- [HDLForge-Verilator.md](HDLForge-Verilator.md)
+- [HDLForge-Vivado.md](HDLForge-Vivado.md)
+- [HDLForge-Architecture.md](HDLForge-Architecture.md)
+- [HDLForge_v2_Migration_Guide.md](HDLForge_v2_Migration_Guide.md)
 
-### Migration & Supplemental
-- **[HDLForge_v2_Migration_Guide.md](HDLForge_v2_Migration_Guide.md)** - Migration guide for v2.0
+They should not become separate sources of truth again.
 
-## 🎯 Quick Navigation
+## Documentation Boundary
 
-**New to HDLForge?** → Start with [HDLForge.md](HDLForge.md)
+Use this rule when deciding where documentation belongs:
 
-**Using Verilator?** → [HDLForge-Verilator.md](HDLForge-Verilator.md) + [Examples](HDLForge-Verilator-Examples.md)
+- generic HDLForge API and implementation behavior: `Fabrinetes`
+- repo-specific HDLForge workflow: consuming repo
+- `phy10gbaser` specifics: `fpga/fpga_projects/phy10gbaser`
 
-**Using Vivado?** → [HDLForge-Vivado.md](HDLForge-Vivado.md) + [Examples](HDLForge-Vivado-Examples.md)
+Examples and project workflows should live with the project that uses HDLForge, not in this Fabrinetes API doc set.
 
-**Extending HDLForge?** → [HDLForge-Architecture.md](HDLForge-Architecture.md)
+## Related Documentation
 
-## 📊 Documentation Philosophy
-
-This documentation follows a **"big picture → details"** structure:
-
-1. **Smaller line counts** = Higher-level overviews
-2. **Larger line counts** = More detailed implementations
-
-This ensures:
-- Fast loading for LLM context windows
-- Easy navigation from overview to detail
-- Single source of truth for each concept
-- Progressive disclosure of complexity
-
-## 📁 File Organization
-
-```
-hdlforge-doc/
-├── README.md                          (this file)
-├── HDLForge.md                        (317 lines - overview)
-├── HDLForge-Verilator.md             (323 lines - guide)
-├── HDLForge-Vivado.md                (367 lines - guide)
-├── HDLForge-Architecture.md          (406 lines - internals)
-├── HDLForge-Verilator-Examples.md    (383 lines - examples)
-├── HDLForge-Vivado-Examples.md       (373 lines - examples)
-├── HDLForge_v2_Migration_Guide.md    (migration)
-└── CONSOLIDATION_SUMMARY.md          (consolidation notes)
-```
-
-## 🔗 Related Documentation
-
-- **[Fabrinetes Main README](../../README.md)** - Project overview
-- **[Documentation Index](../DOCUMENTATION_INDEX.md)** - All Fabrinetes docs
-
----
-
-*Documentation optimized for efficient LLM context windows and progressive learning.*
-
----
-
-## Document History
-
-**Last Updated:** Commit `e8ac713cdcf020cde9acfcc3e58270fa519a5ddb` - Consolidate and reorganize HDLForge documentation into hdlforge-doc/ (2025-11-11)
+- [Fabrinetes Main README](../../README.md)
+- [Documentation Index](../DOCUMENTATION_INDEX.md)
 

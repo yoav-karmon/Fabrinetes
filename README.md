@@ -384,7 +384,7 @@ mounts = [
 - [Container Path Management](doc/container-path-management.md) - Comprehensive guide to the two-level path management system
 - [Testing Guide](doc/testing_guide.md) - Comprehensive testing procedures
 - [Repository Structure](doc/repository_explanation.md) - Project organization
-- [HDLForge Migration](doc/HDLForge_v2_Migration_Guide.md) - v2.0 migration guide
+- [HDLForge API Reference](doc/hdlforge-doc/HDLForge.md) - Single HDLForge source of truth for CLI, schema, and internals
 - [Command Reference](command/README.md) - Complete command documentation
 
 ## Contributing
