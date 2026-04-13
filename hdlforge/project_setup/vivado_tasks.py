@@ -202,7 +202,17 @@ def vivado(c, project, verbose=False, step: List[str] = [], clean=False, force=F
     if clean:
         cleaning(project_file.vivado_build_dir, True, force)
 
-    def call_compile_tcl(step, syth_name, impl_list, paramaters, defines):
+    def parse_synth_run_names(run_names_value: str | None) -> List[str]:
+        if run_names_value is None:
+            return []
+        synth_run_names = []
+        for item in run_names_value.split(","):
+            run_name = item.strip()
+            if run_name:
+                synth_run_names.append(run_name)
+        return synth_run_names
+
+    def call_compile_tcl(step, synth_run_names, impl_list, paramaters, defines):
         # Filter enabled implementations
         enabled_impls = []
         for impl_item in impl_list:
@@ -213,24 +223,27 @@ def vivado(c, project, verbose=False, step: List[str] = [], clean=False, force=F
                 # Old format - just a string, treat as enabled
                 enabled_impls.append(impl_item)
         
-        if not enabled_impls:
-            if step != "syn":
-                print("[!] No enabled implementation runs found. Skipping.")
-                return
-            print("[i] No child implementation runs; running synthesis-only flow.")
+        synth_run_names = [run_name.strip() for run_name in synth_run_names if run_name and run_name.strip()]
+        if not synth_run_names:
+            print("[!x!] At least one synth run must be provided to compile.tcl")
+            exit(1)
+
+        if not enabled_impls and step not in {"syn", "impl", "bit", "all"}:
+            print("[i] No enabled implementation runs were provided.")
         
+        synth_names_str = " ".join(synth_run_names)
         # Join enabled impl names with space for TCL script
         impl_names_str = " ".join(enabled_impls)
         
         with c.cd(str(project_file.vivado_build_dir)):
             table = [["Step", step]]
-            table.append(["Synth", syth_name])
+            table.append(["Synth", synth_names_str])
             table.append(["Impl", impl_names_str])
             table.append(["Parameters", paramaters])
             table.append(["Defines", defines])
             print(tabulate(table, headers="firstrow", tablefmt="grid"))
 
-            cmd = f"vivado -mode batch -source {SCRIPT_DIR}/compile.tcl -notrace -tclargs  {project_file.vivado_project_xpr_relative} {step} {syth_name} '{impl_names_str}' '{paramaters}' '{defines}'"
+            cmd = f"vivado -mode batch -source {SCRIPT_DIR}/compile.tcl -notrace -tclargs  {project_file.vivado_project_xpr_relative} {step} '{synth_names_str}' '{impl_names_str}' '{paramaters}' '{defines}'"
             print(f"\n[i] Running Vivado compile TCL script with command: {cmd}\n", flush=True)
             c.run(cmd, pty=True, echo=True)
 
@@ -459,63 +472,39 @@ def vivado(c, project, verbose=False, step: List[str] = [], clean=False, force=F
                 print(f"[i] Running Vivado {s} for project: {project_file.vivado_project_name}", flush=True)
                 if run_name is None:
                     print(f"[!x!] Synth run name must be specified")
-                    print(f"[i] Usage: hdlforge vivado --{s} <synth_run_name>")
+                    print(f"[i] Usage: hdlforge vivado --{s} <synth_run_name[,synth_run_name2,...]>")
                     print("[i] Available runs:")
                     # List all runs first to show what's available
                     with c.cd(str(project_file.vivado_build_dir)):
                         c.run(f"vivado -mode batch -source {SCRIPT_DIR}/project_tool.tcl -notrace -tclargs  list_all_runs  {project_file.vivado_project_xpr_relative}", pty=True, echo=True)
                     exit(1)
-                
-                # Get child impl runs for the synth run
-                print(f"[i] Getting child implementation runs for synth run: {run_name}")
-                with c.cd(str(project_file.vivado_build_dir)):
-                    result = c.run(f"vivado -mode batch -source {SCRIPT_DIR}/project_tool.tcl -notrace -tclargs  get_child_runs  {project_file.vivado_project_xpr_relative} {run_name}", pty=False, echo=False, warn=True, hide='stdout')
-                    raw = result.stdout.strip() if hasattr(result, 'stdout') else ""
-                    child_runs = parse_vivado_child_runs_stdout(raw)
-                
-                if not child_runs:
-                    print(f"[!] Warning: No child implementation runs found for synth run: {run_name}")
-                    print(f"[i] Only synthesis will be run")
-                
-                # Convert child runs to list format expected by call_compile_tcl
-                impl_name_list = [{'name': run, 'enabled': True} for run in child_runs]
+
+                synth_run_names = parse_synth_run_names(run_name)
                 
                 # Parameters and defines are now in TCL file, not JSON
                 # Pass empty strings (they can be set in TCL if needed)
                 paramaters = ""
                 defines = ""
-                call_compile_tcl(f"{s}", f"{run_name}", impl_name_list, f"'{paramaters}'", f"'{defines}'")
+                call_compile_tcl(f"{s}", synth_run_names, [], paramaters, defines)
           
             case VivadoStep.ALL:
                 print(f"[i] Running Vivado synthesis, implementation and bitstream generation for project: {project_file.vivado_project_name}")
                 if run_name is None:
                     print(f"[!x!] Synth run name must be specified for all")
-                    print(f"[i] Usage: hdlforge vivado --all <synth_run_name>")
+                    print(f"[i] Usage: hdlforge vivado --all <synth_run_name[,synth_run_name2,...]>")
                     print("[i] Available runs:")
                     # List all runs first to show what's available
                     with c.cd(str(project_file.vivado_build_dir)):
                         c.run(f"vivado -mode batch -source {SCRIPT_DIR}/project_tool.tcl -notrace -tclargs  list_all_runs  {project_file.vivado_project_xpr_relative}", pty=True, echo=True)
                     exit(1)
-                
-                # Get child impl runs for the synth run
-                print(f"[i] Getting child implementation runs for synth run: {run_name}")
-                with c.cd(str(project_file.vivado_build_dir)):
-                    result = c.run(f"vivado -mode batch -source {SCRIPT_DIR}/project_tool.tcl -notrace -tclargs  get_child_runs  {project_file.vivado_project_xpr_relative} {run_name}", pty=False, echo=False, warn=True, hide='stdout')
-                    raw = result.stdout.strip() if hasattr(result, 'stdout') else ""
-                    child_runs = parse_vivado_child_runs_stdout(raw)
-                
-                if not child_runs:
-                    print(f"[!] Warning: No child implementation runs found for synth run: {run_name}")
-                    print(f"[i] Only synthesis will be run")
-                
-                # Convert child runs to list format expected by call_compile_tcl
-                impl_name_list = [{'name': run, 'enabled': True} for run in child_runs]
+
+                synth_run_names = parse_synth_run_names(run_name)
                 
                 # Parameters and defines are now in TCL file, not JSON
                 # Pass empty strings (they can be set in TCL if needed)
                 paramaters = ""
                 defines = ""
-                call_compile_tcl("all", f"{run_name}", impl_name_list, f"'{paramaters}'", f"'{defines}'")
+                call_compile_tcl("all", synth_run_names, [], paramaters, defines)
             
             case VivadoStep.GENERATE_PRJ_WITH_EXTERNAL_TCL:
                 print(f"[i] Running Vivado project TCL script: {project_file.vivado_project_tcl}")
