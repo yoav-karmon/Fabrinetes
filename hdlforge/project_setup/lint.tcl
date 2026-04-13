@@ -109,13 +109,41 @@ puts "=========================================="
 puts "Lint check completed!"
 puts "=========================================="
 
-# Get current working directory for report file locations
+# Report only files that actually exist for this run.
 set current_dir [pwd]
+set report_files {}
+
+foreach report_name {lint_methodology.rpt lint_drc.rpt} {
+    set report_path [file join $current_dir $report_name]
+    if {[file exists $report_path]} {
+        lappend report_files $report_path
+    }
+}
+
 puts "Report files location: $current_dir"
-puts "Check the following report files:"
-puts "  - $current_dir/lint_methodology.rpt"
-puts "  - $current_dir/lint_drc.rpt"
-puts "Vivado log: $current_dir/.Xil/Vivado-*/vivado.log"
+if {[llength $report_files] > 0} {
+    puts "Check the following report files:"
+    foreach report_path $report_files {
+        puts "  - $report_path"
+    }
+} else {
+    puts "No lint report files were generated."
+}
+
+set vivado_log [file join $current_dir "vivado.log"]
+if {[file exists $vivado_log]} {
+    puts "Vivado log: $vivado_log"
+} else {
+    set xil_logs [glob -nocomplain [file join $current_dir ".Xil" "Vivado-*" "vivado.log"]]
+    if {[llength $xil_logs] > 0} {
+        puts "Vivado log(s):"
+        foreach log_path $xil_logs {
+            puts "  - $log_path"
+        }
+    } else {
+        puts "Vivado log: (not found)"
+    }
+}
 puts "=========================================="
 
 puts "(i) tcl script completed."
