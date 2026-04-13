@@ -236,7 +236,7 @@ if [ "$has_tool_flag" = false ]; then
     
     # Build JSON path from remaining arguments (skip flags like --project).
     # Optional `--` separates the dotted LLM_orch path from extra args forwarded to the leaf command.
-    # Example: hdlforge testing.base.sim.run -- --extra-env "TESTCASE=arp_test,DEBUG=1"
+    # Example: hdlforge testing.base.sim.build_and_run -- --extra-env "TESTCASE=arp_test,DEBUG=1"
     JSON_PATH_PARTS=()
     PASSTHROUGH_ARGS=()
     seen_dd=false
@@ -269,12 +269,12 @@ if [ "$has_tool_flag" = false ]; then
     if [ ${#JSON_PATH_PARTS[@]} -eq 0 ]; then
         echo "[!x!] Error: No command path provided"
         echo "[i] Usage: hdlforge <dotted.path> [-- <extra-args-for-leaf-command>]"
-        echo "[i] Example: hdlforge testing.base.sim.run -- --extra-env \"TESTCASE=arp_test\""
+        echo "[i] Example: hdlforge testing.base.sim.build_and_run -- --extra-env \"TESTCASE=arp_test\""
         exit 1
     fi
     if [ ${#JSON_PATH_PARTS[@]} -ne 1 ]; then
         echo "[!x!] Error: LLM_orch path must be a single dotted token"
-        echo "[i] Use dots instead of spaces, e.g.: hdlforge testing.arp_test.sim.run"
+        echo "[i] Use dots instead of spaces, e.g.: hdlforge testing.arp_test.sim.build_and_run"
         exit 1
     fi
     

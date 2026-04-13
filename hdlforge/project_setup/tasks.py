@@ -224,7 +224,7 @@ def help_vivado():
     print()
     print("  Other:")
     print("    --lint                               Run lint")
-    print("    --clean                              Clean build directory")
+    print("    --clean                              Clean the Vivado project directory under the build directory")
     print("    --clean_logs                         Clean Vivado log files from current directory")
     print("                                         (vivado.log, vivado.jou, vivado_*.backup.*)")
     print("    --verbose                            Enable verbose output")

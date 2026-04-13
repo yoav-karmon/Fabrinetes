@@ -52,13 +52,13 @@ hdlforge <dotted.path> [-- <extra-args-for-leaf-command>]
 Optional `--` separates the `LLM_orch` lookup path from additional arguments that are appended (shell-quoted) to the resolved leaf command. This avoids duplicating shortcuts when you only need extra flags (for example `--extra-env` on a nested `hdlforge --tool Verilator ...` invocation).
 
 ```bash
-hdlforge testing.base.sim.run -- --extra-env "TESTCASE=arp_test,DEBUG=1"
+hdlforge testing.base.sim.build_and_run -- --extra-env "TESTCASE=arp_test,DEBUG=1"
 ```
 
 Examples:
 
 ```bash
-hdlforge testing.trigger_test.sim.run
+hdlforge testing.trigger_test.sim.build_and_run
 hdlforge vivado.project.write_tcl
 ```
 
@@ -406,7 +406,7 @@ hdlforge --tool vivado --syn synth_1
 Shortcut mode remains dotted:
 
 ```bash
-hdlforge testing.trigger_test.sim.run
+hdlforge testing.trigger_test.sim.build_and_run
 ```
 
 Legacy schema names to replace:

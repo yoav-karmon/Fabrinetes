@@ -152,7 +152,7 @@ def vivado(c, project, verbose=False, step: List[str] = [], clean=False, force=F
         project: Project file path
         verbose: Verbose output
         step: List of steps to execute
-        clean: Clean build directory
+        clean: Clean the Vivado project directory
         force: Skip confirmation prompts
         run_name: Run name (required for reset_run, syn, impl, bit steps)
         file_path: File path (required for file_remove, file_add steps)
@@ -183,19 +183,20 @@ def vivado(c, project, verbose=False, step: List[str] = [], clean=False, force=F
     project_file = ProjectFile(project)
     project_file.verify_repo_path()
 
-    def cleaning(BUILD_DIR, clean, force=False):  
+    def cleaning(BUILD_DIR, clean, force=False):
         if clean:
-            print(f"[i] Cleaning Vivado build directory: {BUILD_DIR}")
-            if BUILD_DIR.exists():
+            project_dir = project_file.vivado_project_xpr_path.parent
+            print(f"[i] Cleaning Vivado project directory: {project_dir}")
+            if project_dir.exists():
                 if not force:
-                    response = input(f"{BUILD_DIR} will be deleted! (y/n): ")
+                    response = input(f"{project_dir} will be deleted! (y/n): ")
                     if response.lower() != "y":
                         print("Aborted clean operation.")
                         return
-                c.run(f"rm -rf {BUILD_DIR}")
-                print(f"[+] removed Vivado build directory: {BUILD_DIR}")
+                c.run(f"rm -rf {project_dir}")
+                print(f"[+] removed Vivado project directory: {project_dir}")
             else:
-                print(f"[i] nothing to clean in Vivado build directory: {BUILD_DIR}")
+                print(f"[i] nothing to clean in Vivado project directory: {project_dir}")
             c.run(f"mkdir -p {BUILD_DIR}")
     
     if clean:
