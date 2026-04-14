@@ -55,6 +55,19 @@ _hdlforge_completions() {
         fi
     }
 
+    # True if dotted path maps to a string leaf under .LLM_orch (executable shortcut)
+    _is_llm_orch_leaf() {
+        local project_file="$1"
+        local dotted="$2"
+        [[ -n "$project_file" && -f "$project_file" && "$project_file" == *.json ]] || return 1
+        command -v jq >/dev/null 2>&1 || return 1
+        jq -e --arg d "$dotted" '
+            ($d | split(".") | map(.)) as $p |
+            .LLM_orch | getpath($p) |
+            type == "string"
+        ' "$project_file" >/dev/null 2>&1
+    }
+
     # Helper: complete dotted LLM_orch path segments from active JSON project
     _complete_llm_orch_path() {
         local project_file="$1"
@@ -176,7 +189,8 @@ _hdlforge_completions() {
         local expecting_project_value=false
         local saw_nonflag=false
         local project_file="$(_get_project_file)"
-        local llm_orch_flags="--project --tool --verbose --help"
+        # Flags valid before the dotted LLM_orch path token (--tool starts classic mode; kept for discoverability)
+        local llm_orch_flags="--project --tool --verbose --help -h"
 
         for ((i=1; i < ${#COMP_WORDS[@]}; i++)); do
             local word="${COMP_WORDS[i]}"
@@ -221,7 +235,42 @@ _hdlforge_completions() {
                 fi
                 return
             fi
+
+            # After a full LLM_orch leaf (string shortcut), the hdlforge argv is complete until the user
+            # types `--` themselves for passthrough. Do not suggest `--` / flags here: compgen -W "--"
+            # matches prefixes like `-` multiple ways and merges badly with the non-LLM fallthrough.
+            if [[ "$saw_nonflag" == true && "$cur" != "$path_token" ]]; then
+                if [[ -z "$cur" || "$cur" == -* ]]; then
+                    if _is_llm_orch_leaf "$project_file" "$path_token"; then
+                        COMPREPLY=()
+                        return
+                    fi
+                fi
+            fi
+            # No further tokens in LLM_orch mode without `--` / `--tool` — avoid spurious `--tool` fallback.
+            COMPREPLY=()
+            return
         else
+            # Inside `hdlforge <path> -- ...` — complete flags/strings forwarded to the resolved leaf command.
+            local passthrough_common="--tool --verbose --extra-env --clean --step --SimTargetName --project --flags -h --help -f --force"
+            case "$prev" in
+                --)
+                    COMPREPLY=($(compgen -W "$passthrough_common" -- "$cur"))
+                    return
+                    ;;
+                --tool)
+                    COMPREPLY=($(compgen -W "$tools" -- "$cur"))
+                    return
+                    ;;
+                --step)
+                    COMPREPLY=($(compgen -W "build sim" -- "$cur"))
+                    return
+                    ;;
+            esac
+            if [[ "$cur" == -* || -z "$cur" ]]; then
+                COMPREPLY=($(compgen -W "$passthrough_common" -- "$cur"))
+                return
+            fi
             COMPREPLY=()
             return
         fi
