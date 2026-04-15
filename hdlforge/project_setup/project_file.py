@@ -33,11 +33,20 @@ class ProjectFile:
         # Load basic project data
         self._project_file_path = self._get_project_file_path(project_file)
         self._project_data = self._load_project_data()
-        self._working_path = self._resolve_working_path()
         self._repo_top = Path(os.environ.get("REPO_TOP", ""))
-        
+
         # Extract settings
         self.settings = self._project_data.get("settings", {})
+        if "project_path" in self.settings:
+            print(
+                "[!x!] settings.project_path is no longer supported.\n"
+                "[i] The working root is always the directory containing this project file.\n"
+                "[i] Remove project_path from your *.hdlforge.json / *.hdlforge.toml and use paths relative to that directory."
+            )
+            exit(1)
+
+        # Working directory: directory of the project file (single source of truth)
+        self._working_path = self._project_file_path.parent.resolve()
         # Tool configurations - each tool has its own section
         vivado_section = self._project_data.get("vivado", {})
         verilator_section = self._project_data.get("verilator", {})
@@ -51,12 +60,18 @@ class ProjectFile:
         
         # Project settings
         self.project_name = self.settings.get("project_name", "").strip()
-        self.project_path = self.settings.get("project_path", "")
-        
+        # Exposed for callers that expect a project root string; equals working_path.
+        self.project_path = str(self._working_path)
+
         # Vivado config - compute all values
         vivado_build_dir_str = self.vivado_config.get("build_dir", "_vivado")
         self.vivado_build_dir = self._working_path / vivado_build_dir_str
-        self.vivado_project_name = self.vivado_config.get("project_name", "").strip()
+        vivado_name = self.vivado_config.get("project_name", "").strip()
+        if not vivado_name:
+            vivado_name = self.project_name
+        if not vivado_name:
+            vivado_name = self._project_file_path.parent.name
+        self.vivado_project_name = vivado_name
         # Note: part, top_module, set_var, runs_flow are now only in TCL file, not JSON
         self.vivado_lint_ignore_error_codes = self.vivado_config.get("lint_ignore_error_codes", [])
         self.vivado_lint_ignore_warning_codes = self.vivado_config.get("lint_ignore_warning_codes", [])
@@ -104,10 +119,24 @@ class ProjectFile:
         else:
             # Explicit project file specified
             if isinstance(project_file, str):
-                project_file_path = ROOT_FOLDER / project_file
+                p = Path(project_file)
+                if p.is_absolute():
+                    project_file_path = p
+                else:
+                    original_cwd = Path(
+                        os.environ.get("HDLFORGE_ORIG_DIR", str(ROOT_FOLDER))
+                    )
+                    cand_root = (ROOT_FOLDER / project_file).resolve()
+                    cand_orig = (original_cwd / project_file).resolve()
+                    if cand_root.exists():
+                        project_file_path = cand_root
+                    elif cand_orig.exists():
+                        project_file_path = cand_orig
+                    else:
+                        project_file_path = cand_root
             else:
                 project_file_path = project_file
-            
+
             if not project_file_path.exists():
                 print(f"❌ Project file not found: {project_file_path}")
                 hdlforge_files = get_project_files(ROOT_FOLDER)
@@ -119,7 +148,7 @@ class ProjectFile:
                 exit(1)
             
             print(f"ℹ️  Using project file: {project_file_path.name}")
-            return project_file_path
+            return project_file_path.resolve()
     
     def _load_project_data(self) -> dict:
         """
@@ -143,17 +172,6 @@ class ProjectFile:
             exit(f"Unsupported project file format: {file_ext}. Supported formats: .json, .toml")
         
         return project_data
-    
-    def _resolve_working_path(self) -> Path:
-        """
-        Resolve the working path from project settings.
-        
-        Returns:
-            Resolved absolute path to project working directory
-        """
-        project_path_str = self._project_data["settings"]["project_path"]
-        project_path_expanded = os.path.expandvars(project_path_str)
-        return Path(project_path_expanded).resolve()
     
     # Properties for backward compatibility (return stored values)
     @property

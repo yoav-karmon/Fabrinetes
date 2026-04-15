@@ -3,8 +3,7 @@
 
 [settings]
 project_name = "addr_32bit"
-project_path = "$REPO_TOP/examples/addr_32bit"
-repo_path_env = "REPO_TOP"
+# Working root is the directory containing this file.
 
 # Verilator Settings
 [verilator_settings]

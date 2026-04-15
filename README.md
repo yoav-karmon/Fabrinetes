@@ -318,7 +318,7 @@ Example configuration:
 ```toml
 [settings]
 project_name = "router"
-project_path = "$REPO_TOP/projects/router"
+# Working root is the directory containing this project file (no project_path).
 
 [verilator_settings]
 [[verilator_settings.sim_targets]]

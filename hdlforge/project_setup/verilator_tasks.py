@@ -175,8 +175,12 @@ def Verilator(c, project, step=None, clean=False, SimTargetName=None, flags=None
                     parameters = {}
                     log_file = None
                     includes_paths_list = []
-                    for _ in verilator_settings["includes_paths"]:
-                        includes_paths_list.append(Path(os.path.expandvars(str(_))).resolve())
+                    for _ in verilator_settings.get("includes_paths", []):
+                        expanded = os.path.expandvars(str(_))
+                        ip = Path(expanded)
+                        if not ip.is_absolute():
+                            ip = Path(working_path) / ip
+                        includes_paths_list.append(ip.resolve())
                     # Use only the build_args from project configuration
                     combined_build_args = build_args
                     
