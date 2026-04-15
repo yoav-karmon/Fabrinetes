@@ -161,7 +161,12 @@ def find_bit_ltx_files(project_json_path: str):
         config = json.load(f)
     
     vivado_config = config.get('vivado', {}).get('config', {})
-    project_name = vivado_config.get('project_name', 'phy10gbaser')
+    project_name = (vivado_config.get('project_name') or '').strip()
+    if not project_name:
+        raise RuntimeError(
+            f"vivado.config.project_name is required in {project_json_path}. "
+            "Folder-name and hardcoded project-name fallbacks are no longer supported."
+        )
     build_dir = vivado_config.get('build_dir', '_vivado')
     
     # Resolve paths
@@ -233,7 +238,11 @@ def main():
     # If only 2 args and second is a JSON file, use it
     if len(sys.argv) == 3 and sys.argv[2].endswith('.json'):
         project_json = sys.argv[2]
-        bit_files, ltx_files = find_bit_ltx_files(project_json)
+        try:
+            bit_files, ltx_files = find_bit_ltx_files(project_json)
+        except RuntimeError as e:
+            print(f"ERROR: {e}")
+            sys.exit(1)
         if not bit_files:
             print(f"ERROR: No bitstream files found for project {project_json}")
             sys.exit(1)

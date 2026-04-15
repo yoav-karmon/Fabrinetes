@@ -10,8 +10,8 @@ Usage:
 
 Arguments:
     server_ip (optional): Hardware server IP address (default: 10.1.130.74)
-    bitstream_path (optional): Path to .bit or .vit file (default: ~/repo/fpga/fpga_projects/phy10gbaser/_vivado/phy10gbaser/phy10gbaser.runs/impl_1/top.bit)
-    probes_path (optional): Path to .ltx file (default: ~/repo/fpga/fpga_projects/phy10gbaser/_vivado/phy10gbaser/phy10gbaser.runs/impl_1/top.ltx)
+    bitstream_path (required): Path to .bit or .vit file
+    probes_path (required): Path to .ltx file
 """
 
 import sys

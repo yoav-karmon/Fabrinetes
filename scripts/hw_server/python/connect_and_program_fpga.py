@@ -11,8 +11,8 @@ Usage:
 
 Arguments:
     server_ip (optional): Hardware server IP address (default: 10.1.130.74)
-    bitstream_path (optional): Path to .bit or .vit file (default: ~/repo/fpga/fpga_projects/phy10gbaser/_vivado/phy10gbaser/phy10gbaser.runs/impl_1/top.bit)
-    probes_path (optional): Path to .ltx file (default: ~/repo/fpga/fpga_projects/phy10gbaser/_vivado/phy10gbaser/phy10gbaser.runs/impl_1/top.ltx)
+    bitstream_path (required): Path to .bit or .vit file
+    probes_path (required): Path to .ltx file
 """
 
 import sys
@@ -40,16 +40,13 @@ def main():
     # Parse arguments
     server_ip = sys.argv[1] if len(sys.argv) > 1 else "10.1.130.74"
     
-    # Set default paths
-    default_bitstream = os.path.expanduser(
-        "~/repo/fpga/fpga_projects/phy10gbaser/_vivado/phy10gbaser/phy10gbaser.runs/impl_1/top.bit"
-    )
-    default_probes = os.path.expanduser(
-        "~/repo/fpga/fpga_projects/phy10gbaser/_vivado/phy10gbaser/phy10gbaser.runs/impl_1/top.ltx"
-    )
-    
-    bitstream_path = sys.argv[2] if len(sys.argv) > 2 else default_bitstream
-    probes_path = sys.argv[3] if len(sys.argv) > 3 else default_probes
+    if len(sys.argv) < 4:
+        print("ERROR: bitstream_path and probes_path are required")
+        print("Usage: python3 connect_and_program_fpga.py [server_ip] [bitstream_path] [probes_path]")
+        sys.exit(1)
+
+    bitstream_path = sys.argv[2]
+    probes_path = sys.argv[3]
     
     # Expand user paths
     bitstream_path = os.path.expanduser(bitstream_path)
