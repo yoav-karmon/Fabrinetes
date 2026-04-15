@@ -63,15 +63,10 @@ class ProjectFile:
         # Exposed for callers that expect a project root string; equals working_path.
         self.project_path = str(self._working_path)
 
-        # Vivado config - compute all values
+        # Vivado config - project identity must be explicit when Vivado is used
         vivado_build_dir_str = self.vivado_config.get("build_dir", "_vivado")
         self.vivado_build_dir = self._working_path / vivado_build_dir_str
-        vivado_name = self.vivado_config.get("project_name", "").strip()
-        if not vivado_name:
-            vivado_name = self.project_name
-        if not vivado_name:
-            vivado_name = self._project_file_path.parent.name
-        self.vivado_project_name = vivado_name
+        self.vivado_project_name = self.vivado_config.get("project_name", "").strip()
         # Note: part, top_module, set_var, runs_flow are now only in TCL file, not JSON
         self.vivado_lint_ignore_error_codes = self.vivado_config.get("lint_ignore_error_codes", [])
         self.vivado_lint_ignore_warning_codes = self.vivado_config.get("lint_ignore_warning_codes", [])
@@ -80,12 +75,19 @@ class ProjectFile:
         project_tcl_filename = self.vivado_external_config.get("filename", "")
         if project_tcl_filename:
             self.vivado_project_tcl = self._working_path / project_tcl_filename
-        else:
+        elif self.vivado_project_name:
             self.vivado_project_tcl = self._working_path / f"{self.vivado_project_name}.tcl"
+        else:
+            self.vivado_project_tcl = None
         
-        self.vivado_project_xpr_path = self.vivado_build_dir / self.vivado_project_name / f"{self.vivado_project_name}.xpr"
-        self.vivado_project_xpr_relative = f"{self.vivado_project_name}/{self.vivado_project_name}.xpr"
-        self.vivado_output_tcl_path = self.vivado_build_dir / f"{self.vivado_project_name}.tcl"
+        if self.vivado_project_name:
+            self.vivado_project_xpr_path = self.vivado_build_dir / self.vivado_project_name / f"{self.vivado_project_name}.xpr"
+            self.vivado_project_xpr_relative = f"{self.vivado_project_name}/{self.vivado_project_name}.xpr"
+            self.vivado_output_tcl_path = self.vivado_build_dir / f"{self.vivado_project_name}.tcl"
+        else:
+            self.vivado_project_xpr_path = None
+            self.vivado_project_xpr_relative = None
+            self.vivado_output_tcl_path = None
         
         # Verilator config
         verilator_build_dir_str = self.verilator_config.get("build_dir", "_verilator")
@@ -299,6 +301,18 @@ class ProjectFile:
             print(f"[!x!]  PROJECT_FILES path '{self._working_path}' is not under REPO_TOP '{self._repo_top}'")
             print(f"Please run: update_repo_path")
             exit(1)
+
+    def require_vivado_project_name(self) -> None:
+        """Fail fast unless vivado.config.project_name is explicitly configured."""
+        if self.vivado_project_name:
+            return
+
+        print(
+            "[!x!] vivado.config.project_name is required for Vivado operations.\n"
+            f"[i] Project file: {self._project_file_path}\n"
+            "[i] HDLForge no longer falls back to settings.project_name, the project folder name, or the JSON filename."
+        )
+        exit(1)
     
     def save_project_data(self) -> None:
         """

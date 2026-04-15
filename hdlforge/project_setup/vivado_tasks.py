@@ -182,6 +182,7 @@ def vivado(c, project, verbose=False, step: List[str] = [], clean=False, force=F
     # Load project using ProjectFile (single source of truth)
     project_file = ProjectFile(project)
     project_file.verify_repo_path()
+    project_file.require_vivado_project_name()
 
     def cleaning(BUILD_DIR, clean, force=False):
         if clean:

@@ -219,11 +219,10 @@ export PYTHONPATH="$__ORIGINAL_PYTHONPATH"
 export PATH="$__ORIGINAL_PATH"
 
 # Add repository-specific paths (with duplicate checking)
+# Keep repo-global shell setup minimal. Project-local Python paths should come
+# from project HDLForge JSON files, not from repo-wide shell startup.
 add_to_pythonpath "$REPO_TOP/tests"
 add_to_pythonpath "$REPO_TOP/tests/cocotb"
-add_to_pythonpath "$REPO_TOP/fpga_projects/phy10gbaser/sources/PY/PACKET_BUILDER"
-add_to_pythonpath "$REPO_TOP/fpga_projects/phy10gbaser/sources/PY"
-
 add_to_path "$REPO_TOP/tools/tool_box"
 ```
 
@@ -313,15 +312,13 @@ update_repo_path
 $ update_repo_path
 [+] Added to PYTHONPATH: /home/yoav.karmon/repo/fpga/tests
 [+] Added to PYTHONPATH: /home/yoav.karmon/repo/fpga/tests/cocotb
-[+] Added to PYTHONPATH: /home/yoav.karmon/repo/fpga/fpga_projects/phy10gbaser/sources/PY/PACKET_BUILDER
-[+] Added to PYTHONPATH: /home/yoav.karmon/repo/fpga/fpga_projects/phy10gbaser/sources/PY
 [+] Added to PATH: /home/yoav.karmon/repo/fpga/tools/tool_box
 [i] sourcing /home/yoav.karmon/repo/fpga/tools/update_paths.sh
 [v] REPO_TOP set to /home/yoav.karmon/repo/fpga
 
 === Key Environment Variables ===
 PATH: /home/yoav.karmon/repo/fpga/tools/tool_box:/opt/vivado/bin:/home/yoav.karmon/repo/Fabrinetes/hdlforge/project_setup:/home/yoav.karmon/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-PYTHONPATH: /home/yoav.karmon/repo/fpga/fpga_projects/phy10gbaser/sources/PY:/home/yoav.karmon/repo/fpga/fpga_projects/phy10gbaser/sources/PY/PACKET_BUILDER:/home/yoav.karmon/repo/fpga/tests/cocotb:/home/yoav.karmon/repo/fpga/tests:/home/yoav.karmon/repo/Fabrinetes/source/project_setup:
+PYTHONPATH: /home/yoav.karmon/repo/fpga/tests/cocotb:/home/yoav.karmon/repo/fpga/tests:/home/yoav.karmon/repo/Fabrinetes/source/project_setup:
 REPO_TOP: /home/yoav.karmon/repo/fpga
 GIT_CONFIG_GLOBAL: /home/yoav.karmon/.gitconfig
 GIT_AUTHOR_NAME: yoav.karmon

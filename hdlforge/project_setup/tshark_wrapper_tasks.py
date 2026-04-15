@@ -12,6 +12,13 @@ import shlex
 from pathlib import Path
 
 
+def _has_unique_project_file(directory: Path) -> bool:
+    project_files = list(directory.glob("*.hdlforge.json")) + list(
+        directory.glob("*.hdlforge.toml")
+    )
+    return len(project_files) == 1
+
+
 def tshark_wrapper(c, pcap_file: str, output_format: str = 'to_plain_text',
                    frame_number: int = None, frame_start: int = None, frame_end: int = None,
                    frame_list: list = None, count: int = None, skip: int = None,
@@ -101,7 +108,7 @@ def tshark_wrapper(c, pcap_file: str, output_format: str = 'to_plain_text',
     project_root = None
     for search_start in [pcap_path.parent, Path.cwd()]:
         for parent in [search_start] + list(search_start.parents)[:6]:  # Check up to 6 levels up
-            if (parent / ".hdlforge.json").exists() or (parent / "phy10gbaser.hdlforge.json").exists():
+            if _has_unique_project_file(parent):
                 project_root = parent
                 break
         if project_root:
