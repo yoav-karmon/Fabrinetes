@@ -116,6 +116,40 @@ else
     fi
 fi
 
+# Normalize external project invocations so they behave exactly like:
+#   cd <project-dir> && hdlforge --project <project-file> ...
+# This keeps project-root-relative behavior stable even when launched elsewhere.
+if [ -n "$PROJECT_FILE_PATH" ] && [ -n "$PROJECT_DIR" ] && [ -n "$PROJECT_FILENAME" ] && [ "${HDLFORGE_PROJECT_DIR_NORMALIZED:-0}" != "1" ]; then
+    CURRENT_DIR="$(pwd -P)"
+    PROJECT_DIR_REAL="$(cd "$PROJECT_DIR" && pwd -P)"
+
+    if [ "$CURRENT_DIR" != "$PROJECT_DIR_REAL" ]; then
+        normalized_args=()
+        skip_next=false
+
+        for arg in "$@"; do
+            if [ "$skip_next" = true ]; then
+                skip_next=false
+                continue
+            fi
+
+            if [[ "$arg" == "--project" ]]; then
+                skip_next=true
+                normalized_args+=("--project" "$PROJECT_FILENAME")
+            else
+                normalized_args+=("$arg")
+            fi
+        done
+
+        cd "$PROJECT_DIR_REAL" || {
+            echo "❌ Failed to cd into project directory: $PROJECT_DIR_REAL"
+            exit 1
+        }
+
+        exec env HDLFORGE_PROJECT_DIR_NORMALIZED=1 "$0" "${normalized_args[@]}"
+    fi
+fi
+
 # Resolve --vcdfilename path to absolute BEFORE changing directories
 # This ensures relative paths work from the invocation location
 ORIG_DIR="$(pwd)"
@@ -151,8 +185,12 @@ if [ -n "$PROJECT_DIR" ]; then
     }
 fi
 
-# Source bashrc and run update_repo_path from project directory
-source ~/.bashrc
+# Source bashrc quietly to load helper functions, then refresh repository paths
+source ~/.bashrc >/dev/null 2>&1
+if ! command -v update_repo_path >/dev/null 2>&1; then
+    echo "❌ update_repo_path is not available after sourcing ~/.bashrc"
+    exit 1
+fi
 update_repo_path
 
 if [ -z "$REPO_TOP" ]; then
