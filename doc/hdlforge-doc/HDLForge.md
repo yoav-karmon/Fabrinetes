@@ -47,12 +47,21 @@ If `--tool` is omitted, HDLForge interprets one dotted argument as a path inside
 
 ```bash
 hdlforge <dotted.path> [-- <extra-args-for-leaf-command>]
+hdlforge --no-print <dotted.path> [-- <extra-args-for-leaf-command>]
 ```
 
 Optional `--` separates the `LLM_orch` lookup path from additional arguments that are appended (shell-quoted) to the resolved leaf command. This avoids duplicating shortcuts when you only need extra flags (for example `--extra-env` on a nested `hdlforge --tool Verilator ...` invocation).
 
 ```bash
 hdlforge testing.base.sim.build_and_run -- --extra-env "TESTCASE=arp_test,DEBUG=1"
+```
+
+`--no-print` suppresses the orchestration wrapper lines that HDLForge normally prints before executing the resolved leaf command. This is useful when one `LLM_orch` helper calls another through command substitution and needs only the leaf stdout.
+
+Example:
+
+```bash
+PROJECT_NAME="$(hdlforge --no-print vivado.project.show_name)"
 ```
 
 Examples:
