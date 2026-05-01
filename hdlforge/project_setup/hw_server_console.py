@@ -460,6 +460,13 @@ class VivadoTCLConsole:
                     # Found the device!
                     found_device = True
                     target_device_name = self.get_property_value("NAME", "$device", timeout=2)
+                    if self.device != target_device_name:
+                        self.core_cache = {}
+                        self.scanned = False
+                    self.device = target_device_name
+                    self.target = target_name
+                    self.device_explicitly_selected = True
+                    self.selected_device_dna = device_dna
                     if self.debug and debug_prefix:
                         print(f"[DEBUG] {debug_prefix}: MATCH FOUND - Target {target_idx} ({target_name}), Device {device_idx} ({target_device_name})")
                     
@@ -647,6 +654,7 @@ class VivadoTCLConsole:
             if self.debug:
                 print(f"Loading debug probe file: {ltx_file_abs}")
             
+            self.send_command("refresh_hw_device -update_hw_probes false $device", timeout=10)
             self.send_command(f'set ltx_file_path "{ltx_file_abs}"', timeout=2)
             self.send_command('set_property PROBES.FILE $ltx_file_path $device', timeout=5)
             self.send_command('set_property FULL_PROBES.FILE $ltx_file_path $device', timeout=5)
@@ -760,6 +768,7 @@ class VivadoTCLConsole:
                 device = self.device or "xcvu9p_0"
                 
                 # Get probe count and names
+                self.send_command("refresh_hw_vio $vio", timeout=5)
                 self.send_command("set vio_probes [get_hw_probes -of_objects $vio]", timeout=5)
                 num_probes_output = self.send_command("llength $vio_probes", timeout=2)
                 try:
@@ -985,8 +994,10 @@ class VivadoTCLConsole:
         probe_directions = vio_info.get('probe_directions', {})
         probe_count = vio_info['probe_count']
         
-        if not cell_name:
-            print("ERROR: VIO cell name not cached. Please run scan (option 2) first.")
+        vio_name = vio_info.get('name', '')
+        use_cell_filter = cell_name and not str(cell_name).startswith("ERROR")
+        if not use_cell_filter and not vio_name:
+            print("ERROR: VIO identity not cached. Please run scan first.")
             return False
         
         # Ensure current device is set in TCL before building filter
@@ -997,7 +1008,10 @@ class VivadoTCLConsole:
         self.send_command("current_hw_device $device", timeout=2)
         
         # Build VIO filter using current device (not cached device)
-        vio_filter = f'[get_hw_vios -of_objects $device -filter {{CELL_NAME=~"{cell_name}"}}]'
+        if use_cell_filter:
+            vio_filter = f'[get_hw_vios -of_objects $device -filter {{CELL_NAME=~"{cell_name}"}}]'
+        else:
+            vio_filter = f'[get_hw_vios -of_objects $device -filter {{NAME=~"{vio_name}"}}]'
         
         # Refresh VIO (simple command using cached values)
         self.send_command(f"refresh_hw_vio {vio_filter}", timeout=5)
@@ -1058,8 +1072,10 @@ class VivadoTCLConsole:
                 print("[RESULT]: SET FAILED - No device selected (use 'device' to scan and select)")
                 return False
             
-            if not cell_name:
-                print("ERROR: VIO cell name not cached. Please run scan (option 2) first.")
+            vio_name = vio_info.get('name', '')
+            use_cell_filter = cell_name and not str(cell_name).startswith("ERROR")
+            if not use_cell_filter and not vio_name:
+                print("ERROR: VIO identity not cached. Please run scan first.")
                 return False
             
             # Ensure current device is set in TCL before building filter
@@ -1070,7 +1086,10 @@ class VivadoTCLConsole:
             self.send_command("current_hw_device $device", timeout=2)
             
             # Build VIO filter using current device (not cached device)
-            vio_filter = f'[get_hw_vios -of_objects $device -filter {{CELL_NAME=~"{cell_name}"}}]'
+            if use_cell_filter:
+                vio_filter = f'[get_hw_vios -of_objects $device -filter {{CELL_NAME=~"{cell_name}"}}]'
+            else:
+                vio_filter = f'[get_hw_vios -of_objects $device -filter {{NAME=~"{vio_name}"}}]'
             
             # Check it's an output probe using cached filter
             probe_ref = f'[get_hw_probes {probe_name} -of_objects {vio_filter}]'

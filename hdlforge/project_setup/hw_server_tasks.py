@@ -1565,8 +1565,10 @@ def _set_vio_values_for_index(console: VivadoTCLConsole, vio_idx: int,
         return
     
     # Set values (each value is committed immediately)
+    set_count = 0
     for name, value, radix, width in values_to_set:
-        console.set_vio_value(name, value, radix, width=width, commit=False, force=True)
+        if console.set_vio_value(name, value, radix, width=width, commit=False, force=True):
+            set_count += 1
 
     # After setting values, show the updated VIO table (same format as view command),
     # but keep the header as "Set VIO" instead of "VIO".
@@ -1574,7 +1576,10 @@ def _set_vio_values_for_index(console: VivadoTCLConsole, vio_idx: int,
     # Store last read values in device database for menu display
     _store_vio_last_values(console, vio_idx, last_values)
     vio_info = vio_list[vio_idx]
-    result_message(f"VIO SET COMPLETE - {vio_info['name']} (set {len(values_to_set)} values from config)")
+    if set_count != len(values_to_set):
+        result_message(f"VIO SET FAILED - {vio_info['name']} (set {set_count}/{len(values_to_set)} values from config)")
+        return
+    result_message(f"VIO SET COMPLETE - {vio_info['name']} (set {set_count} values from config)")
 
 
 def _set_vio_values_manual(console: VivadoTCLConsole, vio_idx: int) -> None:
