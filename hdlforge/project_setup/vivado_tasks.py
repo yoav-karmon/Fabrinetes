@@ -590,38 +590,6 @@ def vivado(c, project, verbose=False, step: List[str] = [], clean=False, force=F
                 
                 print(f"[+] TCL script executed successfully")
 
-                # Generate IP output products so lint/synthesis can find them
-                print(f"\n[i] Generating IP output products...")
-                ip_gen_tcl = (
-                    f"open_project {project_name}/{project_name}.xpr\n"
-                    f"set ips [get_ips]\n"
-                    f"if {{[llength $ips] > 0}} {{\n"
-                    f"    puts \"(i) Generating targets for [llength $ips] IP(s): $ips\"\n"
-                    f"    generate_target all $ips\n"
-                    f"    foreach ip $ips {{\n"
-                    f"        puts \"(i) Synthesizing IP: $ip\"\n"
-                    f"        catch {{synth_ip $ip}} msg\n"
-                    f"        if {{$msg ne \"\"}} {{ puts \"(i) synth_ip $ip: $msg\" }}\n"
-                    f"    }}\n"
-                    f"}} else {{\n"
-                    f"    puts \"(i) No IPs found in project\"\n"
-                    f"}}\n"
-                    f"close_project\n"
-                )
-                ip_gen_tcl_path = project_file.vivado_build_dir / "_gen_ip_targets.tcl"
-                ip_gen_tcl_path.write_text(ip_gen_tcl)
-
-                ip_cmd = f"vivado -mode batch -notrace -source {ip_gen_tcl_path.name}"
-                try:
-                    with c.cd(str(project_file.vivado_build_dir)):
-                        result = c.run(ip_cmd, pty=True, echo=True, warn=True)
-                        if result.exited != 0:
-                            print(f"[!] IP generation had errors (exit code {result.exited}), but project was created successfully")
-                        else:
-                            print(f"[+] IP output products generated successfully")
-                except Exception as e:
-                    print(f"[!] IP generation failed: {e} (project was still created successfully)")
-
             case VivadoStep.WRITE_TCL:
                 print(f"[i] Exporting Vivado project to TCL: {project_file.vivado_project_name}")
                 

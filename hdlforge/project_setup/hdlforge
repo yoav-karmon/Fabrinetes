@@ -177,6 +177,30 @@ done
 # Replace positional parameters with resolved args
 set -- "${args_resolved[@]}"
 
+# Global output control for LLM_orch recursion.
+# Only consume --no-print before the passthrough separator (`--`);
+# after that, flags belong to the leaf command.
+NO_PRINT=false
+args_filtered=()
+seen_dd=false
+for arg in "$@"; do
+    if [ "$seen_dd" = true ]; then
+        args_filtered+=("$arg")
+        continue
+    fi
+    if [[ "$arg" == "--" ]]; then
+        seen_dd=true
+        args_filtered+=("$arg")
+        continue
+    fi
+    if [[ "$arg" == "--no-print" ]]; then
+        NO_PRINT=true
+        continue
+    fi
+    args_filtered+=("$arg")
+done
+set -- "${args_filtered[@]}"
+
 # Change to project directory (only if PROJECT_DIR is set)
 if [ -n "$PROJECT_DIR" ]; then
     cd "$PROJECT_DIR" || {
@@ -335,9 +359,11 @@ if [ "$has_tool_flag" = false ]; then
     done
     
     # Execute the fetched command recursively
-    echo "[i] LLM Orchestration Mode: ${JSON_PATH}"
-    echo "[i] Executing: ${COMMAND}${COMMAND_SUFFIX}"
-    echo ""
+    if [ "$NO_PRINT" = false ]; then
+        echo "[i] LLM Orchestration Mode: ${JSON_PATH}"
+        echo "[i] Executing: ${COMMAND}${COMMAND_SUFFIX}"
+        echo ""
+    fi
     
     # Change to project directory (where JSON file is located) before executing
     PROJECT_JSON_DIR="$(dirname "$PROJECT_JSON")"
