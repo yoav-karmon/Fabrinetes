@@ -342,13 +342,39 @@ if [ "$has_tool_flag" = false ]; then
     
     JSON_PATH="LLM_orch.${JSON_PATH_PARTS[0]}"
     
-    # Fetch command from JSON using jq
-    COMMAND=$(jq -r ".${JSON_PATH}" "$PROJECT_JSON" 2>/dev/null)
-    
-    if [ -z "$COMMAND" ] || [ "$COMMAND" = "null" ] || [ "$COMMAND" = "" ]; then
+    NODE_TYPE=$(jq -r ".${JSON_PATH} | type" "$PROJECT_JSON" 2>/dev/null)
+
+    if [ -z "$NODE_TYPE" ] || [ "$NODE_TYPE" = "null" ]; then
         echo "[!x!] Error: Command not found at JSON path: ${JSON_PATH}"
         echo "[i] Available paths in LLM_orch:"
         jq -r '.LLM_orch | paths(scalars) as $p | "  LLM_orch." + ($p | join("."))' "$PROJECT_JSON" 2>/dev/null | head -20 || echo "  (unable to parse JSON structure)"
+        exit 1
+    fi
+
+    if [ "$NODE_TYPE" = "object" ] || [ "$NODE_TYPE" = "array" ]; then
+        echo "Run options for ${JSON_PATH_PARTS[0]}:"
+        jq -r --arg json_path "$JSON_PATH" --arg prefix "${JSON_PATH_PARTS[0]}" '
+            getpath($json_path | split(".")) |
+            paths(scalars) as $p |
+            "  hdlforge \($prefix).\($p | join("."))"' \
+            "$PROJECT_JSON" 2>/dev/null || echo "  (unable to list runnable paths)"
+        if [ ${#PASSTHROUGH_ARGS[@]} -gt 0 ]; then
+            echo ""
+            echo "Note: arguments after '--' apply only to a runnable option."
+        fi
+        exit 0
+    fi
+
+    if [ "$NODE_TYPE" != "string" ]; then
+        echo "[!x!] Error: ${JSON_PATH} resolves to ${NODE_TYPE}, but LLM_orch commands must be strings."
+        exit 1
+    fi
+
+    # Fetch command from JSON using jq
+    COMMAND=$(jq -r ".${JSON_PATH}" "$PROJECT_JSON" 2>/dev/null)
+
+    if [ -z "$COMMAND" ]; then
+        echo "[!x!] Error: Empty command at JSON path: ${JSON_PATH}"
         exit 1
     fi
     
