@@ -15,6 +15,7 @@ import time
 from tabulate import tabulate
 
 from project_file import ProjectFile
+from project_tcl_editor import edit_project_tcl, load_edit_json
 
 HDLFORGE_CHILD_RUNS_PREFIX = "HDLFORGE_CHILD_RUNS "
 
@@ -141,9 +142,24 @@ class VivadoStep(str, Enum):
     CLEAN_LOGS = "clean_logs"
     FILE_REMOVE = "file_remove"
     FILE_ADD = "file_add"
+    PROJECT_TCL_FILE_ADD = "project_tcl_file_add"
+    PROJECT_TCL_FILE_REMOVE = "project_tcl_file_remove"
+    PROJECT_TCL_RUN_ADD = "project_tcl_run_add"
+    PROJECT_TCL_RUN_REMOVE = "project_tcl_run_remove"
 
 
-def vivado(c, project, verbose=False, step: List[str] = [], clean=False, force=False, run_name=None, file_path=None):
+def vivado(
+    c,
+    project,
+    verbose=False,
+    step: List[str] = [],
+    clean=False,
+    force=False,
+    run_name=None,
+    file_path=None,
+    project_tcl_json=None,
+    project_tcl_json_file=None,
+):
     """
     Vivado command handler.
     
@@ -156,6 +172,8 @@ def vivado(c, project, verbose=False, step: List[str] = [], clean=False, force=F
         force: Skip confirmation prompts
         run_name: Run name (required for reset_run, syn, impl, bit steps)
         file_path: File path (required for file_remove, file_add steps)
+        project_tcl_json: Inline JSON for static project Tcl edits
+        project_tcl_json_file: JSON file for static project Tcl edits
     """
     # Import shared utilities
     from environment import capture_environment_variables
@@ -212,6 +230,17 @@ def vivado(c, project, verbose=False, step: List[str] = [], clean=False, force=F
             if run_name:
                 synth_run_names.append(run_name)
         return synth_run_names
+
+    def run_project_tcl_edit(action: str):
+        data = load_edit_json(
+            project_tcl_json,
+            project_tcl_json_file,
+            project_file.working_path,
+            project_file.vivado_project_tcl_edit_json,
+        )
+        result = edit_project_tcl(action, project_file.vivado_project_tcl, data)
+        print(f"[+] Project Tcl {result.action} complete: {result.count} change(s)")
+        print(f"[i] Updated: {result.tcl_path}")
 
     def call_compile_tcl(step, synth_run_names, impl_list, paramaters, defines):
         # Filter enabled implementations
@@ -720,5 +749,17 @@ def vivado(c, project, verbose=False, step: List[str] = [], clean=False, force=F
                 
                 print(f"[+] File added and project TCL updated successfully: {project_file.vivado_project_tcl}")
             
+            case VivadoStep.PROJECT_TCL_FILE_ADD:
+                run_project_tcl_edit("add_file")
+
+            case VivadoStep.PROJECT_TCL_FILE_REMOVE:
+                run_project_tcl_edit("remove_file")
+
+            case VivadoStep.PROJECT_TCL_RUN_ADD:
+                run_project_tcl_edit("add_run")
+
+            case VivadoStep.PROJECT_TCL_RUN_REMOVE:
+                run_project_tcl_edit("remove_run")
+
             case _:
                 pass

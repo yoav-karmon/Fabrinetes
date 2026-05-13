@@ -73,6 +73,7 @@ class ProjectFile:
         
         # Vivado paths - get from external_config.filename
         project_tcl_filename = self.vivado_external_config.get("filename", "")
+        self.vivado_project_tcl_edit_json = self.vivado_external_config.get("project_tcl_edit_json", "")
         if project_tcl_filename:
             self.vivado_project_tcl = self._working_path / project_tcl_filename
         elif self.vivado_project_name:
@@ -333,4 +334,3 @@ class ProjectFile:
             print(f"❌ Saving is only supported for JSON files. Current file: {file_ext}")
             exit(1)
     
-

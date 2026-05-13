@@ -257,6 +257,10 @@ hdlforge --tool vivado --reset_run <synth_run_name>
 hdlforge --tool vivado --write_tcl
 hdlforge --tool vivado --file_add --file_path <path>
 hdlforge --tool vivado --file_remove --file_path <path>
+hdlforge --tool vivado --add_file_to_project_tcl --project_tcl_json_file edits.json
+hdlforge --tool vivado --remove_file_from_project_tcl --project_tcl_json '{"files":["sources/RTL/foo/foo.sv"]}'
+hdlforge --tool vivado --add_run_to_project_tcl --project_tcl_json_file runs.json
+hdlforge --tool vivado --remove_run_from_project_tcl --project_tcl_json '{"runs":["impl_extra"]}'
 hdlforge --tool vivado --clean_logs
 ```
 
@@ -266,6 +270,7 @@ hdlforge --tool vivado --clean_logs
 - `--syn`, `--impl`, `--bit`, and `--all` take a **synth run name** such as `synth_1`.
 - `--impl` and `--bit` operate on child implementation runs associated with that synth run.
 - `--reset_run` resets the synth run and its child implementation runs.
+- Static project-TCL edit commands use JSON from `--project_tcl_json`, `--project_tcl_json_file`, or `vivado.external_config.project_tcl_edit_json`.
 
 ### What belongs in the external TCL
 

@@ -328,6 +328,10 @@ def parse_classic_state(tokens: list[str], cwd: Path) -> ParsedState:
             "--write_tcl",
             "--file_add",
             "--file_remove",
+            "--add_file_to_project_tcl",
+            "--remove_file_from_project_tcl",
+            "--add_run_to_project_tcl",
+            "--remove_run_from_project_tcl",
             "--clean_logs",
         } and state.selected_vivado_action is None:
             state.selected_vivado_action = token
@@ -392,6 +396,7 @@ VALUE_HANDLER_TREE: dict[str, dict[str, Handler]] = {
         "--all": complete_vivado_run_names,
         "--reset_run": complete_vivado_run_names,
         "--file_path": lambda cur, _state: complete_path(cur, _state.cwd),
+        "--project_tcl_json_file": lambda cur, _state: complete_path(cur, _state.cwd, suffixes=(".json",)),
     },
     "tool:Verilator": {
         "--step": complete_static_words(VERILATOR_STEPS),
@@ -477,6 +482,10 @@ def suggest_vivado_flags(state: ParsedState) -> list[str]:
         "--write_tcl",
         "--file_add",
         "--file_remove",
+        "--add_file_to_project_tcl",
+        "--remove_file_from_project_tcl",
+        "--add_run_to_project_tcl",
+        "--remove_run_from_project_tcl",
         "--clean_logs",
     ]
 
@@ -491,6 +500,13 @@ def suggest_vivado_flags(state: ParsedState) -> list[str]:
         modifiers = ["--clean", "--force"]
     elif selected in {"--file_add", "--file_remove"}:
         modifiers = ["--file_path"]
+    elif selected in {
+        "--add_file_to_project_tcl",
+        "--remove_file_from_project_tcl",
+        "--add_run_to_project_tcl",
+        "--remove_run_from_project_tcl",
+    }:
+        modifiers = ["--project_tcl_json", "--project_tcl_json_file"]
     elif selected == "--clean_logs":
         modifiers = ["--force", "--verbose"]
     else:

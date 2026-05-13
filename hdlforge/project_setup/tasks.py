@@ -222,6 +222,14 @@ def help_vivado():
     print("    --file_add --file_path <PATH>        Add a file to the Vivado project")
     print("    --file_remove --file_path <PATH>     Remove a file from the Vivado project")
     print()
+    print("  Static Project Tcl Edits (require JSON text, JSON file, or project JSON reference):")
+    print("    --add_file_to_project_tcl            Add file sections to exported project Tcl")
+    print("    --remove_file_from_project_tcl        Remove file sections from exported project Tcl")
+    print("    --add_run_to_project_tcl             Add synth/implementation run sections")
+    print("    --remove_run_from_project_tcl         Remove synth/implementation run sections")
+    print("    --project_tcl_json <JSON>             Inline edit JSON")
+    print("    --project_tcl_json_file <PATH>        Edit JSON file")
+    print()
     print("  Other:")
     print("    --lint                               Run lint")
     print("    --clean                              Clean the Vivado project directory under the build directory")
@@ -445,6 +453,12 @@ if __name__ == "__main__":
     parser.add_argument('--file_remove', action='store_true', help='Remove a file from the Vivado project')
     parser.add_argument('--file_add', action='store_true', help='Add a file to the Vivado project')
     parser.add_argument('--file_path', type=str, help='File path (required for file_remove and file_add)')
+    parser.add_argument('--add_file_to_project_tcl', action='store_true', help='Add file sections to the exported Vivado project Tcl')
+    parser.add_argument('--remove_file_from_project_tcl', '--remove_file_fom_project_tcl', dest='remove_file_from_project_tcl', action='store_true', help='Remove file sections from the exported Vivado project Tcl')
+    parser.add_argument('--add_run_to_project_tcl', '--add_rrun_to_project_tcl', '--add_run_fom_project_tcl', '--add_rrun_fom_project_tcl', dest='add_run_to_project_tcl', action='store_true', help='Add synth/implementation run sections to the exported Vivado project Tcl')
+    parser.add_argument('--remove_run_from_project_tcl', '--remove_rrun_fom_project_tcl', '--remove_run_fom_project_tcl', dest='remove_run_from_project_tcl', action='store_true', help='Remove synth/implementation run sections from the exported Vivado project Tcl')
+    parser.add_argument('--project_tcl_json', type=str, help='Inline JSON dictionary for project Tcl edits')
+    parser.add_argument('--project_tcl_json_file', type=str, help='JSON file for project Tcl edits')
     parser.add_argument('--clean_logs', action='store_true', help='Clean Vivado log files from current directory')
     parser.add_argument('-f', '--force', action='store_true', help='Skip confirmation prompts')
     
@@ -609,6 +623,14 @@ if __name__ == "__main__":
             steps_from_flags.append('file_remove')
         if args.file_add:
             steps_from_flags.append('file_add')
+        if args.add_file_to_project_tcl:
+            steps_from_flags.append('project_tcl_file_add')
+        if args.remove_file_from_project_tcl:
+            steps_from_flags.append('project_tcl_file_remove')
+        if args.add_run_to_project_tcl:
+            steps_from_flags.append('project_tcl_run_add')
+        if args.remove_run_from_project_tcl:
+            steps_from_flags.append('project_tcl_run_remove')
         if args.clean_logs:
             steps_from_flags.append('clean_logs')
         
@@ -640,7 +662,18 @@ if __name__ == "__main__":
             print("    hdlforge --tool vivado --file_add --file_path <file_path>")
             exit(1)
         
-        vivado(c, args.project, args.verbose, final_steps, args.clean, args.force, run_name, args.file_path)
+        vivado(
+            c,
+            args.project,
+            args.verbose,
+            final_steps,
+            args.clean,
+            args.force,
+            run_name,
+            args.file_path,
+            args.project_tcl_json,
+            args.project_tcl_json_file,
+        )
     elif args.tool == 'network':
         # Network tool selected
         cmd_list = args.cmd if args.cmd else []
@@ -741,4 +774,3 @@ if __name__ == "__main__":
             help_projects()
             sys.exit(0)
         projects(c, getattr(args, 'set_project', None), list_projects=True)
-
