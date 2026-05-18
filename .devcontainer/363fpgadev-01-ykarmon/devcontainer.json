@@ -1,0 +1,61 @@
+// "yoav.karmon"                  // env var from host
+// "${localEnv:HOME}"                  // host home dir
+// "${localWorkspaceFolder}"           // folder opened in VS Code
+// "${localWorkspaceFolderBasename}"   // just folder name
+// "${containerWorkspaceFolder}"       // workspace path inside container
+// "${containerEnv:PATH}"              // existing container env, mostly for remoteEnv
+{
+  "name": "363fpgadev-01",
+
+  // ### OPTION A: BUILD IMAGE ###
+  // Leave this uncommented to rebuild.
+  // Comment this block when using OPTION B.
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "../.."
+  },
+
+  // ### OPTION B: LOCAL/PREBUILT IMAGE ###
+  // Uncomment one image line below.
+  // Comment OPTION A build block above.
+  // "image": "fabrinetes-dev:local",
+  // "image": "edgehogtrading/fpga:latest",
+
+  "initializeCommand": "mkdir -p ${localEnv:HOME}/.codex; mkdir -p ${localEnv:HOME}/vscode-server-container/.vscode-server ",
+
+  "containerEnv": {
+    "CONTAINER_USER": "yoav.karmon",
+    "CONTAINER_UID": "1000",
+    "CONTAINER_GID": "1000",
+    "CONTAINER_HOME": "/home/yoav.karmon",
+    "CODEX_HOME": "/home/yoav.karmon/.codex",
+    "FABRINETES_ROOT": "/home/yoav.karmon/repo/fpga/git-sub-module/Fabrinetes"
+  },
+
+  "remoteUser": "yoav.karmon",
+  "workspaceMount": "",
+  "workspaceFolder": "/home/yoav.karmon",
+  "overrideCommand": false,
+  "postStartCommand": "true",
+  "runArgs": [
+    // Local image only.
+    // "--pull=never",
+    "--name", "ykarmon_fpga_vivado_dev.run",
+    "--hostname", "Fabrinetes",
+    "--network=host",
+    "--privileged"
+  ],
+  
+  "mounts": [
+    "source=/DATA/amd,target=/DATA/amd,type=bind",
+    "source=/home/yoav.karmon/.ssh,target=/home/yoav.karmon/.ssh,type=bind",
+    "source=${localEnv:HOME}/.codex,target=/home/yoav.karmon/.codex,type=bind",
+    "source=${localEnv:HOME}/vscode-server-container/.vscode-server,target=/home/yoav.karmon/.vscode-server,type=bind",
+    "source=/tmp,target=/tmp,type=bind",
+    "source=/DATA/ykarmon/repo,target=/home/yoav.karmon/repo,type=bind",
+    "source=/DATA/ykarmon/repo/fpga/.devcontainer/363fpgadev-01/bashrc-func,target=/etc/bashrc-func,type=bind",
+    "source=/DATA/ykarmon/repo/fpga/.devcontainer/363fpgadev-01/bashrc-root,target=/home/yoav.karmon/.bashrc,type=bind",
+    "source=/DATA/ykarmon/repo/fpga/.devcontainer/363fpgadev-01/init_env.sh,target=/etc/profile.d/init_env.sh,type=bind",
+    "source=/DATA/ykarmon/repo/fpga/.devcontainer/363fpgadev-01/entrypoint.sh,target=/usr/local/bin/entrypoint.sh,type=bind"
+  ]
+}
