@@ -181,6 +181,9 @@ set -- "${args_resolved[@]}"
 # Only consume --no-print before the passthrough separator (`--`);
 # after that, flags belong to the leaf command.
 NO_PRINT=false
+if [[ -n "${HDLFORGE_NOPRINT:-}" && "${HDLFORGE_NOPRINT:-0}" != "0" ]]; then
+    NO_PRINT=true
+fi
 args_filtered=()
 seen_dd=false
 for arg in "$@"; do
@@ -251,9 +254,36 @@ if [ $# -eq 0 ]; then
     set -- --list
 fi
 
-# Check if --tool is in arguments (LLM orchestration mode detection)
+# Eval-json is an LLM_orch-only command expansion mode. Keep --tool out
+# of the outer invocation; tool details belong inside the JSON command.
+eval_json_mode=false
+for arg in "$@"; do
+    if [[ "$arg" == "--eval_json" ]]; then
+        eval_json_mode=true
+        break
+    fi
+done
+
+if [ "$eval_json_mode" = true ]; then
+    NO_PRINT=true
+    export HDLFORGE_NOPRINT=1
+    for arg in "$@"; do
+        if [[ "$arg" == "--tool" ]]; then
+            echo "[!x!] Error: --tool cannot be used with --eval_json"
+            echo "[i] Put --tool in the JSON command and append leaf args with --eval_json_append VALUE"
+            exit 1
+        fi
+    done
+fi
+
+# Check if --tool is in arguments before the passthrough separator (LLM
+# orchestration mode detection). Arguments after `--` belong to the leaf command
+# and must not force this wrapper out of LLM_orch mode.
 has_tool_flag=false
 for arg in "$@"; do
+    if [[ "$arg" == "--" ]]; then
+        break
+    fi
     if [[ "$arg" == "--tool" ]]; then
         has_tool_flag=true
         break
@@ -297,13 +327,24 @@ if [ "$has_tool_flag" = false ]; then
     fi
     
     # Build JSON path from remaining arguments (skip flags like --project).
-    # Optional `--` separates the dotted LLM_orch path from extra args forwarded to the leaf command.
-    # Example: hdlforge testing.base.sim.build_and_run -- --extra-env "TESTCASE=arp_test,DEBUG=1"
+    # --eval_json_append appends one shell command fragment to the JSON command.
+    # Anonymous passthrough is intentionally rejected.
     JSON_PATH_PARTS=()
-    PASSTHROUGH_ARGS=()
-    seen_dd=false
+    EVAL_JSON_APPEND_ARGS=()
+    EVAL_JSON=false
     skip_next=false
+    expect_eval_append=false
     for arg in "$@"; do
+        if [ "$expect_eval_append" = true ]; then
+            if [ ${#EVAL_JSON_APPEND_ARGS[@]} -gt 0 ]; then
+                echo "[!x!] Error: only one --eval_json_append is supported"
+                echo "[i] Put the full CLI fragment in one quoted append value"
+                exit 1
+            fi
+            EVAL_JSON_APPEND_ARGS+=("$arg")
+            expect_eval_append=false
+            continue
+        fi
         # Skip --project and its value if present
         if [[ "$arg" == "--project" ]]; then
             skip_next=true
@@ -313,25 +354,45 @@ if [ "$has_tool_flag" = false ]; then
             skip_next=false
             continue
         fi
-        if [ "$seen_dd" = true ]; then
-            PASSTHROUGH_ARGS+=("$arg")
+        if [[ "$arg" == "--" ]]; then
+            echo "[!x!] Error: anonymous passthrough is not supported in LLM_orch commands"
+            echo "[i] Use --eval_json and repeat --eval_json_append VALUE for leaf args"
+            exit 1
+        fi
+        if [[ "$arg" == "--eval_json" ]]; then
+            EVAL_JSON=true
             continue
         fi
-        if [[ "$arg" == "--" ]]; then
-            seen_dd=true
+        if [[ "$arg" == "--eval_json_append" ]]; then
+            expect_eval_append=true
             continue
+        fi
+        if [[ "$arg" == "--eval_json_arg" ]]; then
+            echo "[!x!] Error: --eval_json_arg was replaced by --eval_json_append"
+            echo "[i] Use --eval_json_append VALUE to append one command fragment to the JSON command"
+            exit 1
+        fi
+        if [[ "$arg" == --* ]]; then
+            echo "[!x!] Error: unsupported LLM_orch option: $arg"
+            echo "[i] Use --eval_json and --eval_json_append VALUE"
+            exit 1
         fi
         # Only add non-flag arguments (those that don't start with --) to the path
         if [[ "$arg" != --* ]]; then
             JSON_PATH_PARTS+=("$arg")
         fi
     done
-    
+
+    if [ "$expect_eval_append" = true ]; then
+        echo "[!x!] Error: --eval_json_append requires VALUE"
+        exit 1
+    fi
+
     # Enforce a single dotted LLM_orch path token before `--`
     if [ ${#JSON_PATH_PARTS[@]} -eq 0 ]; then
         echo "[!x!] Error: No command path provided"
-        echo "[i] Usage: hdlforge <dotted.path> [-- <extra-args-for-leaf-command>]"
-        echo "[i] Example: hdlforge testing.base.sim.build_and_run -- --extra-env \"TESTCASE=arp_test\""
+        echo "[i] Usage: hdlforge --eval_json <dotted.path> [--eval_json_append VALUE ...]"
+        echo "[i] Example: hdlforge --eval_json testing.base.sim.run --eval_json_append '--extra-env TESTCASE=arp_test'"
         exit 1
     fi
     if [ ${#JSON_PATH_PARTS[@]} -ne 1 ]; then
@@ -358,10 +419,6 @@ if [ "$has_tool_flag" = false ]; then
             paths(scalars) as $p |
             "  hdlforge \($prefix).\($p | join("."))"' \
             "$PROJECT_JSON" 2>/dev/null || echo "  (unable to list runnable paths)"
-        if [ ${#PASSTHROUGH_ARGS[@]} -gt 0 ]; then
-            echo ""
-            echo "Note: arguments after '--' apply only to a runnable option."
-        fi
         exit 0
     fi
 
@@ -378,16 +435,14 @@ if [ "$has_tool_flag" = false ]; then
         exit 1
     fi
     
-    # Append shell-escaped passthrough args (everything after `--`) to the leaf command
-    COMMAND_SUFFIX=""
-    for _pt in "${PASSTHROUGH_ARGS[@]}"; do
-        COMMAND_SUFFIX="${COMMAND_SUFFIX} $(printf '%q' "$_pt")"
+    for _eval_append_arg in "${EVAL_JSON_APPEND_ARGS[@]}"; do
+        COMMAND="${COMMAND} ${_eval_append_arg}"
     done
     
     # Execute the fetched command recursively
     if [ "$NO_PRINT" = false ]; then
         echo "[i] LLM Orchestration Mode: ${JSON_PATH}"
-        echo "[i] Executing: ${COMMAND}${COMMAND_SUFFIX}"
+        echo "[i] Executing: ${COMMAND}"
         echo ""
     fi
     
@@ -399,8 +454,8 @@ if [ "$has_tool_flag" = false ]; then
     }
     
     # Execute the command (recursive call to hdlforge)
-    # Use eval to properly handle quoted arguments in the command and passthrough
-    eval "$COMMAND${COMMAND_SUFFIX}"
+    # Use eval to properly handle quoted arguments in the command.
+    eval "$COMMAND"
     exit $?
 fi
 
