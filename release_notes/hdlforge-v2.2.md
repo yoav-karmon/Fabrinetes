@@ -5,12 +5,17 @@
 **Commit:** c65f1204264b7d3d1538e970988406df9c38d103
 
 ## Summary
-This release introduces LLM orchestration mode, enabling HDLForge to execute commands from project JSON configuration files without requiring the `--tool` flag. This allows for simplified command invocation using natural language paths (e.g., `hdlforge arp_test sim build_and_run_sim`). Additional improvements include bash completion support, tshark wrapper tool for packet analysis, hardware manager for FPGA programming, enhanced VCD analyzer documentation, and improved path resolution for VCD filenames.
+This release introduces LLM orchestration mode, enabling HDLForge to execute
+commands from project JSON configuration files through explicit `--eval_json`
+paths (for example, `hdlforge --eval_json arp_test.sim.build_and_run_sim`).
+Additional improvements include bash completion support, tshark wrapper tool
+for packet analysis, hardware manager for FPGA programming, enhanced VCD
+analyzer documentation, and improved path resolution for VCD filenames.
 
 ## Added
-- **LLM Orchestration Mode**: When `--tool` is not provided, HDLForge automatically enters orchestration mode:
+- **LLM Orchestration Mode**: With `--eval_json`, HDLForge enters orchestration mode:
   - Reads command paths from `LLM_orch` section in project JSON files
-  - Supports natural language command paths (e.g., `hdlforge arp_test sim build_and_run_sim`)
+  - Supports explicit dotted command paths (e.g., `hdlforge --eval_json arp_test.sim.build_and_run_sim`)
   - Automatically resolves and executes commands from JSON configuration
   - Generic implementation using `jq` for flexible JSON path parsing
   - Works with any JSON structure under `LLM_orch`
@@ -57,12 +62,12 @@ None at this time.
 
 ## Migration Guide
 ### Breaking Changes
-- **LLM Orchestration Mode**: When `--tool` is not provided, HDLForge now enters orchestration mode instead of showing help. To show help, use `hdlforge --help` or `hdlforge --tool <tool> --help`
+- **LLM Orchestration Mode**: Use `--eval_json <dotted.path>` to enter orchestration mode. To show help, use `hdlforge --help` or `hdlforge --tool <tool> --help`
 - **Command Structure**: All direct tool commands now require `--tool` flag:
   - Old: `hdlforge vivado --syn <run>` (if tool was optional)
   - New: `hdlforge --tool vivado --syn <run>`
-- **LLM Orchestration Alternative**: Use natural language paths instead:
-  - `hdlforge <profile> <category> <action>` (e.g., `hdlforge arp_test sim build_and_run_sim`)
+- **LLM Orchestration Alternative**: Use explicit dotted paths instead:
+  - `hdlforge --eval_json <profile>.<category>.<action>` (e.g., `hdlforge --eval_json arp_test.sim.build_and_run_sim`)
   - Commands are read from `LLM_orch` section in project JSON files
 
 ### New Features
@@ -86,7 +91,7 @@ None at this time.
 
 ## Technical Details
 - LLM orchestration mode uses `jq` for JSON parsing (requires `jq` to be installed)
-- JSON path building skips flags (e.g., `--project`) and only uses positional arguments
+- JSON path building uses the dotted path after `--eval_json`
 - Commands are executed recursively (fetched command can call `hdlforge` again)
 - VCD filename resolution happens before directory changes to preserve relative path context
 - Bash completion script uses dynamic command discovery
@@ -121,4 +126,3 @@ None at this time.
 ### New Files
 - `hdlforge/project_setup/hw_manager_tasks.py` - Hardware manager tool (new)
 - `hdlforge/project_setup/test_dir/test_packets.pcap.tshark_output.txt` - Test output file
-

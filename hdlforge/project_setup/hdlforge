@@ -290,8 +290,15 @@ for arg in "$@"; do
     fi
 done
 
-# If --tool is not present, enter LLM orchestration mode
+# If --tool is not present, enter explicit LLM orchestration mode.
 if [ "$has_tool_flag" = false ]; then
+    if [ "$eval_json_mode" = false ]; then
+        echo "[!x!] Error: --tool is required unless --eval_json is used"
+        echo "[i] Usage: hdlforge --tool <tool_name> [options...]"
+        echo "[i] Or:    hdlforge --eval_json <dotted.path> [--eval_json_append VALUE]"
+        exit 1
+    fi
+
     # Find project JSON file
     PROJECT_JSON=""
     
@@ -356,7 +363,7 @@ if [ "$has_tool_flag" = false ]; then
         fi
         if [[ "$arg" == "--" ]]; then
             echo "[!x!] Error: anonymous passthrough is not supported in LLM_orch commands"
-            echo "[i] Use --eval_json and repeat --eval_json_append VALUE for leaf args"
+            echo "[i] Use --eval_json and one --eval_json_append VALUE for leaf args"
             exit 1
         fi
         if [[ "$arg" == "--eval_json" ]]; then
@@ -397,7 +404,7 @@ if [ "$has_tool_flag" = false ]; then
     fi
     if [ ${#JSON_PATH_PARTS[@]} -ne 1 ]; then
         echo "[!x!] Error: LLM_orch path must be a single dotted token"
-        echo "[i] Use dots instead of spaces, e.g.: hdlforge testing.arp_test.sim.build_and_run"
+        echo "[i] Use dots instead of spaces, e.g.: hdlforge --eval_json testing.arp_test.sim.build_and_run"
         exit 1
     fi
     
@@ -417,7 +424,7 @@ if [ "$has_tool_flag" = false ]; then
         jq -r --arg json_path "$JSON_PATH" --arg prefix "${JSON_PATH_PARTS[0]}" '
             getpath($json_path | split(".")) |
             paths(scalars) as $p |
-            "  hdlforge \($prefix).\($p | join("."))"' \
+            "  hdlforge --eval_json \($prefix).\($p | join("."))"' \
             "$PROJECT_JSON" 2>/dev/null || echo "  (unable to list runnable paths)"
         exit 0
     fi

@@ -43,32 +43,38 @@ hdlforge --tool vivado --syn <synth_run_name>
 
 ### LLM_orch shortcut mode
 
-If `--tool` is omitted, HDLForge interprets one dotted argument as a path inside `LLM_orch` in the active project file.
+Use `--eval_json` with one dotted argument to evaluate a path inside
+`LLM_orch` in the active project file. Bare dotted paths are not accepted;
+use `--eval_json` so command expansion is explicit.
 
 ```bash
-hdlforge <dotted.path> [-- <extra-args-for-leaf-command>]
-hdlforge --no-print <dotted.path> [-- <extra-args-for-leaf-command>]
+hdlforge --eval_json <dotted.path> [--eval_json_append '<extra-args-for-leaf-command>']
 ```
 
-Optional `--` separates the `LLM_orch` lookup path from additional arguments that are appended (shell-quoted) to the resolved leaf command. This avoids duplicating shortcuts when you only need extra flags (for example `--extra-env` on a nested `hdlforge --tool Verilator ...` invocation).
+Optional `--eval_json_append` appends one raw shell command fragment to the
+resolved leaf command. This avoids duplicating shortcuts when you only need
+extra flags (for example `--extra-env` on a nested `hdlforge --tool Verilator
+...` invocation).
 
 ```bash
-hdlforge testing.base.sim.build_and_run -- --extra-env "TESTCASE=arp_test,DEBUG=1"
+hdlforge --eval_json testing.base.sim.build_and_run --eval_json_append '--extra-env TESTCASE=arp_test,DEBUG=1'
 ```
 
-`--no-print` suppresses the orchestration wrapper lines that HDLForge normally prints before executing the resolved leaf command. This is useful when one `LLM_orch` helper calls another through command substitution and needs only the leaf stdout.
+`--eval_json` suppresses the orchestration wrapper lines automatically by
+exporting `HDLFORGE_NOPRINT=1`. This is useful when one `LLM_orch` helper calls
+another through command substitution and needs only the leaf stdout.
 
 Example:
 
 ```bash
-PROJECT_NAME="$(hdlforge --no-print vivado.project.show_name)"
+PROJECT_NAME="$(hdlforge --eval_json vivado.project.show_name)"
 ```
 
 Examples:
 
 ```bash
-hdlforge testing.trigger_test.sim.build_and_run
-hdlforge vivado.project.write_tcl
+hdlforge --eval_json testing.trigger_test.sim.build_and_run
+hdlforge --eval_json vivado.project.write_tcl
 ```
 
 ---
@@ -318,7 +324,7 @@ No child implementation runs found:
 
 ## 6. LLM_orch Reference
 
-`LLM_orch` maps positional CLI paths to shell commands.
+`LLM_orch` maps explicit `--eval_json` paths to shell commands.
 
 Example structure:
 
@@ -335,10 +341,11 @@ Example structure:
 Resolution example:
 
 ```bash
-hdlforge group.action.run
+hdlforge --eval_json group.action.run
 ```
 
-Optional arguments after `--` are appended to the leaf command (same behavior as in the LLM_orch shortcut mode section above).
+One optional `--eval_json_append '<args>'` value is appended to the leaf command
+(same behavior as in the LLM_orch shortcut mode section above).
 
 Resolves to:
 
@@ -421,7 +428,7 @@ hdlforge --tool vivado --syn synth_1
 Shortcut mode remains dotted:
 
 ```bash
-hdlforge testing.trigger_test.sim.build_and_run
+hdlforge --eval_json testing.trigger_test.sim.build_and_run
 ```
 
 Legacy schema names to replace:

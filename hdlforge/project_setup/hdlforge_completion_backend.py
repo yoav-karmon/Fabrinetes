@@ -39,6 +39,8 @@ class ParsedState:
     has_pcap: bool = False
     has_llm_path: bool = False
     llm_path: str | None = None
+    eval_json: bool = False
+    has_eval_json_append: bool = False
 
 
 def unique(items: list[str]) -> list[str]:
@@ -640,19 +642,29 @@ def parse_llm_mode(tokens_before_current: list[str], cwd: Path) -> ParsedState:
     state.project_file = detect_project_file(tokens_before_current, cwd)
 
     expecting_project_value = False
+    expecting_eval_json_append_value = False
     for token in tokens_before_current:
         if expecting_project_value:
             expecting_project_value = False
             continue
+        if expecting_eval_json_append_value:
+            expecting_eval_json_append_value = False
+            continue
         if token == "--project":
             expecting_project_value = True
             continue
+        if token == "--eval_json":
+            state.eval_json = True
+            continue
+        if token == "--eval_json_append":
+            state.has_eval_json_append = True
+            expecting_eval_json_append_value = True
+            continue
         if token == "--":
             break
-        if not token.startswith("-"):
+        if not token.startswith("-") and not state.has_llm_path:
             state.has_llm_path = True
             state.llm_path = token
-            break
 
     return state
 
@@ -667,8 +679,17 @@ def complete_llm(tokens_before_current: list[str], cur: str, cwd: Path) -> Compl
     prev = tokens_before_current[-1] if tokens_before_current else ""
     if prev == "--project":
         return complete_project_files(cur, state)
+    if prev == "--eval_json":
+        return complete_llm_path(state.project_file, cur)
+    if prev == "--eval_json_append":
+        return CompletionResult([])
 
-    llm_flags = ["--project", "--tool", "--verbose", "--help", "-h"]
+    llm_flags = filter_single_use(["--eval_json", "--project", "--tool", "--help", "-h"], state)
+    if not state.eval_json:
+        if cur.startswith("-") or not cur:
+            return complete_words(cur, llm_flags)
+        return CompletionResult([])
+
     if (cur.startswith("-") or not cur) and not state.has_llm_path:
         merged = unique(complete_llm_path(state.project_file, cur).completions + [flag for flag in llm_flags if flag.startswith(cur)])
         return CompletionResult(merged)
@@ -682,6 +703,9 @@ def complete_llm(tokens_before_current: list[str], cur: str, cwd: Path) -> Compl
         return complete_llm_path(state.project_file, cur)
 
     if state.llm_path and is_llm_leaf(state.project_file, state.llm_path):
+        append_flags = [] if state.has_eval_json_append else ["--eval_json_append"]
+        if cur.startswith("-") or not cur:
+            return complete_words(cur, append_flags)
         return CompletionResult([])
 
     return CompletionResult([])
