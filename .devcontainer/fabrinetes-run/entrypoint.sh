@@ -2,9 +2,44 @@
 set -e
 
 USERNAME=${CONTAINER_USER:-$(id -un)}
-USER_UID=${CONTAINER_UID:-$(id -u)}
-USER_GID=${CONTAINER_GID:-$(id -g)}
 HOME_DIR=${CONTAINER_HOME:-/home/$USERNAME}
+
+detect_mount_uid() {
+    local path
+    for path in \
+        "${FABRINETES:-}" \
+        "${FABRINETES_ROOT:-}" \
+        "$HOME_DIR/repo/fpga" \
+        "$HOME_DIR/repo" \
+        "$PWD"
+    do
+        if [ -n "$path" ] && [ -e "$path" ]; then
+            stat -c '%u' "$path"
+            return 0
+        fi
+    done
+    id -u
+}
+
+detect_mount_gid() {
+    local path
+    for path in \
+        "${FABRINETES:-}" \
+        "${FABRINETES_ROOT:-}" \
+        "$HOME_DIR/repo/fpga" \
+        "$HOME_DIR/repo" \
+        "$PWD"
+    do
+        if [ -n "$path" ] && [ -e "$path" ]; then
+            stat -c '%g' "$path"
+            return 0
+        fi
+    done
+    id -g
+}
+
+USER_UID=${CONTAINER_UID:-$(detect_mount_uid)}
+USER_GID=${CONTAINER_GID:-$(detect_mount_gid)}
 
 echo "Setting up dynamic user: $USERNAME (UID:$USER_UID, GID:$USER_GID, HOME:$HOME_DIR)"
 

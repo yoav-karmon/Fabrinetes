@@ -37,7 +37,6 @@ metadata because the parent checkout's `.git/modules` directory is mounted too.
 Launch from the Fabrinetes repo root:
 
 ```bash
-LOCAL_UID="$(id -u)" LOCAL_GID="$(id -g)" \
 devcontainer up \
   --workspace-folder "$PWD" \
   --config "$PWD/.devcontainer/fabrinetes-run/devcontainer.json"
@@ -46,7 +45,6 @@ devcontainer up \
 Run a command inside it:
 
 ```bash
-LOCAL_UID="$(id -u)" LOCAL_GID="$(id -g)" \
 devcontainer exec \
   --workspace-folder "$PWD" \
   --config "$PWD/.devcontainer/fabrinetes-run/devcontainer.json" \

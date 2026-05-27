@@ -48,7 +48,6 @@ so Dev Containers will not fetch from a registry.
 Launch it with:
 
 ```bash
-LOCAL_UID="$(id -u)" LOCAL_GID="$(id -g)" \
 devcontainer up \
   --workspace-folder <repo_top> \
   --config <repo_top>/.devcontainer/fabrinetes-run/devcontainer.json
@@ -57,7 +56,6 @@ devcontainer up \
 Then execute a smoke command:
 
 ```bash
-LOCAL_UID="$(id -u)" LOCAL_GID="$(id -g)" \
 devcontainer exec \
   --workspace-folder <repo_top> \
   --config <repo_top>/.devcontainer/fabrinetes-run/devcontainer.json \
@@ -71,16 +69,13 @@ variables:
 
 ```text
 CONTAINER_USER
-CONTAINER_UID
-CONTAINER_GID
 CONTAINER_HOME
 ```
 
-The run devcontainer maps these from the host user. This keeps bind-mounted
-files writable by the host account and avoids root-owned build artifacts.
-
-Use `LOCAL_UID` and `LOCAL_GID` on the host command line because `UID` is a
-readonly shell variable in Bash.
+The entrypoint derives UID/GID from the mounted repository when explicit
+`CONTAINER_UID`/`CONTAINER_GID` values are not supplied. This keeps bind-mounted
+files writable by the host account and avoids root-owned build artifacts without
+requiring UID/GID variables on every `devcontainer` command.
 
 ## Environment Setup
 

@@ -4,8 +4,6 @@
   "initializeCommand": "mkdir -p ${localEnv:HOME}/.codex ${localEnv:HOME}/vscode-server-container/.vscode-server",
   "containerEnv": {
     "CONTAINER_USER": "${localEnv:USER}",
-    "CONTAINER_UID": "${localEnv:LOCAL_UID}",
-    "CONTAINER_GID": "${localEnv:LOCAL_GID}",
     "CONTAINER_HOME": "/home/${localEnv:USER}",
     "CODEX_HOME": "/home/${localEnv:USER}/.codex",
     "FABRINETES": "/home/${localEnv:USER}/repo/fpga/git-sub-module/Fabrinetes",

@@ -58,7 +58,6 @@ explicit step.
 Docker `--pull=never` so the CLI does not fetch a registry image.
 
 ```bash
-LOCAL_UID="$(id -u)" LOCAL_GID="$(id -g)" \
 devcontainer up \
   --workspace-folder <repo_top> \
   --config <repo_top>/.devcontainer/fabrinetes-run/devcontainer.json
@@ -70,12 +69,11 @@ The runtime entrypoint creates the requested user from:
 
 ```text
 CONTAINER_USER
-CONTAINER_UID
-CONTAINER_GID
 CONTAINER_HOME
 ```
 
-This keeps bind-mounted files writable by the host user.
+It derives UID/GID from the mounted repository by default, keeping bind-mounted
+files writable by the host user without requiring per-command UID variables.
 
 ### PATH Management
 
