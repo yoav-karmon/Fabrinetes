@@ -5,25 +5,6 @@ iprint "bashrc-root: started"
 # Capture whether INIT_PATH existed before this shell sourced bashrc.
 _INIT_PATH_WAS_DEFINED=${INIT_PATH:+yes}
 
-init_print "bashrc-root: this is bashrc first run in session start"
-if [ -z "$INIT_PATH" ] && [ -z "$BASHRC_INITIALIZED" ]; then
-    if [ -n "$PATH" ]; then
-        INIT_PATH=$(remove_duplicates_from_path "$PATH")
-        export INIT_PATH
-    else
-        export INIT_PATH=""
-    fi
-
-    if [ -n "$PYTHONPATH" ]; then
-        INIT_PYTHONPATH=$(remove_duplicates_from_path "$PYTHONPATH")
-        export INIT_PYTHONPATH
-    else
-        export INIT_PYTHONPATH=""
-    fi
-
-    export BASHRC_INITIALIZED=1
-fi
-
 if [ -r /etc/hostname ]; then
     HOSTNAME_ENTRY=$(tr -d '\n ' < /etc/hostname)
 else
@@ -42,6 +23,25 @@ if [ -n "$PATH" ]; then
 fi
 if [ -n "$PYTHONPATH" ]; then
     export PYTHONPATH=$(remove_duplicates_from_path "$PYTHONPATH")
+fi
+
+init_print "bashrc-root: this is bashrc first run in session start"
+if [ -z "$INIT_PATH" ] && [ -z "$BASHRC_INITIALIZED" ]; then
+    if [ -n "$PATH" ]; then
+        INIT_PATH=$(remove_duplicates_from_path "$PATH")
+        export INIT_PATH
+    else
+        export INIT_PATH=""
+    fi
+
+    if [ -n "$PYTHONPATH" ]; then
+        INIT_PYTHONPATH=$(remove_duplicates_from_path "$PYTHONPATH")
+        export INIT_PYTHONPATH
+    else
+        export INIT_PYTHONPATH=""
+    fi
+
+    export BASHRC_INITIALIZED=1
 fi
 
 export GIT_CONFIG_GLOBAL="$HOME/.gitconfig"

@@ -8,8 +8,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     LANG=en_US.UTF-8 \
     LANGUAGE=en_US:en \
     LC_ALL=en_US.UTF-8 \
-    FABRINETES=/opt/Fabrinetes \
-    FABRINETES_ROOT=/opt/Fabrinetes
+    FABRINETES=/opt/Fabrinetes
 
 COPY .devcontainer/fabrinetes-build/packages.txt /tmp/packages.txt
 COPY .devcontainer/fabrinetes-build/python-packages.txt /tmp/python-packages.txt
