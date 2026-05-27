@@ -1,5 +1,15 @@
 # Devcontainer Configurations
 
+## Short Commands
+
+From the Fabrinetes repo root:
+
+```bash
+.devcontainer/build_image.sh
+.devcontainer/run_container.sh
+.devcontainer/open_container_shell.sh
+```
+
 ## `fabrinetes-build`
 
 Build-only example for creating a local Fabrinetes development image from the
