@@ -1,5 +1,6 @@
 source /etc/bashrc-func
 
+unset FABRINETES_ROOT
 export FABRINETES="${FABRINETES:-$HOME/repo/fpga/git-sub-module/Fabrinetes}"
 export HDLFORGE="$FABRINETES/hdlforge/project_setup"
 export HOSTNAME_server="${HOSTNAME_server:-${HOSTNAME:-Fabrinetes}}"
