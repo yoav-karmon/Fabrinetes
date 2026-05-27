@@ -28,11 +28,6 @@ Fabrinetes/
 │       ├── HDLForge-Vivado.md         # Compatibility pointer
 │       ├── HDLForge-Architecture.md   # Compatibility pointer
 │       └── HDLForge_v2_Migration_Guide.md
-├── command/                           # Command documentation
-│   ├── README.md
-│   ├── build/README.md
-│   ├── test/README.md
-│   └── help/README.md
 └── examples/                          # Example projects
     ├── README.md
     └── addr_32bit/README.md
@@ -85,16 +80,6 @@ Fabrinetes/
 
 ---
 
-## Command Documentation
-
-### Command References
-- **[Command Overview](../command/README.md)** - Complete command documentation and reference
-- **[Build Command](../command/build/README.md)** - Docker build command documentation
-- **[Test Command](../command/test/README.md)** - Testing command documentation
-- **[Help Command](../command/help/README.md)** - Help system documentation
-
----
-
 ## Examples & Templates
 
 ### Example Projects
@@ -120,7 +105,7 @@ Fabrinetes/
 **Essential reads:**
 - [Architecture Documentation](container-doc/architecture.md) - System design and components
 - [Bug Prevention Guide](bug-prevention-guide.md) - Common pitfalls and solutions
-- [Command Documentation](../command/README.md) - Command reference
+- [Dev Containers CLI Launch](container-doc/devcontainer-cli.md) - Container launch and attach flow
 
 ### ⚙️ FPGA/HDL Developers
 **HDLForge workflow:**
@@ -161,10 +146,10 @@ Fabrinetes/
 | [Bug Prevention](bug-prevention-guide.md) | Common issues and prevention |
 | [Container HDLForge Test](container-doc/container-hdlforge-test.md) | HDLForge container testing |
 
-### 📚 Commands & Examples
+### 📚 Launch & Examples
 | Document | Purpose |
 |----------|---------|
-| [Command Reference](../command/README.md) | All commands documented |
+| [Dev Containers CLI Launch](container-doc/devcontainer-cli.md) | Devcontainer launch and attach flow |
 | [Examples](../examples/README.md) | Example projects and patterns |
 
 ---
@@ -175,7 +160,6 @@ Fabrinetes/
 - **`doc/`** - Main documentation directory
   - **`container-doc/`** - Container-specific documentation
   - **`hdlforge-doc/`** - HDLForge build system documentation
-- **`command/`** - Command-specific documentation with README.md per command
 - **`examples/`** - Example projects with README.md per example
 
 ### Naming Conventions
@@ -201,7 +185,7 @@ Fabrinetes/
 ## Contributing to Documentation
 
 ### Adding New Documentation
-1. **Determine Category** - Choose appropriate directory (`doc/`, `doc/container-doc/`, `doc/hdlforge-doc/`, `command/`, `examples/`)
+1. **Determine Category** - Choose appropriate directory (`doc/`, `doc/container-doc/`, `doc/hdlforge-doc/`, `examples/`)
 2. **Follow Standards** - Use consistent naming and formatting
 3. **Cross-Reference** - Link to related documentation
 4. **Update Index** - Add entry to this index file
@@ -247,7 +231,6 @@ Fabrinetes/
 | Core Documentation | 3 files |
 | Container Documentation | 7 files |
 | HDLForge Documentation | 9 files |
-| Command Documentation | 5 files |
 | Example Documentation | 2 files |
 | **Total** | **26+ markdown files** |
 

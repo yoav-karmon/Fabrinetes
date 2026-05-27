@@ -144,11 +144,7 @@ None at this time.
 - `doc/hdlforge-doc/HDLForge.md` - Updated documentation
 - `doc/hdlforge-doc/HDLForge_v2_Migration_Guide.md` - Migration guide updates
 
-### Scripts
-- `setup.sh` - Container operations refactoring
-
 ### Cursor Commands
 - `.cursor/commands/update-release-notes.md` - Release notes workflow command
 - `.cursor/commands/tag-with-release-notes.md` - Git tagging with release notes command
 - `.cursor/commands/commit-and-push.md` - Commit and push workflow command
-

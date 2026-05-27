@@ -1,65 +1,360 @@
-iprint() {
-    if [[ $- == *i* ]]; then
-        echo "$@"
-    fi
-}
 
+# Function to remove duplication from PATH-like variables
 remove_duplicates_from_path() {
     local path_var="$1"
     local -a path_array
     local -a unique_paths
     local path_item
-    local result
 
+    # Split PATH by colon into array
     IFS=':' read -ra path_array <<< "$path_var"
+
+    # Track seen paths to avoid duplicates (case-sensitive)
     declare -A seen_paths
 
+    # Build unique paths array (preserving order, first occurrence kept)
     for path_item in "${path_array[@]}"; do
+        # Skip empty entries
         [ -z "$path_item" ] && continue
-        if [ -z "${seen_paths[$path_item]+x}" ]; then
+
+        # Check if we've seen this path before
+        if [ -z "${seen_paths[$path_item]}" ]; then
             seen_paths[$path_item]=1
             unique_paths+=("$path_item")
         fi
     done
 
+    # Join unique paths back with colon
+    local result
     printf -v result '%s:' "${unique_paths[@]}"
+    # Remove trailing colon
     echo "${result%:}"
 }
 
-add_to_path() {
-    local path_to_add="$1"
-
-    if [ -n "$REPO_TOP" ] && [ "${path_to_add#/}" = "$path_to_add" ]; then
-        path_to_add="$REPO_TOP/$path_to_add"
-    fi
-
-    if [ -n "$PATH" ]; then
-        local existing_path
-        IFS=':' read -ra path_array <<< "$PATH"
-        for existing_path in "${path_array[@]}"; do
-            [ "$existing_path" = "$path_to_add" ] && return 0
-        done
-    fi
-
-    iprint "[+] adding $path_to_add to PATH"
-    export PATH="${path_to_add}${PATH:+:${PATH}}"
-}
 
 add_to_pythonpath() {
     local path_to_add="$1"
 
+    # Prepend REPO_TOP if path doesn't start with /
     if [ -n "$REPO_TOP" ] && [ "${path_to_add#/}" = "$path_to_add" ]; then
         path_to_add="$REPO_TOP/$path_to_add"
     fi
 
+    # Check if path already exists in PYTHONPATH
     if [ -n "$PYTHONPATH" ]; then
-        local existing_path
+        local -a pythonpath_array
         IFS=':' read -ra pythonpath_array <<< "$PYTHONPATH"
         for existing_path in "${pythonpath_array[@]}"; do
-            [ "$existing_path" = "$path_to_add" ] && return 0
+            if [ "$existing_path" = "$path_to_add" ]; then
+                # Path already exists, skip adding
+                return 0
+            fi
         done
     fi
 
+    # Path doesn't exist, add it
     iprint "[+] adding $path_to_add to PYTHONPATH"
     export PYTHONPATH="${path_to_add}${PYTHONPATH:+:${PYTHONPATH}}"
+}
+
+# Add to PATH (prepends REPO_TOP if path is relative)
+add_to_path() {
+    local path_to_add="$1"
+
+    # Prepend REPO_TOP if path doesn't start with /
+    if [ -n "$REPO_TOP" ] && [ "${path_to_add#/}" = "$path_to_add" ]; then
+        path_to_add="$REPO_TOP/$path_to_add"
+    fi
+
+    # Check if path already exists in PATH
+    if [ -n "$PATH" ]; then
+        local -a path_array
+        IFS=':' read -ra path_array <<< "$PATH"
+        for existing_path in "${path_array[@]}"; do
+            if [ "$existing_path" = "$path_to_add" ]; then
+                # Path already exists, skip adding
+                return 0
+            fi
+        done
+    fi
+    iprint "[+] adding $path_to_add to PATH"
+    # Path doesn't exist, add it
+    export PATH="${path_to_add}${PATH:+:${PATH}}"
+}
+
+# Print function that only prints if shell is interactive
+iprint() {
+    # Check if shell is interactive
+    if [[ $- == *i* ]]; then
+        echo "$@"
+    fi
+}
+
+
+init_print() {
+    # Only print if INIT_PATH was NOT defined when script started (first run)
+    if [ -z "$_INIT_PATH_WAS_DEFINED" ]; then
+        # Check if shell is interactive
+        if [[ $- == *i* ]]; then
+            echo "$@"
+        fi
+    fi
+}
+
+print_env_vars() {
+    # Print ALL environment variables
+    init_print "=== All Environment Variables ==="
+    env | sort | while IFS='=' read -r name value; do
+        init_print "$name: $value"
+    done
+        init_print "=================================="
+}
+
+
+
+print_key_env_vars() {
+    # Print only key environment variables (for quick reference)
+    iprint "=== Key Environment Variables ==="
+
+    # Print PATH entries, one per line, sorted
+    iprint "PATH:"
+    if [ -n "$PATH" ]; then
+        local -a path_array
+        IFS=':' read -ra path_array <<< "$PATH"
+        # Sort and print each entry
+        printf '%s\n' "${path_array[@]}" | sort | while IFS= read -r path_entry; do
+            [ -n "$path_entry" ] && iprint "  $path_entry"
+        done
+    else
+        iprint "  (empty)"
+    fi
+
+    # Print PYTHONPATH entries, one per line, sorted
+    iprint "PYTHONPATH:"
+    if [ -n "$PYTHONPATH" ]; then
+        local -a pythonpath_array
+        IFS=':' read -ra pythonpath_array <<< "$PYTHONPATH"
+        # Sort and print each entry
+        printf '%s\n' "${pythonpath_array[@]}" | sort | while IFS= read -r pythonpath_entry; do
+            [ -n "$pythonpath_entry" ] && iprint "  $pythonpath_entry"
+        done
+    else
+        iprint "  (empty)"
+    fi
+
+
+
+    iprint "REPO_TOP: $REPO_TOP"
+    iprint "=================================="
+}
+
+source_repo_completion_scripts() {
+    if [ -z "$REPO_TOP" ]; then
+        return 0
+    fi
+
+    local completion_script
+    for completion_script in \
+        "$REPO_TOP/fpga_projects/phy10gbaser/sources/ip/update_ip_completion.bash" \
+        "$REPO_TOP/fpga_projects/phy10gbaser/tools/config_monitor/config_monitor_completion.bash" \
+        "$REPO_TOP/tools/multicat_registration_completion.bash"
+    do
+        if [ -f "$completion_script" ]; then
+            iprint "[i] Sourcing $completion_script"
+            source "$completion_script"
+        fi
+    done
+}
+
+# Define function to configure REPO_TOP and PYTHONPATH
+update_repo_path() {
+    # Require Bash
+    if [ -z "$BASH_VERSION" ]; then
+        echo "[X] This function requires Bash." >&2
+        return 1
+    fi
+
+    # Check if we're switching repos (REPO_TOP was already set)
+    local previous_repo="$REPO_TOP"
+
+    # Reset PATH and PYTHONPATH to initial values
+    # Use -v to check if variable is defined (even if empty), not -n which checks non-empty
+    if [[ -v INIT_PATH ]]; then
+        export PATH="$INIT_PATH"
+        # Clean duplicates from INIT_PATH in case it has any
+        if [ -n "$PATH" ]; then
+            export PATH=$(remove_duplicates_from_path "$PATH")
+        fi
+    fi
+    # Always reset PYTHONPATH if INIT_PYTHONPATH was defined (even if empty)
+    if [[ -v INIT_PYTHONPATH ]]; then
+        export PYTHONPATH="$INIT_PYTHONPATH"
+        # Clean duplicates from INIT_PYTHONPATH in case it has any
+        if [ -n "$PYTHONPATH" ]; then
+            export PYTHONPATH=$(remove_duplicates_from_path "$PYTHONPATH")
+        fi
+    fi
+
+    # Save base paths before adding repo-specific paths (these are the original/initial values)
+    local base_path="$PATH"
+    local base_pythonpath="$PYTHONPATH"
+
+    # STEP 1: Print base entries first
+    iprint ""
+    iprint "=== Path Configuration ==="
+
+    # Show switching message if applicable
+    if [ -n "$previous_repo" ]; then
+        iprint "[i] Switching from: $previous_repo"
+    fi
+
+    iprint ""
+    iprint "Base paths created by (in order):"
+    iprint "  1. IDE/agent shell (Cursor/VSCode/Codex) - Injects paths before shell starts"
+    iprint "  2. /etc/environment              - System-wide static PATH"
+    iprint "  3. /etc/profile                  - System-wide login profile"
+    iprint "  4. /etc/profile.d/init_env.sh    - Container init (Vivado, hdlforge)"
+    iprint "  5. ~/.bashrc (bashrc-root)       - Captures INIT_PATH here"
+    iprint ""
+
+    iprint "PATH - Base entries:"
+    if [ -n "$base_path" ]; then
+        local -a base_path_array
+        IFS=':' read -ra base_path_array <<< "$base_path"
+        for p in "${base_path_array[@]}"; do
+            [ -n "$p" ] && iprint "  $p"
+        done
+    else
+        iprint "  (empty)"
+    fi
+
+    iprint ""
+    iprint "PYTHONPATH - Base entries:"
+    if [ -n "$base_pythonpath" ]; then
+        local -a base_pythonpath_array
+        IFS=':' read -ra base_pythonpath_array <<< "$base_pythonpath"
+        for p in "${base_pythonpath_array[@]}"; do
+            [ -n "$p" ] && iprint "  $p"
+        done
+    else
+        iprint "  (empty)"
+    fi
+
+    iprint ""
+    iprint "----------------------------"
+    iprint ""
+
+    # STEP 2: Source the repo's init file
+    local repo_root
+    repo_root=$(git rev-parse --show-toplevel 2>/dev/null)
+
+    if [[ -z "$repo_root" ]]; then
+        iprint "[!] Not inside a Git repository."
+        export REPO_TOP=""
+        iprint "==========================="
+        return 1
+    fi
+    export REPO_TOP="$repo_root"
+    iprint "[v] REPO_TOP set to $REPO_TOP"
+
+    init_repo_env_file="$REPO_TOP/init_repo_env.sh"
+    if [[ -f "$init_repo_env_file" ]]; then
+        iprint "[i] Sourcing $init_repo_env_file"
+        source "$init_repo_env_file"
+
+        # Clean duplicates after sourcing repo-specific paths
+        if [ -n "$PATH" ]; then
+            export PATH=$(remove_duplicates_from_path "$PATH")
+        fi
+        if [ -n "$PYTHONPATH" ]; then
+            export PYTHONPATH=$(remove_duplicates_from_path "$PYTHONPATH")
+        fi
+        source_repo_completion_scripts
+    else
+        iprint "[i] Repo missing $init_repo_env_file"
+    fi
+
+    iprint ""
+    iprint "----------------------------"
+    iprint ""
+
+    # STEP 3: Print added entries
+    print_added_entries "$base_path" "$base_pythonpath"
+
+    iprint "==========================="
+}
+
+# Print what paths were added (compared to base)
+print_added_entries() {
+    local base_path="$1"
+    local base_pythonpath="$2"
+
+    # Find and show added PATH entries
+    iprint "PATH - Added entries:"
+    if [ -n "$PATH" ]; then
+        local -a current_path_array
+        local -a base_path_array
+        IFS=':' read -ra current_path_array <<< "$PATH"
+        IFS=':' read -ra base_path_array <<< "$base_path"
+
+        # Create associative array of base paths
+        declare -A base_paths_map
+        for p in "${base_path_array[@]}"; do
+            [ -n "$p" ] && base_paths_map["$p"]=1
+        done
+
+        # Print added paths (those in current but not in base)
+        local found_added=false
+        for p in "${current_path_array[@]}"; do
+            if [ -n "$p" ] && [ -z "${base_paths_map[$p]}" ]; then
+                iprint "  [+] $p"
+                found_added=true
+            fi
+        done
+        if [ "$found_added" = false ]; then
+            iprint "  (none)"
+        fi
+    else
+        iprint "  (none)"
+    fi
+
+    iprint ""
+
+    # Find and show added PYTHONPATH entries
+    iprint "PYTHONPATH - Added entries:"
+    if [ -n "$PYTHONPATH" ]; then
+        local -a current_pythonpath_array
+        local -a base_pythonpath_array
+        IFS=':' read -ra current_pythonpath_array <<< "$PYTHONPATH"
+        IFS=':' read -ra base_pythonpath_array <<< "$base_pythonpath"
+
+        # Create associative array of base pythonpaths
+        declare -A base_pythonpaths_map
+        for p in "${base_pythonpath_array[@]}"; do
+            [ -n "$p" ] && base_pythonpaths_map["$p"]=1
+        done
+
+        # Print added pythonpaths (those in current but not in base)
+        local found_added=false
+        for p in "${current_pythonpath_array[@]}"; do
+            if [ -n "$p" ] && [ -z "${base_pythonpaths_map[$p]}" ]; then
+                iprint "  [+] $p"
+                found_added=true
+            fi
+        done
+        if [ "$found_added" = false ]; then
+            iprint "  (none)"
+        fi
+    else
+        iprint "  (none)"
+    fi
+}
+
+
+
+# Git prompt helper (optional)
+parse_git_branch() {
+    git rev-parse --git-dir > /dev/null 2>&1 || return
+    branch="$(git symbolic-ref --short HEAD 2>/dev/null || git describe --tags --exact-match 2>/dev/null)"
+    [ -n "$branch" ] && echo "($branch)"
 }

@@ -3,6 +3,7 @@ source /etc/bashrc-func
 export FABRINETES="${FABRINETES:-$HOME/repo/fpga/git-sub-module/Fabrinetes}"
 export FABRINETES_ROOT="${FABRINETES_ROOT:-$FABRINETES}"
 export HDLFORGE="$FABRINETES/hdlforge/project_setup"
+export HOSTNAME_server="${HOSTNAME_server:-${HOSTNAME:-Fabrinetes}}"
 
 if [ -f /DATA/amd/2025.1/Vivado/settings64.sh ]; then
     # shellcheck disable=SC1091

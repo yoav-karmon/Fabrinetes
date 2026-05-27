@@ -337,7 +337,6 @@ Configure project containers in the consuming repository's
 - [Testing Guide](doc/container-doc/testing_guide.md) - Devcontainer verification procedures
 - [Repository Structure](doc/repository_explanation.md) - Project organization
 - [HDLForge API Reference](doc/hdlforge-doc/HDLForge.md) - Single HDLForge source of truth for CLI, schema, and internals
-- [Command Reference](command/README.md) - Complete command documentation
 
 ## Contributing
 
