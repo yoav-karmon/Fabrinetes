@@ -52,14 +52,14 @@ Fabrinetes/
 - **Logging** to `_log/` directory
 - **Parameter handling** for build/run commands
 
-### 2. Advanced Container Management (`setup.sh` script)
-- **Fine-grained control** over container and image lifecycle
-- **Image operations**: pull, build, commit, push, reuse
-- **Container operations**: start, stop, restart, run
-- **Operation chaining** for complex workflows
-- **Interactive confirmations** for safety
-- **Detailed error analysis** and troubleshooting
-- **See**: [Setup Script Guide](container-doc/setup-script-guide.md) for complete documentation
+### 2. Dev Containers Launch
+- **Recommended launch path** for repositories that provide `.devcontainer/`
+  configurations
+- **VS Code/Cursor integration** through the Dev Containers extension
+- **Host-side CLI support** with `devcontainer up` and `devcontainer exec`
+- **Per-project configuration** owned by the consuming repository
+- **See**: [Dev Containers CLI Launch](container-doc/devcontainer-cli.md)
+  for installation and launch commands
 
 ### 3. Configuration System (`fabrinetes.config`)
 - **TOML format** for easy editing
@@ -71,7 +71,7 @@ Fabrinetes/
 
 ### 4. Task Automation (`tasks.py`)
 - **Invoke-based** task runner
-- **Docker operations**: build, run, list
+- **Docker and project automation** helpers
 - **Path resolution** for mounts and configs
 - **Unique container naming** with timestamps
 - **X11/USB support** for GUI and hardware access
@@ -125,36 +125,27 @@ Each container has its own configuration file in `containers/*/config/fabrinetes
 # Build specific container
 ./fabrinetes gen-image containers/fabrinetes-dev-testing/config.toml
 
-# Run container with options
-./fabrinetes run --file fabrinetes.config --name fabrinetes-dev-testing --no-ask
-
 # List running containers
 ./fabrinetes list
 ```
 
-### Advanced Commands (setup.sh)
+### Dev Containers Launch
 ```bash
-# Pull image and run container
-./setup.sh -f containers/fabrinetes-dev/config.toml --image-pull --run
-
-# Build custom image and run
-./setup.sh -f containers/fabrinetes-dev/config.toml --image-build --run
-
-# Stop, commit changes, and push to registry
-./setup.sh -f containers/fabrinetes-dev/config.toml --stop --image-commit --image-push
-
-# Restart existing container
-./setup.sh -f containers/fabrinetes-dev/config.toml --restart
-
-# See setup-script-guide.md for complete documentation
+cd <repo_top>
+devcontainer up \
+  --workspace-folder <repo_top> \
+  --config <repo_top>/.devcontainer/<config-folder>/devcontainer.json
 ```
 
-### Container Options
-- `--rm`: Auto-cleanup on exit
-- `--x11`: GUI support (X11 forwarding)
-- `--usb`: Hardware device access
-- `--ask`: Confirmation prompt
-- `--verbose`: Detailed output
+Use VS Code/Cursor `Dev Containers: Attach to Running Container`, or run one
+command inside the container:
+
+```bash
+devcontainer exec \
+  --workspace-folder <repo_top> \
+  --config <repo_top>/.devcontainer/<config-folder>/devcontainer.json \
+  bash -ic 'whoami; pwd'
+```
 
 ## PATH Management System
 
@@ -175,7 +166,7 @@ The repository includes a sophisticated PATH management system:
 
 1. **Configure**: Edit `fabrinetes.config` for your setup
 2. **Generate**: Create container images with `./fabrinetes gen-image`
-3. **Run**: Start containers with `./fabrinetes run`
+3. **Launch**: Start project devcontainers with `devcontainer up`
 4. **Develop**: Work in isolated, configured environments
 5. **Switch**: Change repositories for different PATH configurations
 

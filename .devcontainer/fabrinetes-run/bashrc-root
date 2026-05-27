@@ -1,0 +1,43 @@
+source /etc/bashrc-func
+
+if [ -f /etc/profile.d/init_env.sh ]; then
+    source /etc/profile.d/init_env.sh
+fi
+
+update_repo_path() {
+    local repo_root
+    repo_root=$(git rev-parse --show-toplevel 2>/dev/null || true)
+
+    if [ -n "$repo_root" ]; then
+        export REPO_TOP="$repo_root"
+    else
+        unset REPO_TOP
+    fi
+
+    if [ -n "${REPO_TOP:-}" ] && [ -f "$REPO_TOP/init_repo_env.sh" ]; then
+        # shellcheck disable=SC1090
+        source "$REPO_TOP/init_repo_env.sh"
+    fi
+}
+
+update_repo_path
+
+export GIT_CONFIG_GLOBAL="$HOME/.gitconfig"
+export GIT_AUTHOR_NAME="${USER:-$(id -un)}"
+export GIT_AUTHOR_EMAIL="${USER:-$(id -un)}@${HOSTNAME:-fabrinetes}"
+export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME"
+export GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
+export EDITOR="${EDITOR:-nano}"
+export PAGER="${PAGER:-less}"
+
+if [ ! -f "$HOME/.gitconfig" ]; then
+    git config --global user.name "$GIT_AUTHOR_NAME" || true
+    git config --global user.email "$GIT_AUTHOR_EMAIL" || true
+    git config --global init.defaultBranch main || true
+    git config --global core.autocrlf false || true
+    git config --global core.filemode false || true
+fi
+
+alias ll='ls -alF'
+alias la='ls -A'
+alias l='ls -CF'

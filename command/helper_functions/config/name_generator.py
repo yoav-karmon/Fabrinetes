@@ -212,7 +212,7 @@ class ContainerInfo:
     container_config: ContainerConfig
     config_section: ConfigSection
     
-    # Convenience properties for backward compatibility
+    # Convenience properties for existing callers
     @property
     def mounts(self) -> List[str]:
         return self.config_section.mounts
@@ -277,7 +277,7 @@ class ContainerInfo:
             formatter_class=argparse.RawDescriptionHelpFormatter,
             epilog=f"""
 Examples:
-  %(prog)s --cmd run --config-file containers.toml
+  devcontainer up --workspace-folder <repo_top> --config <repo_top>/.devcontainer/<config-folder>/devcontainer.json
   %(prog)s --cmd exec --config-file containers.toml
   %(prog)s --cmd exec --config-file containers.toml --exec-cmd "hdlforge test"
   %(prog)s --cmd build --config-file containers.toml
@@ -436,7 +436,7 @@ Available Commands:
         
         return container_info
 
-# Legacy function for backward compatibility
+# Compatibility helper for existing callers
 def get_container_info(config_file: str) -> ContainerInfo:
     """Legacy function - use ContainerInfo.get_container_info() instead"""
     return ContainerInfo.get_container_info(config_file)

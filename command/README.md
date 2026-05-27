@@ -224,7 +224,7 @@ init_env = "path/to/init_env.sh"
 5. Update documentation
 
 ### Modifying Existing Tasks
-1. Maintain backward compatibility
+1. Keep documentation and behavior aligned with the current Dev Containers flow
 2. Update tests for any behavior changes
 3. Update help text and documentation
 4. Test thoroughly before committing

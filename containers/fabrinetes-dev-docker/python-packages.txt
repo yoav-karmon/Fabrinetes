@@ -22,3 +22,4 @@ pcapng==0.1.25
 PyJWT==2.7.0
 blinker==1.7.0
 cryptography==41.0.7
+typeguard==4.4.4

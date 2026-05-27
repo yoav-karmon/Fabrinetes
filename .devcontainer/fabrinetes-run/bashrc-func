@@ -1,0 +1,65 @@
+iprint() {
+    if [[ $- == *i* ]]; then
+        echo "$@"
+    fi
+}
+
+remove_duplicates_from_path() {
+    local path_var="$1"
+    local -a path_array
+    local -a unique_paths
+    local path_item
+    local result
+
+    IFS=':' read -ra path_array <<< "$path_var"
+    declare -A seen_paths
+
+    for path_item in "${path_array[@]}"; do
+        [ -z "$path_item" ] && continue
+        if [ -z "${seen_paths[$path_item]+x}" ]; then
+            seen_paths[$path_item]=1
+            unique_paths+=("$path_item")
+        fi
+    done
+
+    printf -v result '%s:' "${unique_paths[@]}"
+    echo "${result%:}"
+}
+
+add_to_path() {
+    local path_to_add="$1"
+
+    if [ -n "$REPO_TOP" ] && [ "${path_to_add#/}" = "$path_to_add" ]; then
+        path_to_add="$REPO_TOP/$path_to_add"
+    fi
+
+    if [ -n "$PATH" ]; then
+        local existing_path
+        IFS=':' read -ra path_array <<< "$PATH"
+        for existing_path in "${path_array[@]}"; do
+            [ "$existing_path" = "$path_to_add" ] && return 0
+        done
+    fi
+
+    iprint "[+] adding $path_to_add to PATH"
+    export PATH="${path_to_add}${PATH:+:${PATH}}"
+}
+
+add_to_pythonpath() {
+    local path_to_add="$1"
+
+    if [ -n "$REPO_TOP" ] && [ "${path_to_add#/}" = "$path_to_add" ]; then
+        path_to_add="$REPO_TOP/$path_to_add"
+    fi
+
+    if [ -n "$PYTHONPATH" ]; then
+        local existing_path
+        IFS=':' read -ra pythonpath_array <<< "$PYTHONPATH"
+        for existing_path in "${pythonpath_array[@]}"; do
+            [ "$existing_path" = "$path_to_add" ] && return 0
+        done
+    fi
+
+    iprint "[+] adding $path_to_add to PYTHONPATH"
+    export PYTHONPATH="${path_to_add}${PYTHONPATH:+:${PYTHONPATH}}"
+}

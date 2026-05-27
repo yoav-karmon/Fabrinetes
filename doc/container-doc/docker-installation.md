@@ -109,6 +109,40 @@ newgrp docker
 # Option 3: Restart the system
 ```
 
+## Dev Containers CLI
+
+For repositories that use `.devcontainer/devcontainer.json`, install the Dev
+Containers CLI after Docker is available:
+
+```bash
+npm install -g @devcontainers/cli
+```
+
+If global npm installs are not available, use `npx`:
+
+```bash
+npx @devcontainers/cli --help
+```
+
+Verify:
+
+```bash
+devcontainer --help
+```
+
+Then launch from the consuming repository:
+
+```bash
+cd <repo_top>
+devcontainer up \
+  --workspace-folder <repo_top> \
+  --config <repo_top>/.devcontainer/<config-folder>/devcontainer.json
+```
+
+See [Dev Containers CLI Launch](devcontainer-cli.md) for the launch and attach
+workflow. Image build and package installation workflows are documented
+separately.
+
 ### 8. Verify Docker Access
 
 Test that Docker works without sudo:
@@ -130,19 +164,19 @@ Hello from Docker!
 This message shows that your installation appears to be working correctly.
 ```
 
-## Verification with Fabrinetes
+## Verification With Dev Containers
 
-Test that Fabrinetes can access Docker:
+Test Docker and Dev Containers together from the consuming project repository:
 
 ```bash
-# Navigate to Fabrinetes directory
-cd /path/to/Fabrinetes
-
-# Run status command
-./fabrinetes.py --cmd status --config-file containers/fabrinetes-dev-testing/config.toml
+cd <repo_top>
+devcontainer up \
+  --workspace-folder <repo_top> \
+  --config <repo_top>/.devcontainer/<config-folder>/devcontainer.json
 ```
 
-Expected output should show Docker connectivity without "Docker daemon not running" errors.
+Expected output should show Docker connectivity and complete the devcontainer
+startup sequence without Docker daemon errors.
 
 ## Troubleshooting
 
@@ -214,14 +248,14 @@ Docker creates a default bridge network. For Fabrinetes, this default configurat
 
 By default, Docker has no resource limits. For development environments, this is typically acceptable.
 
-## Integration with Fabrinetes
+## Integration With Project Devcontainers
 
 Once Docker is installed and configured:
 
-1. **Build Images**: Use `./fabrinetes.py --cmd build` to build base and main images
-2. **Run Containers**: Use `./fabrinetes.py --cmd run` to generate run commands
-3. **Manage Containers**: Use `./fabrinetes.py --cmd status` to check container status
-4. **Save/Load Images**: Use `./fabrinetes.py --cmd commit` and `./fabrinetes.py --cmd restore`
+1. **Launch Containers**: Use `devcontainer up` with the project `.devcontainer` config
+2. **Attach IDEs**: Use VS Code/Cursor `Dev Containers: Attach to Running Container`
+3. **Run Commands**: Use `devcontainer exec` for repeatable command execution
+4. **Inspect Containers**: Use `docker ps`, `docker logs`, and `docker inspect`
 
 ## Maintenance
 

@@ -1,0 +1,17 @@
+{
+  "name": "fabrinetes-build-example",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "../.."
+  },
+  "remoteUser": "root",
+  "workspaceFolder": "/workspaces/Fabrinetes",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-vscode.cpptools"
+      ]
+    }
+  }
+}

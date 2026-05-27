@@ -116,26 +116,21 @@ def show_command_help(command_name, command_data):
 
 # Individual help functions for each task
 def show_run_help():
-    """Show help for run command"""
+    """Show help for devcontainer launch"""
     command_data = {
-        'syntax': './fabrinetes run --config-file <config-file> [--rm] [--usb] [--host-net] [--ask] [--verbose] [--shm-size <size>]',
-        'description': 'Run a Docker container with the specified configuration (container name auto-generated from config path)',
+        'syntax': 'devcontainer up --workspace-folder <repo_top> --config <repo_top>/.devcontainer/<config-folder>/devcontainer.json',
+        'description': 'Launch a project-owned devcontainer configuration',
         'arguments': [
-            ['--config-file', 'Path to the configuration file (REQUIRED)', 'Yes', 'containers/<path>/config.toml'],
-            ['--rm', 'Automatically remove container when it exits', 'No', 'optional flag'],
-            ['--usb', 'Enable USB device access', 'No', 'optional flag'],
-            ['--host-net', 'Enable host networking (required for NIC access)', 'No', 'optional flag'],
-            ['--ask', 'Ask for confirmation before running', 'No', 'optional flag'],
-            ['--verbose', 'Show detailed output', 'No', 'optional flag'],
-            ['--shm-size', 'Set shared memory size (e.g., 2g). Default: 2g for FPGA development', 'No', '2g']
+            ['--workspace-folder', 'Project repository root on the host', 'Yes', '<repo_top>'],
+            ['--config', 'Path to the project devcontainer.json', 'Yes', '<repo_top>/.devcontainer/<config-folder>/devcontainer.json'],
         ],
         'examples': [
-            './fabrinetes run --config-file containers/fabrinetes-dev-testing/config.toml',
-            './fabrinetes run --config-file containers/fabrinetes-dev-testing/config.toml --rm',
-            './fabrinetes run --config-file containers/fabrinetes-dev-testing/config.toml --shm-size 4g'
+            'devcontainer up --workspace-folder <repo_top> --config <repo_top>/.devcontainer/<config-folder>/devcontainer.json',
+            'devcontainer exec --workspace-folder <repo_top> --config <repo_top>/.devcontainer/<config-folder>/devcontainer.json bash -ic "whoami; pwd"',
+            'npx @devcontainers/cli up --workspace-folder <repo_top> --config <repo_top>/.devcontainer/<config-folder>/devcontainer.json'
         ]
     }
-    show_command_help('run', command_data)
+    show_command_help('devcontainer launch', command_data)
 
 
 def show_build_help():
@@ -262,7 +257,7 @@ def show_config_status(config_file):
         # Show available commands for this config
         print("Available Commands for this Config:")
         print("-" * 40)
-        print("1. ./fabrinetes run --config-file " + config_file)
+        print("1. devcontainer up --workspace-folder <repo_top> --config <repo_top>/.devcontainer/<config-folder>/devcontainer.json")
         print("2. ./fabrinetes build --config-file " + config_file + " [--base-image]")
         print("3. ./fabrinetes restore --config-file " + config_file + " [--base-image|--image]")
         print()
@@ -290,10 +285,10 @@ def show_global_help():
             'allowed_values': 'config-file: containers/<path>/config.toml (REQUIRED)'
         },
         {
-            'command': './fabrinetes run',
-            'args': '--config-file <config-file> [--rm] [--usb] [--ask] [--verbose]',
-            'description': 'Generate Docker run command',
-            'allowed_values': 'config-file: containers/<path>/config.toml (REQUIRED)'
+            'command': 'devcontainer up',
+            'args': '--workspace-folder <repo_top> --config <repo_top>/.devcontainer/<config-folder>/devcontainer.json',
+            'description': 'Launch project-owned devcontainer',
+            'allowed_values': 'repo_top: consuming project repository root'
         },
         {
             'command': './fabrinetes exec',
@@ -334,7 +329,7 @@ def show_global_help():
     example_templates = [
         "./fabrinetes --config-file <config> [--cmd <command>]",
         "./fabrinetes build --config-file <config>",
-        "./fabrinetes run --config-file <config> [--rm|--usb|--ask|--verbose]",
+        "devcontainer up --workspace-folder <repo_top> --config <repo_top>/.devcontainer/<config-folder>/devcontainer.json",
         "./fabrinetes exec --config-file <config> [--exec-cmd <command>]",
         "./fabrinetes status --config-file <config>",
         "./fabrinetes test --config-file <config>"

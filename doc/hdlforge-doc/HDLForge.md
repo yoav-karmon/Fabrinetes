@@ -162,7 +162,7 @@ Current HDLForge project files use tool-specific sections.
 ### Important current behavior
 
 - **Working root**: The directory containing the `*.hdlforge.json` or `*.hdlforge.toml` file is the HDLForge working directory. `settings.project_path` is not supported; remove it from older configs.
-- The older `verilator_settings` and `vivado_settings` layout is legacy.
+- The older `verilator_settings` and `vivado_settings` layout is no longer documented as the active project style.
 - `verilator.config.sources` is the active Verilator source list. Source paths are resolved relative to the project file directory.
 - **Vivado project name**: `vivado.config.project_name` is required for Vivado operations. HDLForge does not fall back to `settings.project_name`, the project file parent directory name, or the JSON filename.
 - Vivado structure is driven by the external TCL file, not by a JSON `runs_flow` block.

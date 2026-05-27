@@ -5,22 +5,20 @@
 ## TLDR - Quick Start
 
 ```bash
-# 1. Clone and setup
+# 1. Clone the project repository that owns .devcontainer/
 git clone https://github.com/yoav-karmon/Fabrinetes.git
 cd Fabrinetes
 
-# 2. Create your container config
-mkdir -p containers/my-project
-cp containers/fabrinetes-dev-local/config.toml containers/my-project/
-cp containers/fabrinetes-dev-local/init_env.sh containers/my-project/
-# Edit init_env.sh and config.toml for your setup
+# 2. Install Dev Containers CLI if needed
+npm install -g @devcontainers/cli
 
-# 3. Run container
-./setup.sh -f containers/my-project/config.toml
+# 3. Launch using the repo's devcontainer config
+devcontainer up \
+  --workspace-folder "$PWD" \
+  --config "$PWD/.devcontainer/<config-folder>/devcontainer.json"
 
 # 4. Attach VS Code/Cursor
-# Install "Remote - Containers" extension
-# Command Palette: "Remote-Containers: Attach to Running Container"
+# Command Palette: "Dev Containers: Attach to Running Container"
 ```
 
 Fabrinetes is an open-source orchestration toolkit for modern FPGA development, 
@@ -33,7 +31,7 @@ all configured as code.
 - **HdlForge single source of truth**: Unified TOML configuration across all tools
 - **Git-aware environment**: Full PATH and PYTHONPATH control across repositories
 - **Multi-repository support**: Seamless development across multiple projects
-- **Dual operation modes**: CLI automation and VS Code remote containers
+- **Dual operation modes**: CLI automation and VS Code/Cursor Dev Containers
 - **Silent output support**: Non-interactive automation with clean logging
 
 ## Prerequisites
@@ -42,7 +40,8 @@ all configured as code.
 |-----------|---------|-----------------------------------|
 | Docker    | Latest  | Container runtime                 |
 | Python    | 3.10+   | Fabrinetes CLI                    |
-| VS Code   | Latest  | Remote container development      |
+| VS Code/Cursor | Latest | Dev Containers extension workflow |
+| Dev Containers CLI | Latest | Host-side container launch |
 
 ## Quick Start
 
@@ -52,57 +51,35 @@ git clone https://github.com/yoav-karmon/Fabrinetes.git
 cd Fabrinetes
 ```
 
-2. Create your own container configuration:
+2. Install the Dev Containers CLI if it is not already available:
 ```bash
-# Create your container directory
-mkdir -p containers/my-project
-
-# Copy template files
-cp containers/fabrinetes-dev-local/config.toml containers/my-project/
-cp containers/fabrinetes-dev-local/init_env.sh containers/my-project/
+npm install -g @devcontainers/cli
+# or use: npx @devcontainers/cli --help
 ```
 
-3. Configure your container setup in `containers/my-project/config.toml`:
-```toml
-[config.image]
-name = "ykarmon/fabrinetes"
-tag = "latest"
-
-[config.container]
-name = "my-project-run"  # Set your own container run name
-
-[config]
-mounts = [
-    "$HOME/.ssh:$HOME/.ssh",                    # SSH keys for Git access
-    "$HOME/repo:$HOME/repo",                    # Mount your repo directory (recommended: put all repos under repo folder)
-    "$HOME/.Xauthority:$HOME/.Xauthority:ro",   # X11 authentication (read-only)
-    "init_env.sh:/etc/profile.d/init_env.sh"    # Global environment setup
-]
-```
-
-4. Use the setup script with your configuration:
+3. Launch from the repository that owns `.devcontainer/`:
 ```bash
-./setup.sh -f containers/my-project/config.toml
+cd <repo_top>
+devcontainer up \
+  --workspace-folder <repo_top> \
+  --config <repo_top>/.devcontainer/<config-folder>/devcontainer.json
 ```
 
-The setup script will:
-- Show available Docker images from Docker Hub
-- Let you select an image (or use the latest)
-- Build and run the container automatically
-- Display progress and completion status
+4. Access your container:
 
-5. Access your container:
-
-**VS Code/Cursor Remote Container (Recommended)**
+**VS Code/Cursor Dev Containers (Recommended)**
 1. Open VS Code or Cursor in the repository root
-2. Install "Remote - Containers" extension
-3. Use Command Palette: "Remote-Containers: Attach to Running Container"
-4. Select your running fabrinetes container
+2. Install the Dev Containers extension
+3. Use Command Palette: "Dev Containers: Attach to Running Container"
+4. Select your running container
 5. Start developing with full IDE integration
+
+For details, including `docker exec` access to already-running containers, see
+[Dev Containers CLI Launch](doc/container-doc/devcontainer-cli.md).
 
 ## Path Management System
 
-Fabrinetes includes a sophisticated **two-level path management system** that automatically configures environment variables based on context. For comprehensive documentation, see [Container Path Management](doc/container-path-management.md).
+Fabrinetes includes a sophisticated **two-level path management system** that automatically configures environment variables based on context. For comprehensive documentation, see [Container Path Management](doc/container-doc/container-path-management.md).
 
 ### Quick Overview
 
@@ -132,7 +109,7 @@ cd /path/to/other/repo
 update_repo_path
 ```
 
-For detailed information about configuration, troubleshooting, and advanced usage, see the [Container Path Management](doc/container-path-management.md) documentation.
+For detailed information about configuration, troubleshooting, and advanced usage, see the [Container Path Management](doc/container-doc/container-path-management.md) documentation.
 
 ## Important: Container Configuration Requirements
 
@@ -169,56 +146,41 @@ For detailed information about configuration, troubleshooting, and advanced usag
 - Global PATH setup enables system-wide tools (Vivado, Fabrinetes, local binaries)
 - License file path enables Vivado tools to function properly
 
-## Setup Script
+## Dev Containers Launch
 
-The `setup.sh` script is the recommended way to get started with Fabrinetes:
+For project work, launch the container from the repository that owns the
+`.devcontainer/` configuration. Project startup goes through the Dev Containers
+extension or CLI.
 
 ### Basic Usage
 ```bash
-# Interactive setup (shows available images)
-./setup.sh -f containers/fabrinetes-dev-local/config.toml
+# Start the project devcontainer
+cd <repo_top>
+devcontainer up \
+  --workspace-folder <repo_top> \
+  --config <repo_top>/.devcontainer/<config-folder>/devcontainer.json
 
-# Specify image directly
-./setup.sh -f containers/fabrinetes-dev-local/config.toml -i ykarmon/fabrinetes:latest
+# If the CLI is not installed globally
+npx @devcontainers/cli up \
+  --workspace-folder <repo_top> \
+  --config <repo_top>/.devcontainer/<config-folder>/devcontainer.json
 ```
 
-### What the Setup Script Does
-1. **Fetches available images** from Docker Hub
-2. **Displays numbered list** of available images with sizes and dates
-3. **Interactive selection** or accepts pre-specified image
-4. **Runs fabrinetes automatically** to build and start container
-5. **Shows progress** with clear success/error messages
+### What Dev Containers Launch Does
+1. **Reads project configuration** from `<repo_top>/.devcontainer/.../devcontainer.json`
+2. **Creates or starts the Docker container** from the configured image
+3. **Applies mounts, environment, user, and runtime options** from the project
+4. **Enables VS Code/Cursor attachment** through the Dev Containers extension
+5. **Supports CLI execution** through `devcontainer exec`
 
-### Setup Script Options
-- `-f <config_file>`: Required config file path
-- `-i <image_id>`: Optional image ID (skips interactive selection)
-- `-h, --help`: Show usage information
+Install the CLI with:
 
-### Example Output
+```bash
+npm install -g @devcontainers/cli
 ```
-Docker Image Setup
 
-Available images:
-  1. ykarmon/fabrinetes:latest - 2025-10-20T10:53:22.123456Z - 1400MB
-  2. ykarmon/fabrinetes:v1.0 - 2025-10-19T15:30:45.789012Z - 1350MB
-
-Select image number or 'q' to quit: 1
-Selected image: ykarmon/fabrinetes:latest
-
-Fabrinetes Container Runner
-Config file: containers/fabrinetes-dev-local/config.toml
-Running: ./fabrinetes.py --config-file containers/fabrinetes-dev-local/config.toml --cmd run | bash
-
-==========================================
-START OF FABRINETES OUTPUT
-==========================================
-[SUCCESS] Container started successfully
-==========================================
-END OF FABRINETES OUTPUT
-==========================================
-[SUCCESS] Fabrinetes command completed!
-[SUCCESS] Done!
-```
+For a fuller host setup and launch guide, see
+[Dev Containers CLI Launch](doc/container-doc/devcontainer-cli.md).
 
 ## Tools & Integration
 
@@ -238,35 +200,40 @@ tool-specific setup and ensuring reproducible builds.
 
 ### Getting Started (Recommended)
 ```bash
-# Use setup script for easy container setup
-./setup.sh -f containers/fabrinetes-dev-local/config.toml
+# Launch the repo-owned devcontainer
+cd <repo_top>
+devcontainer up \
+  --workspace-folder <repo_top> \
+  --config <repo_top>/.devcontainer/<config-folder>/devcontainer.json
 ```
 
 **Then attach VS Code/Cursor to the running container:**
 1. Open VS Code/Cursor in repository root
-2. Command Palette: "Remote-Containers: Attach to Running Container"
-3. Select your fabrinetes container
+2. Command Palette: "Dev Containers: Attach to Running Container"
+3. Select your running container
 4. Full IDE integration with debugging, IntelliSense, and extensions
 
-### Manual CLI Mode (Advanced)
+### Dev Containers CLI Mode
 ```bash
-# Build container
-./fabrinetes.py --cmd build --config-file containers.toml | bash
-
-# Run container
-./fabrinetes.py --cmd run --config-file containers.toml | bash
+# Start the configured devcontainer
+devcontainer up \
+  --workspace-folder <repo_top> \
+  --config <repo_top>/.devcontainer/<config-folder>/devcontainer.json
 
 # Execute commands
-./fabrinetes.py --cmd exec --config-file containers.toml --exec-cmd "hdlforge test" | bash
+devcontainer exec \
+  --workspace-folder <repo_top> \
+  --config <repo_top>/.devcontainer/<config-folder>/devcontainer.json \
+  bash -ic "hdlforge test"
 ```
 
 ### Interactive VS Code/Cursor Mode
 **Attach to Running Container (Recommended)**
-1. Run setup script: `./setup.sh -f containers/fabrinetes-dev-local/config.toml`
+1. Start the devcontainer with `devcontainer up`
 2. Open VS Code/Cursor in the repository root
-3. Install "Remote - Containers" extension
-4. Command Palette: "Remote-Containers: Attach to Running Container"
-5. Select your running fabrinetes container
+3. Install the Dev Containers extension
+4. Command Palette: "Dev Containers: Attach to Running Container"
+5. Select your running container
 6. Enjoy full IDE integration with debugging, IntelliSense, and extensions
 
 **Benefits of VS Code/Cursor Attachment:**
@@ -331,24 +298,23 @@ top_module = "top_module"
 part = "xc7a200tfbg484-1"
 ```
 
-## Container Management
+## Container Access
 
 ### Basic Commands
 ```bash
-# Show help
-./fabrinetes.py --cmd help
-
-# Build image
-./fabrinetes.py --cmd build --config-file containers.toml
-
-# Run container
-./fabrinetes.py --cmd run --config-file containers.toml
+# Start the configured devcontainer
+devcontainer up \
+  --workspace-folder <repo_top> \
+  --config <repo_top>/.devcontainer/<config-folder>/devcontainer.json
 
 # Execute in container
-./fabrinetes.py --cmd exec --config-file containers.toml
+devcontainer exec \
+  --workspace-folder <repo_top> \
+  --config <repo_top>/.devcontainer/<config-folder>/devcontainer.json \
+  bash -ic 'whoami; pwd'
 
 # Check status
-./fabrinetes.py --cmd status --config-file containers.toml
+docker ps
 ```
 
 ### Docker Commit Reference
@@ -361,28 +327,14 @@ docker commit -m "Updated simulation" fabrinetes-local-run.run ykarmon/fabrinete
 ```
 
 ### Configuration
-Configure containers via `config.toml`:
-```toml
-[config.image]
-name = "ykarmon/fabrinetes"
-tag = "latest"
-
-[config.container]
-name = "fabrinetes-local-run"
-
-[config]
-mounts = [
-    "$HOME/.ssh:$HOME/.ssh",
-    "$HOME/repo:$HOME/repo",
-    "$HOME/.Xauthority:$HOME/.Xauthority:ro"
-]
-```
+Configure project containers in the consuming repository's
+`.devcontainer/<config-folder>/devcontainer.json`.
 
 ## Documentation
 
 - [Documentation Index](doc/DOCUMENTATION_INDEX.md) - Complete index of all documentation files
-- [Container Path Management](doc/container-path-management.md) - Comprehensive guide to the two-level path management system
-- [Testing Guide](doc/testing_guide.md) - Comprehensive testing procedures
+- [Container Path Management](doc/container-doc/container-path-management.md) - Comprehensive guide to the two-level path management system
+- [Testing Guide](doc/container-doc/testing_guide.md) - Devcontainer verification procedures
 - [Repository Structure](doc/repository_explanation.md) - Project organization
 - [HDLForge API Reference](doc/hdlforge-doc/HDLForge.md) - Single HDLForge source of truth for CLI, schema, and internals
 - [Command Reference](command/README.md) - Complete command documentation

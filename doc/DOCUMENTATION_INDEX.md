@@ -16,8 +16,8 @@ Fabrinetes/
 │   ├── container-doc/                 # Container-specific documentation
 │   │   ├── architecture.md
 │   │   ├── container-path-management.md
+│   │   ├── devcontainer-cli.md
 │   │   ├── docker-installation.md
-│   │   ├── setup-script-guide.md
 │   │   ├── testing_guide.md
 │   │   ├── container-hdlforge-test.md
 │   │   └── github-container-registry.md
@@ -31,7 +31,6 @@ Fabrinetes/
 ├── command/                           # Command documentation
 │   ├── README.md
 │   ├── build/README.md
-│   ├── run/README.md
 │   ├── test/README.md
 │   └── help/README.md
 └── examples/                          # Example projects
@@ -60,14 +59,14 @@ Fabrinetes/
 
 ### Getting Started
 - **[Docker Installation](container-doc/docker-installation.md)** - Docker setup and installation guide
-- **[Setup Script Guide](container-doc/setup-script-guide.md)** - Using setup.sh for container and image management
-- **[Testing Guide](container-doc/testing_guide.md)** - Comprehensive testing procedures and methodologies
+- **[Dev Containers CLI Launch](container-doc/devcontainer-cli.md)** - Install Dev Containers CLI, launch repo-owned `.devcontainer` configs, attach, exec, stop, and recreate
+- **[Testing Guide](container-doc/testing_guide.md)** - Devcontainer verification procedures
 - **[Container Path Management](container-doc/container-path-management.md)** - Understanding the path system
 
 ### Container Management
 - **[Architecture Documentation](container-doc/architecture.md)** - Container architecture and design
+- **[Dev Containers CLI Launch](container-doc/devcontainer-cli.md)** - Recommended project launch path using VS Code/Cursor Dev Containers or `devcontainer up`
 - **[Docker Installation](container-doc/docker-installation.md)** - Docker setup
-- **[Setup Script Guide](container-doc/setup-script-guide.md)** - Fine-grained container and image lifecycle management
 - **[Container HDLForge Test](container-doc/container-hdlforge-test.md)** - Testing HDLForge in container environments
 - **[GitHub Container Registry](container-doc/github-container-registry.md)** - Container registry setup and usage
 
@@ -91,7 +90,6 @@ Fabrinetes/
 ### Command References
 - **[Command Overview](../command/README.md)** - Complete command documentation and reference
 - **[Build Command](../command/build/README.md)** - Docker build command documentation
-- **[Run Command](../command/run/README.md)** - Docker run command documentation
 - **[Test Command](../command/test/README.md)** - Testing command documentation
 - **[Help Command](../command/help/README.md)** - Help system documentation
 
@@ -114,8 +112,9 @@ Fabrinetes/
 **Start here:**
 1. [Project README](../README.md) - Project overview and quick start
 2. [Docker Installation](container-doc/docker-installation.md) - Set up Docker
-3. [Container Path Management](container-doc/container-path-management.md) - Understand the path system
-4. [Testing Guide](container-doc/testing_guide.md) - Run your first tests
+3. [Dev Containers CLI Launch](container-doc/devcontainer-cli.md) - Start a repo-owned devcontainer
+4. [Container Path Management](container-doc/container-path-management.md) - Understand the path system
+5. [Testing Guide](container-doc/testing_guide.md) - Verify the devcontainer
 
 ### 👨‍💻 Developers
 **Essential reads:**
@@ -143,8 +142,8 @@ Fabrinetes/
 |----------|---------|
 | [Architecture](container-doc/architecture.md) | Core container architecture and design |
 | [Path Management](container-doc/container-path-management.md) | Two-level path system explained |
+| [Dev Containers CLI Launch](container-doc/devcontainer-cli.md) | Recommended launch path for `.devcontainer` projects |
 | [Docker Installation](container-doc/docker-installation.md) | Docker setup and configuration |
-| [Setup Script Guide](container-doc/setup-script-guide.md) | setup.sh for granular container/image control |
 | [Container Registry](container-doc/github-container-registry.md) | GHCR setup and usage |
 
 ### 🔧 Build System (HDLForge)
@@ -158,7 +157,7 @@ Fabrinetes/
 ### 🧪 Testing & Quality
 | Document | Purpose |
 |----------|---------|
-| [Testing Guide](container-doc/testing_guide.md) | Testing procedures and methodologies |
+| [Testing Guide](container-doc/testing_guide.md) | Devcontainer verification procedures |
 | [Bug Prevention](bug-prevention-guide.md) | Common issues and prevention |
 | [Container HDLForge Test](container-doc/container-hdlforge-test.md) | HDLForge container testing |
 
