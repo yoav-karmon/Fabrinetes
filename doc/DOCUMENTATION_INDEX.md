@@ -19,8 +19,7 @@ Fabrinetes/
 │   │   ├── devcontainer-cli.md
 │   │   ├── docker-installation.md
 │   │   ├── testing_guide.md
-│   │   ├── container-hdlforge-test.md
-│   │   └── github-container-registry.md
+│   │   └── container-hdlforge-test.md
 │   └── hdlforge-doc/                  # HDLForge build system documentation
 │       ├── README.md                  # HDLForge documentation guide
 │       ├── HDLForge.md                # Canonical HDLForge API reference
@@ -63,7 +62,6 @@ Fabrinetes/
 - **[Dev Containers CLI Launch](container-doc/devcontainer-cli.md)** - Recommended project launch path using VS Code/Cursor Dev Containers or `devcontainer up`
 - **[Docker Installation](container-doc/docker-installation.md)** - Docker setup
 - **[Container HDLForge Test](container-doc/container-hdlforge-test.md)** - Testing HDLForge in container environments
-- **[GitHub Container Registry](container-doc/github-container-registry.md)** - Container registry setup and usage
 
 ---
 
@@ -85,11 +83,6 @@ Fabrinetes/
 ### Example Projects
 - **[Examples Overview](../examples/README.md)** - Example projects and usage patterns
 - **[Address 32-bit Example](../examples/addr_32bit/README.md)** - Specific example project documentation
-
-### Container Templates
-- **[Container Templates](../containers/)** - Pre-built container configurations and templates
-
----
 
 ## Quick Navigation by User Type
 
@@ -115,7 +108,6 @@ Fabrinetes/
 ### 🚀 Advanced Users
 **Deep dives:**
 - [HDLForge API Reference](hdlforge-doc/HDLForge.md#7-internal-architecture) - Internal implementation
-- [GitHub Container Registry](container-doc/github-container-registry.md) - Container distribution
 - [Container HDLForge Test](container-doc/container-hdlforge-test.md) - Advanced testing
 
 ---
@@ -129,7 +121,6 @@ Fabrinetes/
 | [Path Management](container-doc/container-path-management.md) | Two-level path system explained |
 | [Dev Containers CLI Launch](container-doc/devcontainer-cli.md) | Recommended launch path for `.devcontainer` projects |
 | [Docker Installation](container-doc/docker-installation.md) | Docker setup and configuration |
-| [Container Registry](container-doc/github-container-registry.md) | GHCR setup and usage |
 
 ### 🔧 Build System (HDLForge)
 | Document | Purpose |

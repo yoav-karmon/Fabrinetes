@@ -1,13 +1,13 @@
 source /etc/bashrc-func
 
 export FABRINETES="${FABRINETES:-$HOME/repo/fpga/git-sub-module/Fabrinetes}"
-export FABRINETES_ROOT="${FABRINETES_ROOT:-$FABRINETES}"
 export HDLFORGE="$FABRINETES/hdlforge/project_setup"
 export HOSTNAME_server="${HOSTNAME_server:-${HOSTNAME:-Fabrinetes}}"
+export VIVADO_SETTINGS="${VIVADO_SETTINGS:-}"
 
-if [ -f /DATA/amd/2025.1/Vivado/settings64.sh ]; then
+if [ -n "$VIVADO_SETTINGS" ] && [ -f "$VIVADO_SETTINGS" ]; then
     # shellcheck disable=SC1091
-    source /DATA/amd/2025.1/Vivado/settings64.sh
+    source "$VIVADO_SETTINGS"
 fi
 
 export PATH=$(remove_duplicates_from_path "$PATH")

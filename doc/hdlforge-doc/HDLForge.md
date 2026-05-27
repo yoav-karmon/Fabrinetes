@@ -6,7 +6,7 @@ Scope:
 
 - generic HDLForge CLI and configuration behavior belongs here in `Fabrinetes`
 - project-specific workflows belong in the consuming repository
-- `fpga`-wide guidance belongs under `fpga/.cursor/...`
+- `fpga`-wide guidance belongs in the consuming repository
 - `phy10gbaser`-specific guidance belongs under `fpga/fpga_projects/phy10gbaser/...`
 
 This document intentionally does **not** duplicate project-specific usage patterns or examples.

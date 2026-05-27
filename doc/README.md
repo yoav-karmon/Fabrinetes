@@ -27,8 +27,6 @@ Fabrinetes/
 │       ├── devcontainer.json
 │       ├── entrypoint.sh
 │       └── init_env.sh
-├── containers/
-│   └── fabrinetes-dev-docker/
 ├── doc/
 ├── examples/
 ├── hdlforge/

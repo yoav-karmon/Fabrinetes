@@ -11,8 +11,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
     FABRINETES=/opt/Fabrinetes \
     FABRINETES_ROOT=/opt/Fabrinetes
 
-COPY containers/fabrinetes-dev-docker/packages.txt /tmp/packages.txt
-COPY containers/fabrinetes-dev-docker/python-packages.txt /tmp/python-packages.txt
+COPY .devcontainer/fabrinetes-build/packages.txt /tmp/packages.txt
+COPY .devcontainer/fabrinetes-build/python-packages.txt /tmp/python-packages.txt
 
 RUN apt-get update \
     && xargs -r -a /tmp/packages.txt apt-get install -y \

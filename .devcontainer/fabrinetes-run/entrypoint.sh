@@ -8,7 +8,6 @@ detect_mount_uid() {
     local path
     for path in \
         "${FABRINETES:-}" \
-        "${FABRINETES_ROOT:-}" \
         "$HOME_DIR/repo/fpga" \
         "$HOME_DIR/repo" \
         "$PWD"
@@ -25,7 +24,6 @@ detect_mount_gid() {
     local path
     for path in \
         "${FABRINETES:-}" \
-        "${FABRINETES_ROOT:-}" \
         "$HOME_DIR/repo/fpga" \
         "$HOME_DIR/repo" \
         "$PWD"

@@ -7,7 +7,7 @@
     "CONTAINER_HOME": "/home/${localEnv:USER}",
     "CODEX_HOME": "/home/${localEnv:USER}/.codex",
     "FABRINETES": "/home/${localEnv:USER}/repo/fpga/git-sub-module/Fabrinetes",
-    "FABRINETES_ROOT": "/home/${localEnv:USER}/repo/fpga/git-sub-module/Fabrinetes"
+    "VIVADO_SETTINGS": "/DATA/amd/2025.1/Vivado/settings64.sh"
   },
   "remoteUser": "${localEnv:USER}",
   "updateRemoteUserUID": true,

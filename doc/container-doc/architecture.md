@@ -106,4 +106,3 @@ container environment scripts.
 - [Dev Containers CLI Launch](devcontainer-cli.md)
 - [Testing Guide](testing_guide.md)
 - [Docker Installation](docker-installation.md)
-- [GitHub Container Registry](github-container-registry.md)

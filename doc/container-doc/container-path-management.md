@@ -15,7 +15,7 @@ Fabrinetes implements a sophisticated **two-level path management system** that 
 
 ### Configuration File: `init_env.sh`
 
-**Location**: `containers/my-project/init_env.sh`
+**Location**: `.devcontainer/fabrinetes-run/init_env.sh`
 
 This file sets **system-wide paths** for the entire container and works across **all repositories**.
 
