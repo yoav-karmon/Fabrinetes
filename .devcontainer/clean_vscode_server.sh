@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-: "${1:?usage: open_container_shell.sh <Fabrinetes-devcontainer-json>}"
+: "${1:?usage: clean_vscode_server.sh <Fabrinetes-devcontainer-json>}"
 
 fabrinetes_config="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
-fabrinetes_config_dir="$(dirname "$fabrinetes_config")"
 
 if [ ! -f "$fabrinetes_config" ]; then
   echo "error: missing Fabrinetes devcontainer file: $fabrinetes_config" >&2
@@ -13,14 +12,6 @@ fi
 
 if ! command -v jq >/dev/null 2>&1; then
   echo "error: jq is required to read devcontainer metadata" >&2
-  exit 1
-fi
-
-devcontainer_path="$(jq -er '.devcontainerFile' "$fabrinetes_config")"
-devcontainer_config="$(cd "$fabrinetes_config_dir/$(dirname "$devcontainer_path")" && pwd)/$(basename "$devcontainer_path")"
-
-if [ ! -f "$devcontainer_config" ]; then
-  echo "error: missing devcontainer file: $devcontainer_config" >&2
   exit 1
 fi
 
@@ -43,13 +34,13 @@ expand_local_env() {
 container_name_template="$(jq -er '.customizations.Fabrinetes.runner.containerName' "$fabrinetes_config")"
 home_template="$(jq -er '.customizations.Fabrinetes.runner.home' "$fabrinetes_config")"
 
-export DEVCONTAINER_USER="$USER"
 container="$(expand_local_env "$container_name_template")"
 home_dir="$(expand_local_env "$home_template")"
+host_vscode_server_bin="$HOME/vscode-server-container/.vscode-server/bin"
+container_vscode_server_bin="$home_dir/.vscode-server/bin"
 
-docker exec \
-  -u "$USER" \
-  -e HOME="$home_dir" \
-  -w "$home_dir" \
-  -it "$container" \
-  bash -i
+rm -rf "$host_vscode_server_bin"
+
+if command -v docker >/dev/null 2>&1 && docker ps -a --format '{{.Names}}' | grep -Fxq "$container"; then
+  docker exec -u root "$container" rm -rf "$container_vscode_server_bin"
+fi

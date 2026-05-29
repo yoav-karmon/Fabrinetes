@@ -121,7 +121,8 @@ fi
 export CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
 
 init_print "bashrc-root: setting PS1"
-PS1='\[\033[1;35m\]\u@${HOSTNAME_ENTRY}-${HOSTNAME_server}\[\033[0m\]:\[\033[1;33m\]\w\[\033[0m\] \[\033[1;36m\]$(parse_git_branch)\[\033[0m\]\$ '
+PROMPT_HOST="${HOST_MACHINE:-${HOSTNAME_ENTRY}}-${HOSTNAME_ENTRY}"
+PS1='\[\033[1;35m\]\u@${PROMPT_HOST}\[\033[0m\]:\[\033[1;33m\]\w\[\033[0m\] \[\033[1;36m\]$(parse_git_branch)\[\033[0m\]\$ '
 
 print_env_vars
 print_key_env_vars

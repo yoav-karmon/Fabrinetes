@@ -5,58 +5,45 @@
 From the Fabrinetes repo root:
 
 ```bash
-.devcontainer/build_image.sh
-.devcontainer/run_container.sh
-.devcontainer/open_container_shell.sh
+.devcontainer/Fabrinetes.sh .devcontainer/Fabrinetes.devcontainer.json --build
+.devcontainer/Fabrinetes.sh .devcontainer/Fabrinetes.devcontainer.json --run
+.devcontainer/Fabrinetes.sh .devcontainer/Fabrinetes.devcontainer.json --vscode
+.devcontainer/Fabrinetes.sh .devcontainer/Fabrinetes.devcontainer.json --stop
+.devcontainer/Fabrinetes.sh .devcontainer/Fabrinetes.devcontainer.json --remove-image
 ```
 
-## `fabrinetes-build`
+## Build
 
-Build-only example for creating a local Fabrinetes development image from the
-repo package lists. This config is intentionally minimal: it does not model the
-full runtime mount layout and it does not run HDLForge smoke tests.
+The single devcontainer config builds a per-user Fabrinetes development image
+from the package lists in `.devcontainer`. The image default user matches the
+host user and has passwordless sudo.
 
 Launch from the Fabrinetes repo root:
 
 ```bash
-devcontainer up \
-  --workspace-folder "$PWD" \
-  --config "$PWD/.devcontainer/fabrinetes-build/devcontainer.json"
+.devcontainer/Fabrinetes.sh .devcontainer/Fabrinetes.devcontainer.json --build
 ```
 
-This config builds locally only. It does not push any image to a registry.
+## Run
 
-For a stable local image name used by `fabrinetes-run`, build/tag the image with
-Docker:
-
-```bash
-docker build \
-  -t fabrinetes-dev:local \
-  -f "$PWD/.devcontainer/fabrinetes-build/Dockerfile" \
-  "$PWD"
-```
-
-## `fabrinetes-run`
-
-Runtime devcontainer for an already-present local image. It uses
-`fabrinetes-dev:local`, sets `--pull=never`, mounts the opened Fabrinetes repo
-through its parent FPGA checkout into the expected container path, and provides
-the shell/env support files used by HDLForge. This preserves submodule Git
-metadata because the parent checkout's `.git/modules` directory is mounted too.
+Runtime devcontainer for the local image. It sets `--pull=never`, mounts the
+parent FPGA checkout into the expected container path, and provides the
+shell/env support files used by HDLForge.
 
 Launch from the Fabrinetes repo root:
 
 ```bash
-devcontainer up \
-  --workspace-folder "$PWD" \
-  --config "$PWD/.devcontainer/fabrinetes-run/devcontainer.json"
+.devcontainer/Fabrinetes.sh .devcontainer/Fabrinetes.devcontainer.json --run
 ```
 
-Run a command inside it:
+Open a shell inside it:
 
 ```bash
-devcontainer exec \
-  --workspace-folder "$PWD" \
-  --config "$PWD/.devcontainer/fabrinetes-run/devcontainer.json" \
-  bash -ic 'whoami; command -v hdlforge; hdlforge projects'
+.devcontainer/Fabrinetes.sh .devcontainer/Fabrinetes.devcontainer.json --shell
+```
+
+Launch VS Code attached to it:
+
+```bash
+.devcontainer/Fabrinetes.sh .devcontainer/Fabrinetes.devcontainer.json --vscode
 ```

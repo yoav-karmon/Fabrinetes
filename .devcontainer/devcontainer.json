@@ -1,0 +1,55 @@
+{
+  "name": "fabrinetes-run",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".",
+    "args": {
+      "PACKAGES_FILE": "packages.txt",
+      "PYTHON_PACKAGES_FILE": "python-packages.txt",
+      "USERNAME": "${localEnv:DEVCONTAINER_USER}",
+      "USER_UID": "${localEnv:DEVCONTAINER_UID}",
+      "USER_GID": "${localEnv:DEVCONTAINER_GID}"
+    }
+  },
+  "initializeCommand": "mkdir -p ${localEnv:HOME}/.codex ${localEnv:HOME}/vscode-server-container/.vscode-server",
+  "containerEnv": {
+    "CONTAINER_USER": "${localEnv:DEVCONTAINER_USER}",
+    "CONTAINER_HOME": "/home/${localEnv:DEVCONTAINER_USER}",
+    "CODEX_HOME": "/home/${localEnv:DEVCONTAINER_USER}/.codex",
+    "FABRINETES": "${localEnv:FABRINETES}",
+    "HOST_MACHINE": "${localEnv:HOST_MACHINE}",
+    "VIVADO_SETTINGS": "${localEnv:VIVADO_SETTINGS}"
+  },
+  "remoteUser": "${localEnv:DEVCONTAINER_USER}",
+  "updateRemoteUserUID": true,
+  "workspaceMount": "",
+  "workspaceFolder": "${localEnv:CONTAINER_WORKSPACE_FOLDER}",
+  "overrideCommand": false,
+  "postStartCommand": "true",
+  "runArgs": [
+    "--pull=never",
+    "--name", "${localEnv:CONTAINER_NAME}",
+    "--hostname", "${localEnv:CONTAINER_HOSTNAME}",
+    "--network=host",
+    "--privileged"
+  ],
+  "mounts": [
+    "source=${localEnv:AMD_ROOT},target=${localEnv:AMD_TARGET},type=bind",
+    "source=/tmp,target=/tmp,type=bind",
+    "source=${localEnv:HOME}/.ssh,target=/home/${localEnv:DEVCONTAINER_USER}/.ssh,type=bind",
+    "source=${localEnv:HOME}/.codex,target=/home/${localEnv:DEVCONTAINER_USER}/.codex,type=bind",
+    "source=${localEnv:HOME}/vscode-server-container/.vscode-server,target=/home/${localEnv:DEVCONTAINER_USER}/.vscode-server,type=bind",
+    "source=${localEnv:REPO_MOUNT_SOURCE},target=${localEnv:REPO_MOUNT_TARGET},type=bind",
+    "source=${localWorkspaceFolder}/bashrc-func,target=/etc/bashrc-func,type=bind,readonly",
+    "source=${localWorkspaceFolder}/bashrc-root,target=/home/${localEnv:DEVCONTAINER_USER}/.bashrc,type=bind,readonly",
+    "source=${localWorkspaceFolder}/init_env.sh,target=/etc/profile.d/init_env.sh,type=bind,readonly"
+  ],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-vscode.cpptools"
+      ]
+    }
+  }
+}

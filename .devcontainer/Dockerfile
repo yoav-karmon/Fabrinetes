@@ -3,6 +3,8 @@ FROM ubuntu:24.04
 ARG USERNAME=vscode
 ARG USER_UID=1000
 ARG USER_GID=1000
+ARG PACKAGES_FILE=packages.txt
+ARG PYTHON_PACKAGES_FILE=python-packages.txt
 
 ENV DEBIAN_FRONTEND=noninteractive \
     LANG=en_US.UTF-8 \
@@ -10,8 +12,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
     LC_ALL=en_US.UTF-8 \
     FABRINETES=/opt/Fabrinetes
 
-COPY .devcontainer/fabrinetes-build/packages.txt /tmp/packages.txt
-COPY .devcontainer/fabrinetes-build/python-packages.txt /tmp/python-packages.txt
+COPY ${PACKAGES_FILE} /tmp/packages.txt
+COPY ${PYTHON_PACKAGES_FILE} /tmp/python-packages.txt
 
 RUN apt-get update \
     && xargs -r -a /tmp/packages.txt apt-get install -y \
@@ -37,5 +39,6 @@ RUN apt-get update \
 RUN printf '#!/bin/bash\nexec "$@"\n' > /usr/local/bin/entrypoint.sh \
     && chmod +x /usr/local/bin/entrypoint.sh
 
+USER ${USERNAME}
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["sleep", "infinity"]

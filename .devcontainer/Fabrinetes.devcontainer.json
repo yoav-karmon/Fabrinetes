@@ -1,0 +1,23 @@
+{
+  "devcontainerFile": "devcontainer.json",
+  "customizations": {
+    "Fabrinetes": {
+      "mount": {
+        "amdRoot": "/DATA/amd",
+        "amdTarget": "/DATA/amd",
+        "vivadoSettings": "/DATA/amd/2025.1/Vivado/settings64.sh"
+      },
+      "builder": {
+        "image": "${localEnv:USER}_fabrinetes:local"
+      },
+      "runner": {
+        "containerName": "${localEnv:USER}_fabrinetes-run.run",
+        "hostname": "fabrinetes",
+        "home": "/home/${localEnv:USER}",
+        "repoMountSource": "../../..",
+        "repoMountTarget": "/home/${localEnv:USER}/repo/fpga",
+        "fabrinetes": "/home/${localEnv:USER}/repo/fpga/git-sub-module/Fabrinetes"
+      }
+    }
+  }
+}
