@@ -2,7 +2,7 @@
 set -euo pipefail
 
 usage() {
-  echo "usage: Fabrinetes.sh <Fabrinetes-devcontainer-json> --build|--run|--shell|--stop|--remove-image|--vscode|--clean-vscode" >&2
+  echo "usage: Fabrinetes.sh <Fabrinetes-devcontainer-json> --build|--run|--shell|--stop|--restart|--remove-image|--image-status|--container-status|--vscode|--clean-vscode" >&2
 }
 
 die() {
@@ -22,7 +22,7 @@ if [ "$#" -ne 2 ]; then
   exit 1
 fi
 
-script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+script_dir="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 fabrinetes_config="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
 action="$2"
 
@@ -41,8 +41,17 @@ case "$action" in
   --stop)
     run_script "$script_dir/stop_container.sh"
     ;;
+  --restart)
+    run_script "$script_dir/restart_container.sh"
+    ;;
   --remove-image)
     run_script "$script_dir/remove_image.sh"
+    ;;
+  --image-status)
+    run_script "$script_dir/image_status.sh"
+    ;;
+  --container-status)
+    run_script "$script_dir/container_status.sh"
     ;;
   --vscode)
     run_script "$script_dir/launch_vscode.sh"

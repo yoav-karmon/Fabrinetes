@@ -27,6 +27,25 @@ mount_value() {
   jq -er ".customizations.Fabrinetes.mount.$1" "$fabrinetes_config"
 }
 
+resolve_build_dir() {
+  local path="$1"
+
+  case "$path" in
+    "")
+      printf '%s\n' "$run_config_dir"
+      ;;
+    /*)
+      cd "$path" && pwd
+      ;;
+    ./*|../*)
+      cd "$fabrinetes_config_dir/$path" && pwd
+      ;;
+    *)
+      cd "$(dirname "$fabrinetes_config_dir")/$path" && pwd
+      ;;
+  esac
+}
+
 expand_builder_value() {
   local value="$1"
   local env_var
@@ -49,10 +68,14 @@ export DEVCONTAINER_USER="$USER"
 export DEVCONTAINER_UID="$(id -u)"
 export DEVCONTAINER_GID="$(id -g)"
 image_name="$(expand_builder_value "$(builder_value image)")"
+build_dir_path="$(jq -er '.customizations.Fabrinetes.builder.buildDir // ""' "$fabrinetes_config")"
+workspace_folder="$(resolve_build_dir "$build_dir_path")"
 
 export CONTAINER_NAME="${DEVCONTAINER_USER}_fabrinetes-build.run"
 export CONTAINER_HOSTNAME="fabrinetes-build"
 export CONTAINER_WORKSPACE_FOLDER="/home/$DEVCONTAINER_USER"
+export CODEX_FOLDER_HOST="$(expand_builder_value "$(jq -er '.customizations.Fabrinetes.runner.codexFolderHost // "${localEnv:HOME}/.codex"' "$fabrinetes_config")")"
+export VSCODE_FOLDER_HOST="$(expand_builder_value "$(jq -er '.customizations.Fabrinetes.runner.vscodeFolderHost // "${localEnv:HOME}/vscode-server-container/.vscode-server"' "$fabrinetes_config")")"
 export AMD_ROOT="$(expand_builder_value "$(mount_value amdRoot)")"
 export AMD_TARGET="$(expand_builder_value "$(mount_value amdTarget)")"
 export REPO_MOUNT_SOURCE="$build_context"
@@ -80,6 +103,6 @@ for required_file in "$devcontainer_config" "$fabrinetes_config" "$dockerfile" "
 done
 
 devcontainer build \
-  --workspace-folder "$run_config_dir" \
+  --workspace-folder "$workspace_folder" \
   --config "$devcontainer_config" \
   --image-name "$image_name"

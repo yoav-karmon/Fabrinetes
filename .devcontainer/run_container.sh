@@ -49,6 +49,25 @@ resolve_from_run_config_dir() {
   esac
 }
 
+resolve_build_dir() {
+  local path="$1"
+
+  case "$path" in
+    "")
+      printf '%s\n' "$run_config_dir"
+      ;;
+    /*)
+      cd "$path" && pwd
+      ;;
+    ./*|../*)
+      cd "$fabrinetes_config_dir/$path" && pwd
+      ;;
+    *)
+      cd "$(dirname "$fabrinetes_config_dir")/$path" && pwd
+      ;;
+  esac
+}
+
 # Handle help before enforcing the required positional argument.
 if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
   usage
@@ -84,7 +103,10 @@ amd_target_template="$(jq -er '.customizations.Fabrinetes.mount.amdTarget' "$fab
 repo_mount_source_template="$(jq -er '.customizations.Fabrinetes.runner.repoMountSource' "$fabrinetes_config")"
 repo_mount_target_template="$(jq -er '.customizations.Fabrinetes.runner.repoMountTarget' "$fabrinetes_config")"
 fabrinetes_template="$(jq -er '.customizations.Fabrinetes.runner.fabrinetes' "$fabrinetes_config")"
+codex_folder_host_template="$(jq -er '.customizations.Fabrinetes.runner.codexFolderHost // "${localEnv:HOME}/.codex"' "$fabrinetes_config")"
+vscode_folder_host_template="$(jq -er '.customizations.Fabrinetes.runner.vscodeFolderHost // "${localEnv:HOME}/vscode-server-container/.vscode-server"' "$fabrinetes_config")"
 vivado_settings_template="$(jq -er '.customizations.Fabrinetes.mount.vivadoSettings' "$fabrinetes_config")"
+build_dir_path="$(jq -er '.customizations.Fabrinetes.builder.buildDir // ""' "$fabrinetes_config")"
 
 # The run devcontainer uses ${localEnv:...} placeholders. Export concrete values
 # here before invoking devcontainer up so the CLI can substitute them.
@@ -95,6 +117,8 @@ export HOST_MACHINE="$(hostname -s)"
 export CONTAINER_NAME="$(expand_local_env "$container_name_template")"
 export CONTAINER_HOSTNAME="$(expand_local_env "$hostname_template")"
 export CONTAINER_WORKSPACE_FOLDER="$(expand_local_env "$home_template")"
+export CODEX_FOLDER_HOST="$(expand_local_env "$codex_folder_host_template")"
+export VSCODE_FOLDER_HOST="$(expand_local_env "$vscode_folder_host_template")"
 export AMD_ROOT="$(expand_local_env "$amd_root_template")"
 export AMD_TARGET="$(expand_local_env "$amd_target_template")"
 export REPO_MOUNT_SOURCE="$(resolve_from_run_config_dir "$(expand_local_env "$repo_mount_source_template")")"
@@ -109,6 +133,8 @@ required_env_vars=(
   HOST_MACHINE
   CONTAINER_NAME
   CONTAINER_HOSTNAME
+  CODEX_FOLDER_HOST
+  VSCODE_FOLDER_HOST
   AMD_ROOT
   AMD_TARGET
   REPO_MOUNT_SOURCE
@@ -122,8 +148,8 @@ for env_var in "${required_env_vars[@]}"; do
   require_env "$env_var"
 done
 
-# Make ${localWorkspaceFolder} in the run config point at the run config folder.
-workspace_folder="$run_config_dir"
+# Make ${localWorkspaceFolder} in the run config point at the selected support folder.
+workspace_folder="$(resolve_build_dir "$build_dir_path")"
 
 devcontainer up \
   --workspace-folder "$workspace_folder" \
