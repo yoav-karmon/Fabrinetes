@@ -13,11 +13,7 @@ fi
 devcontainer_path="$(jq -er '.devcontainerFile' "$fabrinetes_config")"
 devcontainer_config="$(cd "$fabrinetes_config_dir/$(dirname "$devcontainer_path")" && pwd)/$(basename "$devcontainer_path")"
 run_config_dir="$(dirname "$devcontainer_config")"
-
-build_context_path="$(jq -er '.build.context' "$devcontainer_config")"
-build_context="$(cd "$run_config_dir/$build_context_path" && pwd)"
-dockerfile_path="$(jq -er '.build.dockerfile' "$devcontainer_config")"
-dockerfile="$(cd "$run_config_dir/$(dirname "$dockerfile_path")" && pwd)/$(basename "$dockerfile_path")"
+dockerfile="$run_config_dir/Dockerfile"
 
 builder_value() {
   jq -er ".customizations.Fabrinetes.builder.$1" "$fabrinetes_config"
@@ -67,9 +63,12 @@ expand_builder_value() {
 export DEVCONTAINER_USER="$USER"
 export DEVCONTAINER_UID="$(id -u)"
 export DEVCONTAINER_GID="$(id -g)"
-image_name="$(expand_builder_value "$(builder_value image)")"
 build_dir_path="$(jq -er '.customizations.Fabrinetes.builder.buildDir // ""' "$fabrinetes_config")"
 workspace_folder="$(resolve_build_dir "$build_dir_path")"
+build_context="$workspace_folder"
+export FABRINETES_BUILD_CONTEXT="$build_context"
+export FABRINETES_DOCKERFILE="$dockerfile"
+image_name="$(expand_builder_value "$(builder_value image)")"
 
 export CONTAINER_NAME="${DEVCONTAINER_USER}_fabrinetes-build.run"
 export CONTAINER_HOSTNAME="fabrinetes-build"
@@ -89,7 +88,7 @@ python_packages_file="$(jq -er '.build.args.PYTHON_PACKAGES_FILE' "$devcontainer
 for build_file in "$packages_file" "$python_packages_file"; do
   case "$build_file" in
     /*|../*|*/../*)
-      echo "error: build file must be relative to build dir: $build_file" >&2
+      echo "error: build file must be relative to build context: $build_file" >&2
       exit 1
       ;;
   esac

@@ -1,8 +1,8 @@
 {
   "name": "fabrinetes-run",
   "build": {
-    "dockerfile": "Dockerfile",
-    "context": ".",
+    "dockerfile": "${localEnv:FABRINETES_DOCKERFILE}",
+    "context": "${localEnv:FABRINETES_BUILD_CONTEXT}",
     "args": {
       "PACKAGES_FILE": "packages.txt",
       "PYTHON_PACKAGES_FILE": "python-packages.txt",

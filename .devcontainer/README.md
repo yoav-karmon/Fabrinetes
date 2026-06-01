@@ -14,9 +14,12 @@ From the Fabrinetes repo root:
 
 ## Build
 
-The single devcontainer config builds a per-user Fabrinetes development image
-from the package lists in `.devcontainer`. The image default user matches the
-host user and has passwordless sudo.
+The wrapper builds a per-user Fabrinetes development image. The selected
+Fabrinetes config can provide a `builder.buildDir`; when it does, that support
+directory becomes the Docker build context and supplies `packages.txt` and
+`python-packages.txt`. The shared Dockerfile stays in this `.devcontainer`
+directory. The image default user matches the host user and has passwordless
+sudo.
 
 Launch from the Fabrinetes repo root:
 

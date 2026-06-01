@@ -107,12 +107,15 @@ codex_folder_host_template="$(jq -er '.customizations.Fabrinetes.runner.codexFol
 vscode_folder_host_template="$(jq -er '.customizations.Fabrinetes.runner.vscodeFolderHost // "${localEnv:HOME}/vscode-server-container/.vscode-server"' "$fabrinetes_config")"
 vivado_settings_template="$(jq -er '.customizations.Fabrinetes.mount.vivadoSettings' "$fabrinetes_config")"
 build_dir_path="$(jq -er '.customizations.Fabrinetes.builder.buildDir // ""' "$fabrinetes_config")"
+workspace_folder="$(resolve_build_dir "$build_dir_path")"
 
 # The run devcontainer uses ${localEnv:...} placeholders. Export concrete values
 # here before invoking devcontainer up so the CLI can substitute them.
 export DEVCONTAINER_USER="$USER"
 export DEVCONTAINER_UID="$(id -u)"
 export DEVCONTAINER_GID="$(id -g)"
+export FABRINETES_BUILD_CONTEXT="$workspace_folder"
+export FABRINETES_DOCKERFILE="$run_config_dir/Dockerfile"
 export HOST_MACHINE="$(hostname -s)"
 export CONTAINER_NAME="$(expand_local_env "$container_name_template")"
 export CONTAINER_HOSTNAME="$(expand_local_env "$hostname_template")"
@@ -130,6 +133,8 @@ required_env_vars=(
   DEVCONTAINER_USER
   DEVCONTAINER_UID
   DEVCONTAINER_GID
+  FABRINETES_BUILD_CONTEXT
+  FABRINETES_DOCKERFILE
   HOST_MACHINE
   CONTAINER_NAME
   CONTAINER_HOSTNAME
@@ -149,7 +154,9 @@ for env_var in "${required_env_vars[@]}"; do
 done
 
 # Make ${localWorkspaceFolder} in the run config point at the selected support folder.
-workspace_folder="$(resolve_build_dir "$build_dir_path")"
+require_file "$FABRINETES_DOCKERFILE"
+require_file "$FABRINETES_BUILD_CONTEXT/packages.txt"
+require_file "$FABRINETES_BUILD_CONTEXT/python-packages.txt"
 
 devcontainer up \
   --workspace-folder "$workspace_folder" \
