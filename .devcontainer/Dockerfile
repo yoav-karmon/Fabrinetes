@@ -31,8 +31,9 @@ RUN apt-get update \
     && usermod --gid "${USER_GID}" "${USERNAME}" \
     && mkdir -p "/home/${USERNAME}" \
     && chown "${USER_UID}:${USER_GID}" "/home/${USERNAME}" \
-    && echo "${USERNAME} ALL=(ALL) NOPASSWD:ALL" > "/etc/sudoers.d/${USERNAME}" \
-    && chmod 0440 "/etc/sudoers.d/${USERNAME}" \
+    && printf '%s ALL=(ALL) NOPASSWD:ALL\n' "${USERNAME}" > /etc/sudoers.d/90-devcontainer-user \
+    && chmod 0440 /etc/sudoers.d/90-devcontainer-user \
+    && visudo -cf /etc/sudoers.d/90-devcontainer-user \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* /tmp/packages.txt /tmp/python-packages.txt
 
