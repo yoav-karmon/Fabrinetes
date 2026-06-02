@@ -13,8 +13,11 @@ from typing import Callable
 TOOLS = ["vivado", "Verilator", "network", "vcd_analyzer", "tsharkWrapper", "hw_server", "projects"]
 NETWORK_COMMANDS = ["send_raw", "send_arp", "send_icmp", "send_udp"]
 HW_SERVER_COMMANDS = ["program", "scan_ila", "scan_jtag", "read_dna"]
-VERILATOR_STEPS = ["build", "sim"]
-GLOBAL_VALUE_FLAGS = {"--project", "--tool"}
+VERILATOR_STEPS = ["build", "sim", "lint"]
+GLOBAL_ENV_FLAGS = ["--env-python", "--env-path", "--env-var"]
+GLOBAL_FLAGS = [*GLOBAL_ENV_FLAGS, "--dry-run"]
+GLOBAL_VALUE_FLAGS = {"--project", "--tool", "--env-python", "--env-path", "--env-var"}
+REPEATABLE_GLOBAL_ENV_FLAGS = {"--env-python", "--env-path", "--env-var"}
 
 
 @dataclass
@@ -40,7 +43,7 @@ class ParsedState:
     has_llm_path: bool = False
     llm_path: str | None = None
     eval_json: bool = False
-    has_eval_json_append: bool = False
+    has_append: bool = False
 
 
 def unique(items: list[str]) -> list[str]:
@@ -174,11 +177,33 @@ def get_sim_targets(state: ParsedState) -> list[str]:
     verilator_cfg = (verilator.get("config") or {})
     sim_targets = verilator_cfg.get("sim_targets") or verilator.get("sim_targets") or []
     out: list[str] = []
+
+    if isinstance(sim_targets, dict):
+        for name, target in sim_targets.items():
+            if isinstance(name, str) and isinstance(target, dict):
+                out.append(name)
+        return unique(out)
+
     for target in sim_targets:
         name = (target or {}).get("name")
         if isinstance(name, str):
             out.append(name)
     return unique(out)
+
+
+def get_verilator_flag_values(state: ParsedState) -> list[str]:
+    data = project_json_data(state)
+    if not data:
+        return []
+
+    verilator_cfg = ((data.get("verilator") or {}).get("config") or {})
+    build_args = verilator_cfg.get("build_args") or {}
+    flag_values = build_args.get("verilator_flags") or []
+    return unique([str(flag) for flag in flag_values if isinstance(flag, (str, int, float))])
+
+
+def complete_verilator_flags(cur: str, state: ParsedState) -> CompletionResult:
+    return complete_words(cur, get_verilator_flag_values(state))
 
 
 def list_interfaces() -> list[str]:
@@ -217,6 +242,21 @@ def walk_llm_paths(node: object, prefix: str = "") -> list[str]:
     return out
 
 
+def walk_string_paths_with_values(node: object, prefix: str = "") -> list[tuple[str, str]]:
+    if isinstance(node, str):
+        return [(prefix, node)] if prefix else []
+    if not isinstance(node, dict):
+        return []
+
+    out: list[tuple[str, str]] = []
+    for key, value in node.items():
+        if not isinstance(key, str):
+            continue
+        path = f"{prefix}.{key}" if prefix else key
+        out.extend(walk_string_paths_with_values(value, path))
+    return out
+
+
 def is_llm_leaf(project_file: Path | None, dotted: str) -> bool:
     if not project_file or project_file.suffix != ".json":
         return False
@@ -232,15 +272,30 @@ def is_llm_leaf(project_file: Path | None, dotted: str) -> bool:
     return isinstance(cursor, str)
 
 
-def complete_llm_path(project_file: Path | None, cur: str) -> CompletionResult:
+def is_json_string_leaf(project_file: Path | None, dotted: str) -> bool:
     if not project_file or project_file.suffix != ".json":
-        return CompletionResult([])
-
+        return False
     data = load_json(project_file)
     if not data:
-        return CompletionResult([])
+        return False
 
-    all_paths = walk_llm_paths(data.get("LLM_orch"))
+    candidates = [dotted]
+    if not dotted.startswith("LLM_orch."):
+        candidates.append(f"LLM_orch.{dotted}")
+
+    for candidate in candidates:
+        cursor: object = data
+        for part in candidate.split("."):
+            if not isinstance(cursor, dict) or part not in cursor:
+                break
+            cursor = cursor[part]
+        else:
+            if isinstance(cursor, str):
+                return True
+    return False
+
+
+def complete_dotted_paths(all_paths: list[str], cur: str) -> CompletionResult:
     if not all_paths:
         return CompletionResult([])
 
@@ -291,6 +346,38 @@ def complete_llm_path(project_file: Path | None, cur: str) -> CompletionResult:
 
     filtered = sorted({entry for entry in completions if entry.startswith(cur)})
     return CompletionResult(filtered, nospace=any(entry.endswith(".") for entry in filtered))
+
+
+def complete_llm_path(project_file: Path | None, cur: str) -> CompletionResult:
+    if not project_file or project_file.suffix != ".json":
+        return CompletionResult([])
+
+    data = load_json(project_file)
+    if not data:
+        return CompletionResult([])
+
+    return complete_dotted_paths(walk_llm_paths(data.get("LLM_orch")), cur)
+
+
+def complete_json_path(project_file: Path | None, cur: str) -> CompletionResult:
+    if not project_file or project_file.suffix != ".json":
+        return CompletionResult([])
+
+    data = load_json(project_file)
+    if not data:
+        return CompletionResult([])
+
+    if cur.startswith("LLM_orch"):
+        return complete_dotted_paths(walk_llm_paths(data.get("LLM_orch"), "LLM_orch"), cur)
+
+    candidates = ["LLM_orch."]
+    candidates.extend(
+        path
+        for path, value in walk_string_paths_with_values(data)
+        if not path.startswith("LLM_orch.") and "hdlforge" in value
+    )
+    completions = sorted({entry for entry in candidates if entry.startswith(cur)})
+    return CompletionResult(completions, nospace=any(entry.endswith(".") for entry in completions))
 
 
 def parse_classic_state(tokens: list[str], cwd: Path) -> ParsedState:
@@ -390,6 +477,9 @@ VALUE_HANDLER_TREE: dict[str, dict[str, Handler]] = {
     "root": {
         "--project": complete_project_files,
         "--tool": complete_tools,
+        "--env-python": lambda _cur, _state: CompletionResult([]),
+        "--env-path": lambda _cur, _state: CompletionResult([]),
+        "--env-var": lambda _cur, _state: CompletionResult([]),
     },
     "tool:vivado": {
         "--syn": complete_vivado_run_names,
@@ -403,6 +493,12 @@ VALUE_HANDLER_TREE: dict[str, dict[str, Handler]] = {
     "tool:Verilator": {
         "--step": complete_static_words(VERILATOR_STEPS),
         "--SimTargetName": complete_sim_target_names,
+        "--flags": complete_verilator_flags,
+        "--lint-file": lambda cur, _state: complete_path(
+            cur,
+            _state.cwd,
+            suffixes=(".sv", ".v", ".svh", ".vh"),
+        ),
     },
     "tool:network": {
         "--cmd": complete_network_cmds,
@@ -467,7 +563,7 @@ def resolve_value_handler(flag: str, state: ParsedState) -> Handler | None:
 
 def filter_single_use(flags: list[str], state: ParsedState, *, repeatable: set[str] | None = None) -> list[str]:
     used = state.seen or set()
-    repeatable = repeatable or set()
+    repeatable = (repeatable or set()) | REPEATABLE_GLOBAL_ENV_FLAGS
     return [flag for flag in flags if flag in repeatable or flag not in used]
 
 
@@ -493,7 +589,7 @@ def suggest_vivado_flags(state: ParsedState) -> list[str]:
 
     selected = state.selected_vivado_action
     if not selected:
-        return filter_single_use(actions + ["--project", "--verbose", "--help", "-h"], state)
+        return filter_single_use(actions + ["--project", *GLOBAL_FLAGS, "--verbose", "--help", "-h"], state)
 
     modifiers: list[str]
     if selected in {"--syn", "--impl", "--bit", "--all", "--lint", "--reset_run"}:
@@ -514,20 +610,20 @@ def suggest_vivado_flags(state: ParsedState) -> list[str]:
     else:
         modifiers = []
 
-    return filter_single_use(modifiers + ["--project", "--verbose", "--help", "-h"], state)
+    return filter_single_use(modifiers + ["--project", *GLOBAL_FLAGS, "--verbose", "--help", "-h"], state)
 
 
 def suggest_verilator_flags(state: ParsedState) -> list[str]:
     return filter_single_use(
-        ["--step", "--SimTargetName", "--clean", "--verbose", "--flags", "--extra-env", "--project", "--help", "-h"],
+        ["--step", "--SimTargetName", "--clean", "--verbose", "--flags", "--lint-file", "--extra-env", "--project", *GLOBAL_FLAGS, "--help", "-h"],
         state,
-        repeatable={"--step"},
+        repeatable={"--step", "--flags", "--lint-file"},
     )
 
 
 def suggest_network_flags(state: ParsedState) -> list[str]:
     if not state.cmd:
-        return filter_single_use(["--cmd", "--verbose", "--project", "--help", "-h"], state)
+        return filter_single_use(["--cmd", "--verbose", "--project", *GLOBAL_FLAGS, "--help", "-h"], state)
 
     per_cmd = {
         "send_raw": ["--interface", "--data", "--verbose"],
@@ -535,28 +631,28 @@ def suggest_network_flags(state: ParsedState) -> list[str]:
         "send_icmp": ["--interface", "--eth_dst_mac", "--eth_src_mac", "--src_ip", "--dst_ip", "--icmp_type", "--icmp_code", "--identifier", "--sequence", "--data", "--verbose"],
         "send_udp": ["--interface", "--eth_dst_mac", "--eth_src_mac", "--src_ip", "--dst_ip", "--src_port", "--dst_port", "--data", "--verbose"],
     }
-    return filter_single_use(per_cmd.get(state.cmd, []) + ["--project", "--help", "-h"], state)
+    return filter_single_use(per_cmd.get(state.cmd, []) + ["--project", *GLOBAL_FLAGS, "--help", "-h"], state)
 
 
 def suggest_vcd_flags(state: ParsedState) -> list[str]:
     if not state.has_vcdfile:
-        return filter_single_use(["--vcdfilename", "--project", "--help", "-h"], state)
+        return filter_single_use(["--vcdfilename", "--project", *GLOBAL_FLAGS, "--help", "-h"], state)
 
     if "--get_values_pins" in (state.seen or set()) or "--get_values_all" in (state.seen or set()):
-        return filter_single_use(["--human", "--project", "--help", "-h"], state)
+        return filter_single_use(["--human", "--project", *GLOBAL_FLAGS, "--help", "-h"], state)
 
     if "--get_modules_list" in (state.seen or set()):
-        return filter_single_use(["--project", "--help", "-h"], state)
+        return filter_single_use(["--project", *GLOBAL_FLAGS, "--help", "-h"], state)
 
     return filter_single_use(
-        ["--get_modules_list", "--get_values_pins", "--get_values_all", "--project", "--help", "-h"],
+        ["--get_modules_list", "--get_values_pins", "--get_values_all", "--project", *GLOBAL_FLAGS, "--help", "-h"],
         state,
     )
 
 
 def suggest_tshark_flags(state: ParsedState) -> list[str]:
     if not state.has_pcap:
-        return filter_single_use(["--pcap", "--project", "--help", "-h"], state)
+        return filter_single_use(["--pcap", "--project", *GLOBAL_FLAGS, "--help", "-h"], state)
 
     return filter_single_use(
         [
@@ -572,6 +668,7 @@ def suggest_tshark_flags(state: ParsedState) -> list[str]:
             "--disable_protocols",
             "--verbose",
             "--project",
+            *GLOBAL_FLAGS,
             "--help",
             "-h",
         ],
@@ -581,13 +678,13 @@ def suggest_tshark_flags(state: ParsedState) -> list[str]:
 
 def suggest_hw_server_flags(state: ParsedState) -> list[str]:
     if state.interactive:
-        return filter_single_use(["--hw-config", "-c", "--server_ip", "--bitstream", "--probes", "--debug", "--project", "--help", "-h"], state)
+        return filter_single_use(["--hw-config", "-c", "--server_ip", "--bitstream", "--probes", "--debug", "--project", *GLOBAL_FLAGS, "--help", "-h"], state)
 
     if state.chain_mode:
-        return filter_single_use(["--server_ip", "--hw-config", "-c", "--debug", "--project", "--help", "-h"], state)
+        return filter_single_use(["--server_ip", "--hw-config", "-c", "--debug", "--project", *GLOBAL_FLAGS, "--help", "-h"], state)
 
     if not state.cmd:
-        return filter_single_use(["--cmd", "-i", "--interactive", "-ic", "--interactive-chain", "--hw-config", "-c", "--server_ip", "--debug", "--project", "--help", "-h"], state)
+        return filter_single_use(["--cmd", "-i", "--interactive", "-ic", "--interactive-chain", "--hw-config", "-c", "--server_ip", "--debug", "--project", *GLOBAL_FLAGS, "--help", "-h"], state)
 
     per_cmd = {
         "program": ["--server_ip", "--bitstream", "--probes", "--hw-config", "-c", "--debug"],
@@ -595,15 +692,15 @@ def suggest_hw_server_flags(state: ParsedState) -> list[str]:
         "scan_jtag": ["--server_ip", "--hw-config", "-c", "--debug"],
         "read_dna": ["--server_ip", "--hw-config", "-c", "--debug"],
     }
-    return filter_single_use(per_cmd.get(state.cmd, []) + ["--project", "--help", "-h"], state)
+    return filter_single_use(per_cmd.get(state.cmd, []) + ["--project", *GLOBAL_FLAGS, "--help", "-h"], state)
 
 
 def suggest_project_flags(state: ParsedState) -> list[str]:
-    return filter_single_use(["--list", "--help", "-h"], state)
+    return filter_single_use(["--list", *GLOBAL_FLAGS, "--help", "-h"], state)
 
 
 def suggest_root_flags(state: ParsedState) -> list[str]:
-    return filter_single_use(["--project", "--tool", "--verbose", "--help", "-h"], state)
+    return filter_single_use(["--project", "--tool", *GLOBAL_FLAGS, "--verbose", "--help", "-h"], state)
 
 
 def suggest_flags(state: ParsedState) -> list[str]:
@@ -642,23 +739,23 @@ def parse_llm_mode(tokens_before_current: list[str], cwd: Path) -> ParsedState:
     state.project_file = detect_project_file(tokens_before_current, cwd)
 
     expecting_project_value = False
-    expecting_eval_json_append_value = False
+    expecting_append_value = False
     for token in tokens_before_current:
         if expecting_project_value:
             expecting_project_value = False
             continue
-        if expecting_eval_json_append_value:
-            expecting_eval_json_append_value = False
+        if expecting_append_value:
+            expecting_append_value = False
             continue
-        if token == "--project":
+        if token in GLOBAL_VALUE_FLAGS:
             expecting_project_value = True
             continue
         if token == "--eval_json":
             state.eval_json = True
             continue
-        if token == "--eval_json_append":
-            state.has_eval_json_append = True
-            expecting_eval_json_append_value = True
+        if token == "--append":
+            state.has_append = True
+            expecting_append_value = True
             continue
         if token == "--":
             break
@@ -679,16 +776,14 @@ def complete_llm(tokens_before_current: list[str], cur: str, cwd: Path) -> Compl
     prev = tokens_before_current[-1] if tokens_before_current else ""
     if prev == "--project":
         return complete_project_files(cur, state)
+    if prev in {"--env-python", "--env-path", "--env-var"}:
+        return CompletionResult([])
     if prev == "--eval_json":
-        return complete_llm_path(state.project_file, cur)
-    if prev == "--eval_json_append":
+        return complete_json_path(state.project_file, cur)
+    if prev == "--append":
         return CompletionResult([])
 
-    llm_flags = filter_single_use(["--eval_json", "--project", "--tool", "--help", "-h"], state)
-    if not state.eval_json:
-        if cur.startswith("-") or not cur:
-            return complete_words(cur, llm_flags)
-        return CompletionResult([])
+    llm_flags = filter_single_use(["--eval_json", "--project", "--tool", *GLOBAL_FLAGS, "--help", "-h"], state)
 
     if (cur.startswith("-") or not cur) and not state.has_llm_path:
         merged = unique(complete_llm_path(state.project_file, cur).completions + [flag for flag in llm_flags if flag.startswith(cur)])
@@ -700,10 +795,17 @@ def complete_llm(tokens_before_current: list[str], cur: str, cwd: Path) -> Compl
         return CompletionResult(merged, filenames=llm_result.filenames, nospace=llm_result.nospace)
 
     if cur == state.llm_path:
+        if state.eval_json:
+            return complete_json_path(state.project_file, cur)
         return complete_llm_path(state.project_file, cur)
 
-    if state.llm_path and is_llm_leaf(state.project_file, state.llm_path):
-        append_flags = [] if state.has_eval_json_append else ["--eval_json_append"]
+    is_leaf = (
+        is_json_string_leaf(state.project_file, state.llm_path)
+        if state.eval_json and state.llm_path
+        else is_llm_leaf(state.project_file, state.llm_path or "")
+    )
+    if state.llm_path and is_leaf:
+        append_flags = [] if state.has_append else ["--append"]
         if cur.startswith("-") or not cur:
             return complete_words(cur, append_flags)
         return CompletionResult([])

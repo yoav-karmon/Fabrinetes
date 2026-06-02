@@ -5,10 +5,115 @@ Verilator task handlers for HDLForge
 
 import os
 import re
+import shlex
+import subprocess
 import sys
 import warnings
 from pathlib import Path
 from typing import List, Dict, Any
+
+
+VERILATOR_INHERITED_EXTRA_ENV_KEYS = (
+    "TESTCASE",
+    "TRIGGER_TEST_FEATURE",
+    "CONFIG_TEST_FEATURE",
+    "NETWORK_MONITOR_FEATURE",
+    "CONFIG_TEST_SUFFIX",
+    "NETWORK_MONITOR_SUFFIX",
+    "TARGET_CORE",
+    "CONFIG_TEST_CORE_ID",
+    "CONFIG_TEST_SEGMENT",
+    "CONFIG_TEST_COUNT",
+    "CONFIG_TEST_WRITE",
+    "CONFIG_TEST_ADDR",
+    "CONFIG_TEST_REG_ADDR",
+    "CONFIG_TEST_PRINT_TX_HEX",
+    "CONFIG_TEST_PRINT_RX_HEX",
+    "CONFIG_OVERFLOW_FIFO_DEPTH",
+    "COCOTB_TESTNAME",
+    "MDP3_SBE_PCAP_FILE",
+    "MDP3_SBE_PCAP_PACKET",
+    "MDP3_SBE_RANDOM_MODE",
+    "MDP3_SBE_RANDOM_SEED",
+)
+
+
+def _parse_extra_env(extra_env) -> Dict[str, str]:
+    parsed = {}
+    if extra_env:
+        for item in extra_env.split(","):
+            if "=" not in item:
+                continue
+            key, value = item.split("=", 1)
+            parsed[key] = value
+
+    for key in VERILATOR_INHERITED_EXTRA_ENV_KEYS:
+        if key not in parsed and os.environ.get(key) is not None:
+            parsed[key] = os.environ[key]
+
+    return parsed
+
+
+def _split_cli_flags(flags) -> List[str]:
+    if isinstance(flags, str):
+        raw_flags = [flags]
+    elif flags is None:
+        raw_flags = []
+    else:
+        raw_flags = list(flags)
+
+    parsed_flags = []
+    for flag_group in raw_flags:
+        if flag_group is None:
+            continue
+        parsed_flags.extend(shlex.split(str(flag_group)))
+    return parsed_flags
+
+
+def _resolve_include_paths(includes_paths, working_path: Path) -> List[Path]:
+    includes_paths_list = []
+    for include_path in includes_paths:
+        expanded = os.path.expandvars(str(include_path))
+        resolved_path = Path(expanded).expanduser()
+        if not resolved_path.is_absolute():
+            resolved_path = working_path / resolved_path
+        includes_paths_list.append(resolved_path.resolve())
+    return includes_paths_list
+
+
+def _resolve_verilator_source_files(sources_dict_list) -> List[Path]:
+    source_files = []
+    for file_dict in sources_dict_list:
+        source_files.append(Path(os.path.expandvars(str(file_dict["file"]))).expanduser().resolve())
+    return source_files
+
+
+def _resolve_lint_files(lint_file, working_path: Path) -> List[Path]:
+    if isinstance(lint_file, str):
+        raw_files = [lint_file]
+    elif lint_file is None:
+        raw_files = []
+    else:
+        raw_files = list(lint_file)
+
+    lint_files = []
+    for raw_file in raw_files:
+        for file_part in str(raw_file).split(","):
+            file_part = file_part.strip()
+            if not file_part:
+                continue
+            expanded = os.path.expandvars(file_part)
+            resolved_file = Path(expanded).expanduser()
+            if not resolved_file.is_absolute():
+                resolved_file = working_path / resolved_file
+            resolved_file = resolved_file.resolve()
+            if not resolved_file.is_file():
+                raise FileNotFoundError(
+                    f"Verilator lint file not found: {resolved_file}. "
+                    f"Relative --lint-file paths are project-relative to {working_path}."
+                )
+            lint_files.append(resolved_file)
+    return lint_files
 
 
 def _verilator_run_dir_name(SimTargetName: str, extra_env: Dict[str, Any]) -> str:
@@ -64,10 +169,18 @@ from project_file import ProjectFile
 
 
 def verify_sim_target(SimTargetName, verilator_settings):
-    # Convert sim_targets list to dictionary using 'name' as key
     sim_targets_dict = {}
-    for target in verilator_settings['sim_targets']:
-        sim_targets_dict[target['name']] = target
+    sim_targets = verilator_settings.get("sim_targets", [])
+    if isinstance(sim_targets, dict):
+        for target_name, target in sim_targets.items():
+            if isinstance(target, dict):
+                target = dict(target)
+                target.setdefault("name", target_name)
+                sim_targets_dict[target_name] = target
+    else:
+        for target in sim_targets:
+            if isinstance(target, dict) and "name" in target:
+                sim_targets_dict[target["name"]] = target
     
     if SimTargetName is None:
         exit(f"[!x!]  SimTargetName must be specified. Use --SimTargetName <target_name>")
@@ -78,24 +191,19 @@ def verify_sim_target(SimTargetName, verilator_settings):
     return sim_targets_dict[SimTargetName]
 
 
-def Verilator(c, project, step=None, clean=False, SimTargetName=None, flags=None, extra_env=None):
+def Verilator(c, project, step=None, clean=False, SimTargetName=None, flags=None, extra_env=None, lint_file=None):
     # Import shared utilities
     from environment import capture_environment_variables
     from display import print_task_args
-    from path_utils import add_python_paths_from_list
     
     # Capture environment variables set by update_repo_path
     capture_environment_variables(c)
     
-    extra_env = dict(item.split('=') for item in extra_env.split(',') if '=' in item) if extra_env else {}
+    extra_env = _parse_extra_env(extra_env)
     tool_name = "verilator"
 
-    ALLOWED_STEPS = {"step": ["sim", "build"], "extra_env": ["DEBUG=1"]}
-    
-    if isinstance(flags, str):  # Convert single input to list
-        flags = [flags]
-    elif flags is None:
-        flags = []
+    ALLOWED_STEPS = {"step": ["sim", "build", "lint"], "extra_env": ["DEBUG=1"]}
+    cli_flags = _split_cli_flags(flags)
 
     if isinstance(step, str):  # Convert single input to list
         step = [step]
@@ -136,7 +244,8 @@ def Verilator(c, project, step=None, clean=False, SimTargetName=None, flags=None
         exit(1)    
     
     top_module = SimTarget["top_module"]
-    build_args = SimTarget.get("build_args", [])
+    build_args = _split_cli_flags(SimTarget.get("build_args", []))
+    lint_args = _split_cli_flags(SimTarget.get("lint_args", []))
     defines = SimTarget.get("defines", {})
     parameters = SimTarget.get("parameters", {})
     python_file_path = Path(working_path) / SimTarget["python_file"] 
@@ -144,22 +253,50 @@ def Verilator(c, project, step=None, clean=False, SimTargetName=None, flags=None
     if test_name is None and extra_env.get("TESTCASE"):
         test_name = str(extra_env["TESTCASE"]).strip() or None
     run_dir_name = _verilator_run_dir_name(SimTargetName, extra_env)
-
-    PYTHONPATH = SimTarget.get("PYTHONPATH", [])
-    add_python_paths_from_list(PYTHONPATH, working_path)
-  
     
     print(f"\n[~] processing steps {step}", flush=True)
     sys.stdout.flush()
     for s in step:
         match (s):
+            case "lint":
+                try:
+                    veruilator_sources_file = _resolve_verilator_source_files(SOURCES_DICT_LIST)
+                    selected_lint_files = _resolve_lint_files(lint_file, working_path)
+                    lint_sources = selected_lint_files if selected_lint_files else veruilator_sources_file
+                    includes_paths_list = _resolve_include_paths(
+                        verilator_settings.get("includes_paths", []),
+                        working_path,
+                    )
+
+                    command = ["verilator", "--lint-only"]
+                    if not selected_lint_files:
+                        command.extend(["--top-module", str(top_module)])
+                    command.extend(f"-I{include_path}" for include_path in includes_paths_list)
+                    command.extend(build_args)
+                    command.extend(lint_args)
+                    command.extend(cli_flags)
+                    command.extend(str(source_file) for source_file in lint_sources)
+
+                    print(f"[i] Verilator step: {s}", flush=True)
+                    print(f"[i] Linting {len(lint_sources)} source file(s)", flush=True)
+                    if selected_lint_files:
+                        print("[i] Selected lint file(s):", flush=True)
+                        for selected_file in selected_lint_files:
+                            print(f"    {selected_file}", flush=True)
+                    print(f"[i] Verilator lint command: {shlex.join(command)}", flush=True)
+                    print(f"\n================start of verilator output : lint================", flush=True)
+                    subprocess.run(command, cwd=working_path, check=True)
+                    print(f"================end of verilator output : lint================\n", flush=True)
+                    print("[+] Verilator lint completed", flush=True)
+                except Exception as e:
+                    print("\n[!x!]  Verilator lint failed!", flush=True)
+                    print(f"Error: {e}", flush=True)
+                    raise
             case "build" | "sim":
                 try:
                     print(f"[i] Verilator step: {s}", flush=True)
                     print(f"[i] Compiling Verilator sources into: {build_dir}", flush=True)
-                    veruilator_sources_file = []
-                    for file_dict in SOURCES_DICT_LIST:
-                        veruilator_sources_file.append(Path(os.path.expandvars(str(file_dict["file"]))).resolve())
+                    veruilator_sources_file = _resolve_verilator_source_files(SOURCES_DICT_LIST)
                     sys.stdout.flush()
                     print(f"\n================start of verilator output : build================", flush=True)
                     # Suppress the specific message before importing cocotb.runner
@@ -174,15 +311,11 @@ def Verilator(c, project, step=None, clean=False, SimTargetName=None, flags=None
                     defines = {}
                     parameters = {}
                     log_file = None
-                    includes_paths_list = []
-                    for _ in verilator_settings.get("includes_paths", []):
-                        expanded = os.path.expandvars(str(_))
-                        ip = Path(expanded)
-                        if not ip.is_absolute():
-                            ip = Path(working_path) / ip
-                        includes_paths_list.append(ip.resolve())
-                    # Use only the build_args from project configuration
-                    combined_build_args = build_args
+                    includes_paths_list = _resolve_include_paths(
+                        verilator_settings.get("includes_paths", []),
+                        working_path,
+                    )
+                    combined_build_args = [*build_args, *cli_flags]
                     
                     runner.build(
                             verilog_sources=veruilator_sources_file,
@@ -204,8 +337,9 @@ def Verilator(c, project, step=None, clean=False, SimTargetName=None, flags=None
                     if s == "sim":
                         if SimTargetName == "full_sim" and test_name is None:
                             exit(
-                                "[!x!]  SimTargetName 'full_sim' requires TESTCASE in --extra-env "
-                                '(e.g. --extra-env "TESTCASE=arp_test").'
+                                "[!x!]  SimTargetName 'full_sim' requires TESTCASE "
+                                'through --env-var \'{"TESTCASE":"arp_test"}\' '
+                                'or --extra-env "TESTCASE=arp_test".'
                             )
                         # Clean test directory before simulation to avoid stale logs
                         test_output_dir = build_dir / run_dir_name
@@ -292,6 +426,7 @@ def Verilator(c, project, step=None, clean=False, SimTargetName=None, flags=None
                     print("\n[!x!]  Verilator build/simulation failed!", flush=True)
                     print(f"Error: {e}", flush=True)
                     raise
-
-
-
+            case _:
+                print(f"\n[!x!] Unsupported Verilator step: {s}", flush=True)
+                print("[i] Supported steps: build, sim, lint", flush=True)
+                exit(1)

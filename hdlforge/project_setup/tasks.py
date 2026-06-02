@@ -264,17 +264,20 @@ def help_verilator():
     print("AVAILABLE STEPS:")
     print("    --step build                         Compile SystemVerilog files to C++ executable")
     print("    --step sim                           Run Python Cocotb testbench simulation")
+    print("    --step lint                          Run verilator --lint-only")
     print()
     print("OPTIONS:")
     print("    --project <PATH>                     Specify project file path (optional)")
     print("    --clean                              Clean build directory before running")
-    print("    --flags <FLAGS>                      Additional Verilator compilation flags")
+    print("    --flags <FLAGS>                      Additional Verilator flags; may be repeated")
+    print("    --lint-file <PATH[,PATH2]>           Lint only selected project-relative source file(s)")
     print("    --extra-env <KEY=VAL,KEY2=VAL2>      Additional environment variables")
     print()
     print("NOTES:")
     print("  • SimTargetName must be defined in your project's verilator_settings.sim_targets")
     print("  • Multiple --step flags can be provided to run multiple steps in sequence")
     print("  • Build step must be run before sim step")
+    print("  • Lint step is independent from build/sim and accepts optional --lint-file")
     print()
     print("=" * 80)
 
@@ -434,10 +437,11 @@ if __name__ == "__main__":
     parser.add_argument('--verbose', action='store_true', help='Enable verbose output')
     
     # Verilator arguments
-    parser.add_argument('--step', action='append', help='Verilator step (build, sim)')
+    parser.add_argument('--step', action='append', help='Verilator step (build, sim, lint)')
     parser.add_argument('--SimTargetName', help='Simulation target name')
     parser.add_argument('--clean', action='store_true', help='Clean before building')
-    parser.add_argument('--flags', help='Additional flags')
+    parser.add_argument('--flags', action='append', help='Additional Verilator flags; may be repeated')
+    parser.add_argument('--lint-file', action='append', help='Project-relative Verilator source file(s) for lint')
     parser.add_argument('--extra-env', help='Extra environment variables')
     
     # Vivado arguments
@@ -576,7 +580,16 @@ if __name__ == "__main__":
         if not args.SimTargetName and not args.help:
             help_verilator()
             sys.exit(0)
-        Verilator(c, args.project, args.step, args.clean, args.SimTargetName, args.flags, args.extra_env)
+        Verilator(
+            c,
+            args.project,
+            args.step,
+            args.clean,
+            args.SimTargetName,
+            args.flags,
+            args.extra_env,
+            args.lint_file,
+        )
     elif args.tool == 'vivado':
         # Check if deprecated --step is used with vivado
         if args.step:

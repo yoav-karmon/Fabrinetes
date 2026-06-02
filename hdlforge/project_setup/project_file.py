@@ -93,9 +93,48 @@ class ProjectFile:
         # Verilator config
         verilator_build_dir_str = self.verilator_config.get("build_dir", "_verilator")
         self.verilator_build_dir = self._working_path / verilator_build_dir_str
-        self.verilator_sim_targets = self.verilator_config.get("sim_targets", [])
+        self.verilator_sim_targets = self._normalize_sim_targets(
+            self.verilator_config.get("sim_targets", [])
+        )
         self.verilator_includes_paths = self.verilator_config.get("includes_paths", [])
     
+    def _normalize_sim_targets(self, raw_targets: Any) -> List[dict]:
+        """
+        Return Verilator sim targets as a list of dicts.
+
+        New project files may store targets as:
+          "sim_targets": { "full_sim": { ... } }
+
+        Legacy JSON/TOML files may still store targets as:
+          "sim_targets": [{ "name": "full_sim", ... }]
+        """
+        if isinstance(raw_targets, dict):
+            normalized = []
+            for target_name, target in raw_targets.items():
+                if not isinstance(target_name, str):
+                    print("[!x!] verilator.config.sim_targets keys must be strings")
+                    exit(1)
+                if not isinstance(target, dict):
+                    print(f"[!x!] verilator.config.sim_targets.{target_name} must be an object")
+                    exit(1)
+
+                target_copy = dict(target)
+                configured_name = target_copy.setdefault("name", target_name)
+                if configured_name != target_name:
+                    print(
+                        "[!x!] verilator.config.sim_targets key/name mismatch: "
+                        f"key '{target_name}' has name '{configured_name}'"
+                    )
+                    exit(1)
+                normalized.append(target_copy)
+            return normalized
+
+        if isinstance(raw_targets, list):
+            return raw_targets
+
+        print("[!x!] verilator.config.sim_targets must be an object or array")
+        exit(1)
+
     def _get_project_file_path(self, project_file: Optional[Union[str, Path]]) -> Path:
         """
         Get the project file path, either from argument or by auto-detection.

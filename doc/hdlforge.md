@@ -29,13 +29,14 @@ Vivado:
   hdlforge --tool vivado --build_project
 
 LLM_orch:
-  hdlforge --eval_json <shortcut.path>
-  hdlforge --eval_json <shortcut.path> --eval_json_append '<extra flags>'
+  hdlforge <shortcut.path>
+  hdlforge <shortcut.path> --append '<extra flags>'
 
 Environment:
   hdlforge sources ~/.bashrc
   hdlforge runs update_repo_path
   hdlforge captures PATH, PYTHONPATH, REPO_TOP
+  hdlforge accepts native --env-python / --env-path / --env-var handoff
 
 More:
   hdlforge_project_file.md

@@ -20,22 +20,22 @@ Verilator setup:
       "sources": [
         "sources/rtl/top.sv"
       ],
-      "sim_targets": [
-        {
-          "name": "basic_test",
+      "sim_targets": {
+        "basic_test": {
           "top_module": "top",
           "python_file": "tests/test_top.py",
           "test_name": "test_basic",
-          "build_args": ["--trace"],
-          "PYTHONPATH": ["tests"]
+          "build_args": ["--trace"]
         }
-      ]
+      }
     }
   }
 
 Run Verilator:
   hdlforge --tool Verilator --step build --SimTargetName basic_test
   hdlforge --tool Verilator --step sim --SimTargetName basic_test
+  hdlforge --tool Verilator --step lint --SimTargetName basic_test
+  hdlforge --tool Verilator --step lint --SimTargetName basic_test --lint-file sources/rtl/top.sv
 
 Vivado setup:
 
@@ -54,40 +54,71 @@ Run Vivado:
 
 LLM_orch setup:
 
+  "verilator": {
+    "config": {
+      "sim_targets": {
+        "basic_test": {
+          "top_module": "top",
+          "python_file": "tests/test_top.py",
+          "env": {
+            "pythonpath": ["tests"]
+          }
+        }
+      }
+    }
+  },
   "LLM_orch": {
     "testing": {
       "sim": {
-        "basic": "hdlforge --tool Verilator --step sim --SimTargetName basic_test"
+        "basic": "hdlforge --tool Verilator --step sim --SimTargetName basic_test --env-python verilator.config.sim_targets.basic_test.env.pythonpath"
       }
     }
   }
 
 Run LLM_orch shortcut:
-  hdlforge --eval_json testing.sim.basic
+  hdlforge testing.sim.basic
 
 Append flags to shortcut:
-  hdlforge --eval_json testing.sim.basic --eval_json_append '<extra flags>'
+  hdlforge testing.sim.basic --append '<extra flags>'
 
 Set env vars in a shortcut:
 
-  "name": "ENV_VAR=value hdlforge --eval_json <shortcut.path>"
+  "name": "ENV_VAR=value hdlforge <shortcut.path>"
 
   ENV_VAR=value is set only for that command.
 
-Inline path inject, then reuse:
+Native env handoff, then reuse:
 
+  "verilator": {
+    "config": {
+      "sim_targets": {
+        "basic_test": {
+          "top_module": "top",
+          "python_file": "tests/test_top.py",
+          "env": {
+            "pythonpath": ["tests"]
+          }
+        }
+      }
+    }
+  },
   "LLM_orch": {
     "testing": {
       "base": "hdlforge --tool <tool> <tool args>",
-      "with_python": "add_to_pythonpath <python path>; hdlforge --eval_json testing.base",
-      "with_tool": "add_to_path <tool path>; hdlforge --eval_json testing.base"
+      "with_python": "hdlforge --env-python verilator.config.sim_targets.basic_test.env.pythonpath testing.base",
+      "with_tool_path": "hdlforge --env-path '[\"tools\"]' testing.base",
+      "with_env_vars": "hdlforge --env-var '[{\"FOO\":\"bar\"}]' testing.base"
     }
   }
 
-  add_to_pythonpath and add_to_path come from bashrc-root/bashrc-func.
-  both check for duplicates before adding.
-  relative paths are relative to REPO_TOP.
-  the nested hdlforge call inherits the updated environment.
+  --env-python and --env-path are native HDLForge wrapper options.
+  they accept JSON arrays of strings, validate JSON, verify each path exists,
+  deduplicate paths, and carry the env state through nested hdlforge calls.
+  relative paths are resolved from the HDLForge project folder before
+  add_to_pythonpath/add_to_path. --env-var accepts a JSON array of
+  single-key objects, validates env keys, stringifies values, and carries env
+  vars through nested calls. pass project JSON leaves directly, or pass raw
+  JSON arrays when a value is not stored in the project JSON.
 
 Recursive shortcut calls:
 
@@ -95,13 +126,13 @@ Recursive shortcut calls:
     "testing": {
       "sim": {
         "basic": "hdlforge --tool Verilator --step sim --SimTargetName basic_test",
-        "basic_with_flags": "hdlforge --eval_json testing.sim.basic --eval_json_append '<extra flags>'"
+        "basic_with_flags": "hdlforge testing.sim.basic --append '<extra flags>'"
       }
     }
   }
 
   testing.sim.basic_with_flags calls testing.sim.basic.
-  --eval_json_append injects extra command-line flags into the inner shortcut.
+  --append injects extra command-line flags into the inner shortcut.
 
 Useful checks:
   jq '.LLM_orch | keys' <project>.hdlforge.json

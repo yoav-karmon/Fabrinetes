@@ -22,6 +22,600 @@ if [ ! -d "$FABRINETES/hdlforge/project_setup" ]; then
 fi
 # =============================================================================
 
+if [ "${HDLFORGE_ENV_STATE_ACTIVE:-0}" != "1" ]; then
+    unset HDLFORGE_ADD_PYTHONPATH
+    unset HDLFORGE_ADD_PATH
+    unset HDLFORGE_ADD_ENV_JSON
+    unset HDLFORGE_ADD_ENV_VAR_JSON
+fi
+
+HDLFORGE_ENV_PYTHON_JSONS=()
+HDLFORGE_ENV_PATH_JSONS=()
+HDLFORGE_ENV_VAR_JSONS=()
+HDLFORGE_COLLECTED_PYTHONPATHS=()
+HDLFORGE_COLLECTED_PATHS=()
+HDLFORGE_COLLECTED_ENV_KEYS=()
+HDLFORGE_COLLECTED_ENV_VALUES=()
+CURRENT_EVAL_JSON_MODE=false
+DRY_RUN=false
+if [[ -n "${HDLFORGE_DRY_RUN:-}" && "${HDLFORGE_DRY_RUN:-0}" != "0" ]]; then
+    DRY_RUN=true
+    export HDLFORGE_DRY_RUN=1
+fi
+
+hdlforge_warn() {
+    if [ "$CURRENT_EVAL_JSON_MODE" != true ]; then
+        echo "$@"
+    fi
+}
+
+hdlforge_shell_quote_args() {
+    local arg
+    local quoted_arg
+    local command_text=""
+
+    for arg in "$@"; do
+        printf -v quoted_arg '%q' "$arg"
+        if [ -z "$command_text" ]; then
+            command_text="$quoted_arg"
+        else
+            command_text="${command_text} ${quoted_arg}"
+        fi
+    done
+
+    printf '%s' "$command_text"
+}
+
+hdlforge_append_unique() {
+    local array_name="$1"
+    local value="$2"
+    local label="${3:-HDLForge env path}"
+    local -n target_array="$array_name"
+
+    [ -n "$value" ] || return 0
+    for existing in "${target_array[@]}"; do
+        if [ "$existing" = "$value" ]; then
+            hdlforge_warn "[!] HDLForge env duplicate $label ignored: $value"
+            return 1
+        fi
+    done
+    target_array+=("$value")
+    return 0
+}
+
+hdlforge_join_colon() {
+    local joined=""
+    local value
+    for value in "$@"; do
+        [ -n "$value" ] || continue
+        if [ -z "$joined" ]; then
+            joined="$value"
+        else
+            joined="${joined}:$value"
+        fi
+    done
+    printf '%s' "$joined"
+}
+
+hdlforge_resolve_project_path() {
+    local raw_path="$1"
+
+    raw_path="${raw_path/#\~/$HOME}"
+    if [[ "$raw_path" == /* ]]; then
+        realpath -m "$raw_path"
+    else
+        realpath -m "$ROOT_FOLDER/$raw_path"
+    fi
+}
+
+hdlforge_collect_colon_paths() {
+    local value="$1"
+    local array_name="$2"
+    local label="${3:-HDLForge env path}"
+    local path_value
+    local old_ifs="$IFS"
+
+    IFS=':'
+    for path_value in $value; do
+        hdlforge_append_unique "$array_name" "$path_value" "$label"
+    done
+    IFS="$old_ifs"
+}
+
+hdlforge_path_contains() {
+    local path_list="$1"
+    local path_to_find="$2"
+    local path_value
+    local old_ifs="$IFS"
+
+    IFS=':'
+    for path_value in $path_list; do
+        if [ "$path_value" = "$path_to_find" ]; then
+            IFS="$old_ifs"
+            return 0
+        fi
+    done
+    IFS="$old_ifs"
+    return 1
+}
+
+hdlforge_clean_env_json() {
+    local json_text="$1"
+    local source_label="${2:-HDLForge env JSON}"
+    local clean_json
+
+    if ! clean_json="$(printf '%s' "$json_text" | jq -c '.')"; then
+        echo "[!x!] $source_label is not valid JSON" >&2
+        echo "[i] Pass a selected-project JSON leaf or clean raw JSON" >&2
+        return 1
+    fi
+
+    printf '%s' "$clean_json"
+}
+
+hdlforge_find_project_json() {
+    local candidates=()
+
+    if [ -n "${PROJECT_FILE_PATH:-}" ] && [[ "$PROJECT_FILE_PATH" == *.hdlforge.json ]] && [ -f "$PROJECT_FILE_PATH" ]; then
+        realpath "$PROJECT_FILE_PATH"
+        return 0
+    fi
+
+    if [ -z "${ROOT_FOLDER:-}" ] || [ ! -d "$ROOT_FOLDER" ]; then
+        echo "[!x!] Cannot resolve HDLForge project JSON: ROOT_FOLDER is not set" >&2
+        return 1
+    fi
+
+    shopt -s nullglob
+    candidates=("$ROOT_FOLDER"/*.hdlforge.json)
+    shopt -u nullglob
+
+    if [ ${#candidates[@]} -eq 1 ]; then
+        realpath "${candidates[0]}"
+        return 0
+    fi
+
+    if [ ${#candidates[@]} -gt 1 ]; then
+        echo "[!x!] Cannot resolve HDLForge project JSON: multiple *.hdlforge.json files under $ROOT_FOLDER" >&2
+        echo "[i] Use --project <project_file> for env leaf resolution" >&2
+        return 1
+    fi
+
+    echo "[!x!] Cannot resolve HDLForge project JSON under $ROOT_FOLDER" >&2
+    return 1
+}
+
+hdlforge_resolve_env_json_arg() {
+    local json_text="$1"
+    local expected_type="$2"
+    local source_label="${3:-HDLForge env JSON}"
+    local clean_json
+    local project_json
+    local json_path
+    local leaf_json
+    local raw_json_was_valid=false
+
+    json_path="${json_text#.}"
+    project_json="$(hdlforge_find_project_json 2>/dev/null || true)"
+    if [ -n "$json_path" ] && [ -n "$project_json" ]; then
+        leaf_json="$(jq -c --arg json_path "$json_path" 'getpath($json_path | split("."))' "$project_json" 2>/dev/null || true)"
+        if [ -n "$leaf_json" ] && [ "$leaf_json" != "null" ]; then
+            if printf '%s' "$leaf_json" | jq -e --arg expected_type "$expected_type" 'type == $expected_type' >/dev/null 2>&1; then
+                printf '%s' "$leaf_json"
+                return 0
+            fi
+            echo "[!x!] $source_label project leaf validation failed: $json_path" >&2
+            echo "[i] Expected JSON type: $expected_type" >&2
+            return 1
+        fi
+    fi
+
+    if clean_json="$(printf '%s' "$json_text" | jq -c '.' 2>/dev/null)"; then
+        raw_json_was_valid=true
+        if printf '%s' "$clean_json" | jq -e --arg expected_type "$expected_type" 'type == $expected_type' >/dev/null 2>&1; then
+            printf '%s' "$clean_json"
+            return 0
+        fi
+    fi
+
+    if [ "$raw_json_was_valid" = true ]; then
+        echo "[!x!] $source_label validation failed" >&2
+        echo "[i] Raw JSON was valid, but expected JSON type: $expected_type" >&2
+        return 1
+    fi
+
+    echo "[!x!] $source_label is neither raw JSON nor a project JSON leaf: $json_text" >&2
+    echo "[i] Use a project leaf like verilator.config.sim_targets.full_sim.env.pythonpath" >&2
+    echo "[i] Or pass raw JSON such as [\"sources/tests\"]" >&2
+    return 1
+}
+
+hdlforge_validate_env_key() {
+    local key="$1"
+    if [[ ! "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+        echo "[!x!] Invalid HDLForge env key: $key"
+        echo "[i] Env keys must match [A-Za-z_][A-Za-z0-9_]*"
+        return 1
+    fi
+    return 0
+}
+
+hdlforge_collect_env_pair() {
+    local key="$1"
+    local value="$2"
+    local index
+
+    hdlforge_validate_env_key "$key" || return 1
+
+    for index in "${!HDLFORGE_COLLECTED_ENV_KEYS[@]}"; do
+        if [ "${HDLFORGE_COLLECTED_ENV_KEYS[$index]}" = "$key" ]; then
+            if [ "${HDLFORGE_COLLECTED_ENV_VALUES[$index]}" = "$value" ]; then
+                hdlforge_warn "[!] HDLForge env duplicate key ignored: $key"
+                return 0
+            fi
+            hdlforge_warn "[!] HDLForge env override: $key"
+            HDLFORGE_COLLECTED_ENV_VALUES[$index]="$value"
+            return 0
+        fi
+    done
+
+    HDLFORGE_COLLECTED_ENV_KEYS+=("$key")
+    HDLFORGE_COLLECTED_ENV_VALUES+=("$value")
+}
+
+hdlforge_collect_env_var_json() {
+    local json_text="$1"
+    local source_label="${2:-HDLForge env var JSON array}"
+    local clean_json
+    local entry
+    local key
+    local value
+
+    [ -n "$json_text" ] || return 0
+    clean_json="$(hdlforge_resolve_env_json_arg "$json_text" "array" "$source_label")" || return 1
+
+    if ! printf '%s' "$clean_json" | jq -e '
+        type == "array"
+        and all(.[]; type == "object" and length == 1)
+    ' >/dev/null 2>&1; then
+        echo "[!x!] $source_label validation failed" >&2
+        echo "[i] Expected a JSON array of single-key objects, e.g. [{\"FOO\":\"bar\"}]" >&2
+        return 1
+    fi
+
+    while IFS= read -r entry; do
+        [ -n "$entry" ] || continue
+        key="$(printf '%s' "$entry" | jq -r 'keys[0]')"
+        value="$(printf '%s' "$entry" | jq -r '.[keys[0]] | tostring')"
+        hdlforge_collect_env_pair "$key" "$value" || return 1
+    done < <(printf '%s' "$clean_json" | jq -c '.[]')
+}
+
+hdlforge_collect_path_array_json() {
+    local json_text="$1"
+    local array_name="$2"
+    local label="$3"
+    local source_label="${4:-HDLForge env path JSON array}"
+    local clean_json
+    local path_value
+    local resolved_path
+
+    [ -n "$json_text" ] || return 0
+    clean_json="$(hdlforge_resolve_env_json_arg "$json_text" "array" "$source_label")" || return 1
+
+    if ! printf '%s' "$clean_json" | jq -e '
+        type == "array"
+        and all(.[]; type == "string")
+    ' >/dev/null 2>&1; then
+        echo "[!x!] $source_label validation failed" >&2
+        echo "[i] Expected a JSON array of strings, e.g. [\"sources/tests\"]" >&2
+        return 1
+    fi
+
+    while IFS= read -r path_value; do
+        [ -n "$path_value" ] || continue
+        resolved_path="$(hdlforge_resolve_project_path "$path_value")"
+        if [ ! -e "$resolved_path" ]; then
+            echo "[!x!] HDLForge $label path does not exist: $resolved_path" >&2
+            echo "[i] Relative $label paths are resolved from project folder: $ROOT_FOLDER" >&2
+            return 1
+        fi
+        hdlforge_append_unique "$array_name" "$resolved_path" "$label"
+    done < <(printf '%s' "$clean_json" | jq -r '.[]')
+}
+
+hdlforge_parse_env_args() {
+    local args_filtered=()
+    local arg
+    local expect_value=""
+    local seen_dd=false
+
+    for arg in "$@"; do
+        if [ "$seen_dd" = true ]; then
+            args_filtered+=("$arg")
+            continue
+        fi
+
+        if [ -n "$expect_value" ]; then
+            case "$expect_value" in
+                --env-python) HDLFORGE_ENV_PYTHON_JSONS+=("$arg") ;;
+                --env-path) HDLFORGE_ENV_PATH_JSONS+=("$arg") ;;
+                --env-var) HDLFORGE_ENV_VAR_JSONS+=("$arg") ;;
+            esac
+            expect_value=""
+            continue
+        fi
+
+        case "$arg" in
+            --)
+                seen_dd=true
+                args_filtered+=("$arg")
+                ;;
+            --env-python|--env-path|--env-var)
+                expect_value="$arg"
+                ;;
+            --env-python-json)
+                echo "[!x!] --env-python-json was removed"
+                echo "[i] Use --env-python <pythonpath.array.leaf-or-raw-json>"
+                exit 1
+                ;;
+            --env-path-json)
+                echo "[!x!] --env-path-json was removed"
+                echo "[i] Use --env-path <path.array.leaf-or-raw-json>"
+                exit 1
+                ;;
+            --env-var-json)
+                echo "[!x!] --env-var-json was removed"
+                echo "[i] Use --env-var <env.array.leaf-or-raw-json>"
+                exit 1
+                ;;
+            --env-file|--env-str|--env-json)
+                echo "[!x!] $arg was removed"
+                echo "[i] Use --env-python <pythonpath.array.leaf-or-raw-json>"
+                echo "[i] Or:  --env-path <path.array.leaf-or-raw-json>"
+                echo "[i] Or:  --env-var <env.array.leaf-or-raw-json>"
+                exit 1
+                ;;
+            --env-json-file)
+                echo "[!x!] --env-json-file was removed"
+                echo "[i] Use --env-python, --env-path, or --env-var with a project leaf or raw JSON string"
+                exit 1
+                ;;
+            --env-json-str)
+                echo "[!x!] --env-json-str was removed"
+                echo "[i] Use --env-python, --env-path, or --env-var with a project leaf or raw JSON string"
+                exit 1
+                ;;
+            *)
+                args_filtered+=("$arg")
+                ;;
+        esac
+    done
+
+    if [ -n "$expect_value" ]; then
+        echo "[!x!] $expect_value requires a value"
+        exit 1
+    fi
+
+    set -- "${args_filtered[@]}"
+    HDLFORGE_FILTERED_ARGS=("$@")
+}
+
+hdlforge_apply_env_state() {
+    local json_arg
+    local path_arg
+    local env_key
+    local env_value
+    local index
+    local carry_env_var_json
+    local has_env_state=false
+
+    hdlforge_parse_env_args "$@"
+
+    if [ ${#HDLFORGE_ENV_PYTHON_JSONS[@]} -gt 0 ] \
+        || [ ${#HDLFORGE_ENV_PATH_JSONS[@]} -gt 0 ] \
+        || [ ${#HDLFORGE_ENV_VAR_JSONS[@]} -gt 0 ] \
+        || [ -n "${HDLFORGE_ADD_ENV_VAR_JSON:-}" ]; then
+        if ! command -v jq >/dev/null 2>&1; then
+            echo "[!x!] jq is required for HDLForge env handling"
+            exit 1
+        fi
+    fi
+
+    if [ "${HDLFORGE_ENV_STATE_ACTIVE:-0}" = "1" ]; then
+        hdlforge_collect_colon_paths "${HDLFORGE_ADD_PYTHONPATH:-}" HDLFORGE_COLLECTED_PYTHONPATHS "PYTHONPATH"
+        hdlforge_collect_colon_paths "${HDLFORGE_ADD_PATH:-}" HDLFORGE_COLLECTED_PATHS "PATH"
+        if [ -n "${HDLFORGE_ADD_ENV_VAR_JSON:-}" ]; then
+            hdlforge_collect_env_var_json "$HDLFORGE_ADD_ENV_VAR_JSON" "HDLForge inherited env var JSON" || exit 1
+        fi
+    fi
+
+    for json_arg in "${HDLFORGE_ENV_PYTHON_JSONS[@]}"; do
+        hdlforge_collect_path_array_json \
+            "$json_arg" \
+            HDLFORGE_COLLECTED_PYTHONPATHS \
+            "PYTHONPATH" \
+            "HDLForge --env-python array" || exit 1
+    done
+
+    for json_arg in "${HDLFORGE_ENV_PATH_JSONS[@]}"; do
+        hdlforge_collect_path_array_json \
+            "$json_arg" \
+            HDLFORGE_COLLECTED_PATHS \
+            "PATH" \
+            "HDLForge --env-path array" || exit 1
+    done
+
+    for json_arg in "${HDLFORGE_ENV_VAR_JSONS[@]}"; do
+        hdlforge_collect_env_var_json "$json_arg" "HDLForge --env-var array" || exit 1
+    done
+
+    for path_arg in "${HDLFORGE_COLLECTED_PYTHONPATHS[@]}"; do
+        if hdlforge_path_contains "${PYTHONPATH:-}" "$path_arg"; then
+            hdlforge_warn "[!] HDLForge env duplicate PYTHONPATH already present: $path_arg"
+        fi
+        add_to_pythonpath "$path_arg"
+        has_env_state=true
+    done
+
+    for path_arg in "${HDLFORGE_COLLECTED_PATHS[@]}"; do
+        if hdlforge_path_contains "$PATH" "$path_arg"; then
+            hdlforge_warn "[!] HDLForge env duplicate PATH already present: $path_arg"
+        fi
+        add_to_path "$path_arg"
+        has_env_state=true
+    done
+
+    for index in "${!HDLFORGE_COLLECTED_ENV_KEYS[@]}"; do
+        env_key="${HDLFORGE_COLLECTED_ENV_KEYS[$index]}"
+        env_value="${HDLFORGE_COLLECTED_ENV_VALUES[$index]}"
+        export "$env_key=$env_value"
+        has_env_state=true
+    done
+
+    if command -v remove_duplicates_from_path >/dev/null 2>&1; then
+        if [ -n "$PATH" ]; then
+            export PATH="$(remove_duplicates_from_path "$PATH")"
+        fi
+        if [ -n "$PYTHONPATH" ]; then
+            export PYTHONPATH="$(remove_duplicates_from_path "$PYTHONPATH")"
+        fi
+    fi
+
+    if [ "$has_env_state" = true ]; then
+        export HDLFORGE_ENV_STATE_ACTIVE=1
+        export HDLFORGE_ADD_PYTHONPATH="$(hdlforge_join_colon "${HDLFORGE_COLLECTED_PYTHONPATHS[@]}")"
+        export HDLFORGE_ADD_PATH="$(hdlforge_join_colon "${HDLFORGE_COLLECTED_PATHS[@]}")"
+        if [ ${#HDLFORGE_COLLECTED_ENV_KEYS[@]} -gt 0 ]; then
+            carry_env_var_json="$(jq -cn '[]')"
+            for index in "${!HDLFORGE_COLLECTED_ENV_KEYS[@]}"; do
+                env_key="${HDLFORGE_COLLECTED_ENV_KEYS[$index]}"
+                env_value="${HDLFORGE_COLLECTED_ENV_VALUES[$index]}"
+                carry_env_var_json="$(
+                    jq -cn \
+                        --argjson base "$carry_env_var_json" \
+                        --arg key "$env_key" \
+                        --arg value "$env_value" \
+                        '$base + [{($key): $value}]'
+                )"
+            done
+            export HDLFORGE_ADD_ENV_VAR_JSON="$carry_env_var_json"
+        else
+            unset HDLFORGE_ADD_ENV_VAR_JSON
+        fi
+        unset HDLFORGE_ADD_ENV_JSON
+    else
+        unset HDLFORGE_ENV_STATE_ACTIVE
+        unset HDLFORGE_ADD_PYTHONPATH
+        unset HDLFORGE_ADD_PATH
+        unset HDLFORGE_ADD_ENV_JSON
+        unset HDLFORGE_ADD_ENV_VAR_JSON
+    fi
+
+    set -- "${HDLFORGE_FILTERED_ARGS[@]}"
+    HDLFORGE_FILTERED_ARGS=("$@")
+}
+
+hdlforge_inject_default_eval_json() {
+    local has_tool=false
+    local has_eval_json=false
+    local expect_value=""
+    local seen_dd=false
+    local non_flag_count=0
+    local non_flag_value=""
+    local eval_json_path=""
+    local arg
+    local injected=false
+    local new_args=()
+
+    for arg in "$@"; do
+        if [ "$seen_dd" = true ]; then
+            continue
+        fi
+
+        if [ -n "$expect_value" ]; then
+            expect_value=""
+            continue
+        fi
+
+        case "$arg" in
+            --)
+                seen_dd=true
+                ;;
+            --tool)
+                has_tool=true
+                expect_value="$arg"
+                ;;
+            --eval_json)
+                has_eval_json=true
+                expect_value="$arg"
+                ;;
+            --project|--env-python|--env-path|--env-var|--append|--eval_json_append)
+                expect_value="$arg"
+                ;;
+            -*)
+                ;;
+            *)
+                non_flag_count=$((non_flag_count + 1))
+                non_flag_value="$arg"
+                ;;
+        esac
+    done
+
+    if [ "$has_eval_json" = true ] && [ "$non_flag_count" -gt 0 ]; then
+        echo "[!x!] Error: explicit --eval_json cannot be combined with shorthand shortcut path: $non_flag_value"
+        echo "[i] Use either: hdlforge --eval_json <json.command.path>"
+        echo "[i] Or:         hdlforge <llm_orch.dotted.path>"
+        return 1
+    fi
+
+    if [ "$has_tool" = true ] || [ "$has_eval_json" = true ] || [ "$non_flag_count" -ne 1 ]; then
+        HDLFORGE_DEFAULT_EVAL_JSON_ARGS=("$@")
+        return 0
+    fi
+
+    expect_value=""
+    seen_dd=false
+    for arg in "$@"; do
+        if [ "$seen_dd" = true ]; then
+            new_args+=("$arg")
+            continue
+        fi
+
+        if [ -n "$expect_value" ]; then
+            new_args+=("$arg")
+            expect_value=""
+            continue
+        fi
+
+        case "$arg" in
+            --)
+                seen_dd=true
+                new_args+=("$arg")
+                ;;
+            --tool|--eval_json|--project|--env-python|--env-path|--env-var|--append|--eval_json_append)
+                new_args+=("$arg")
+                expect_value="$arg"
+                ;;
+            *)
+                if [ "$injected" = false ] && [ "$arg" = "$non_flag_value" ]; then
+                    if [[ "$arg" == LLM_orch.* ]]; then
+                        eval_json_path="$arg"
+                    else
+                        eval_json_path="LLM_orch.${arg}"
+                    fi
+                    new_args+=("--eval_json" "$eval_json_path")
+                    injected=true
+                else
+                    new_args+=("$arg")
+                fi
+                ;;
+        esac
+    done
+
+    HDLFORGE_DEFAULT_EVAL_JSON_ARGS=("${new_args[@]}")
+}
+
 # Check if any arguments are provided
 if [ $# -lt 1 ]; then
     # Look for existing project files in current directory (JSON first, then TOML)
@@ -33,11 +627,12 @@ if [ $# -lt 1 ]; then
     if [ -n "$hdlforge_files" ] && [ $(echo "$hdlforge_files" | wc -l) -eq 1 ]; then
         # Exactly one file found - use it in the example
         example_file=$(echo "$hdlforge_files" | head -1)
-        echo "Usage: hdlforge [--project <project_file>] --tool <tool_name> [--arg value --arg value...]"
+        echo "Usage: hdlforge [--project <project_file>] [--env-python <array-leaf-or-json> | --env-path <array-leaf-or-json> | --env-var <array-leaf-or-json>] [--dry-run] --tool <tool_name> [--arg value --arg value...]"
+        echo "   or: hdlforge [--project <project_file>] [--env-python <array-leaf-or-json> | --env-path <array-leaf-or-json> | --env-var <array-leaf-or-json>] [--dry-run] <llm_orch.dotted.path> [--append <fragment>]"
         echo ""
         echo "Available Tools:"
         echo "  vivado        - FPGA Development Tasks (synthesis, implementation, bitstream)"
-        echo "  Verilator     - Simulation Tasks (build, sim)"
+        echo "  Verilator     - Simulation Tasks (build, sim, lint)"
         echo "  network       - Network Utilities (raw packet sending)"
         echo "  vcd_analyzer  - VCD Waveform Analysis"
         echo "  tsharkWrapper - tshark Command Wrapper"
@@ -46,11 +641,12 @@ if [ $# -lt 1 ]; then
         echo ""
         echo "hdlforge auto-detected project file in the current directory: $example_file"
     else
-        echo "Usage: hdlforge [--project <project_file>] --tool <tool_name> [--arg value --arg value...]"
+        echo "Usage: hdlforge [--project <project_file>] [--env-python <array-leaf-or-json> | --env-path <array-leaf-or-json> | --env-var <array-leaf-or-json>] [--dry-run] --tool <tool_name> [--arg value --arg value...]"
+        echo "   or: hdlforge [--project <project_file>] [--env-python <array-leaf-or-json> | --env-path <array-leaf-or-json> | --env-var <array-leaf-or-json>] [--dry-run] <llm_orch.dotted.path> [--append <fragment>]"
         echo ""
         echo "Available Tools:"
         echo "  vivado        - FPGA Development Tasks (synthesis, implementation, bitstream)"
-        echo "  Verilator     - Simulation Tasks (build, sim)"
+        echo "  Verilator     - Simulation Tasks (build, sim, lint)"
         echo "  network       - Network Utilities (raw packet sending)"
         echo "  vcd_analyzer  - VCD Waveform Analysis"
         echo "  tsharkWrapper - tshark Command Wrapper"
@@ -200,9 +796,30 @@ for arg in "$@"; do
         NO_PRINT=true
         continue
     fi
+    if [[ "$arg" == "--dry-run" ]]; then
+        DRY_RUN=true
+        export HDLFORGE_DRY_RUN=1
+        continue
+    fi
     args_filtered+=("$arg")
 done
 set -- "${args_filtered[@]}"
+
+hdlforge_inject_default_eval_json "$@" || exit 1
+set -- "${HDLFORGE_DEFAULT_EVAL_JSON_ARGS[@]}"
+
+CURRENT_EVAL_JSON_MODE=false
+for arg in "$@"; do
+    if [[ "$arg" == "--" ]]; then
+        break
+    fi
+    if [[ "$arg" == "--eval_json" ]]; then
+        CURRENT_EVAL_JSON_MODE=true
+        NO_PRINT=true
+        export HDLFORGE_NOPRINT=1
+        break
+    fi
+done
 
 # Change to project directory (only if PROJECT_DIR is set)
 if [ -n "$PROJECT_DIR" ]; then
@@ -239,6 +856,10 @@ if [ -n "$PROJECT_DIR" ]; then
 else
     export ROOT_FOLDER="$(pwd)"
 fi
+
+hdlforge_apply_env_state "$@"
+set -- "${HDLFORGE_FILTERED_ARGS[@]}"
+
 mkdir -p "$TASKS_DIR/logs"
 log_file="$TASKS_DIR/logs/hdlforge_${timestamp}_pid${shell_id}.log"
 
@@ -270,7 +891,7 @@ if [ "$eval_json_mode" = true ]; then
     for arg in "$@"; do
         if [[ "$arg" == "--tool" ]]; then
             echo "[!x!] Error: --tool cannot be used with --eval_json"
-            echo "[i] Put --tool in the JSON command and append leaf args with --eval_json_append VALUE"
+            echo "[i] Put --tool in the JSON command and append leaf args with --append VALUE"
             exit 1
         fi
     done
@@ -295,7 +916,7 @@ if [ "$has_tool_flag" = false ]; then
     if [ "$eval_json_mode" = false ]; then
         echo "[!x!] Error: --tool is required unless --eval_json is used"
         echo "[i] Usage: hdlforge --tool <tool_name> [options...]"
-        echo "[i] Or:    hdlforge --eval_json <dotted.path> [--eval_json_append VALUE]"
+        echo "[i] Or:    hdlforge --eval_json <json.command.path> [--append VALUE]"
         exit 1
     fi
 
@@ -334,22 +955,22 @@ if [ "$has_tool_flag" = false ]; then
     fi
     
     # Build JSON path from remaining arguments (skip flags like --project).
-    # --eval_json_append appends one shell command fragment to the JSON command.
+    # --append appends one shell command fragment to the JSON command.
     # Anonymous passthrough is intentionally rejected.
     JSON_PATH_PARTS=()
-    EVAL_JSON_APPEND_ARGS=()
+    APPEND_ARGS=()
     EVAL_JSON=false
     skip_next=false
-    expect_eval_append=false
+    expect_append=false
     for arg in "$@"; do
-        if [ "$expect_eval_append" = true ]; then
-            if [ ${#EVAL_JSON_APPEND_ARGS[@]} -gt 0 ]; then
-                echo "[!x!] Error: only one --eval_json_append is supported"
+        if [ "$expect_append" = true ]; then
+            if [ ${#APPEND_ARGS[@]} -gt 0 ]; then
+                echo "[!x!] Error: only one --append is supported"
                 echo "[i] Put the full CLI fragment in one quoted append value"
                 exit 1
             fi
-            EVAL_JSON_APPEND_ARGS+=("$arg")
-            expect_eval_append=false
+            APPEND_ARGS+=("$arg")
+            expect_append=false
             continue
         fi
         # Skip --project and its value if present
@@ -363,25 +984,30 @@ if [ "$has_tool_flag" = false ]; then
         fi
         if [[ "$arg" == "--" ]]; then
             echo "[!x!] Error: anonymous passthrough is not supported in LLM_orch commands"
-            echo "[i] Use --eval_json and one --eval_json_append VALUE for leaf args"
+            echo "[i] Use --eval_json and one --append VALUE for leaf args"
             exit 1
         fi
         if [[ "$arg" == "--eval_json" ]]; then
             EVAL_JSON=true
             continue
         fi
-        if [[ "$arg" == "--eval_json_append" ]]; then
-            expect_eval_append=true
+        if [[ "$arg" == "--append" ]]; then
+            expect_append=true
             continue
         fi
+        if [[ "$arg" == "--eval_json_append" ]]; then
+            echo "[!x!] Error: --eval_json_append was renamed to --append"
+            echo "[i] Use --append VALUE to append one command fragment to the JSON command"
+            exit 1
+        fi
         if [[ "$arg" == "--eval_json_arg" ]]; then
-            echo "[!x!] Error: --eval_json_arg was replaced by --eval_json_append"
-            echo "[i] Use --eval_json_append VALUE to append one command fragment to the JSON command"
+            echo "[!x!] Error: --eval_json_arg was replaced by --append"
+            echo "[i] Use --append VALUE to append one command fragment to the JSON command"
             exit 1
         fi
         if [[ "$arg" == --* ]]; then
-            echo "[!x!] Error: unsupported LLM_orch option: $arg"
-            echo "[i] Use --eval_json and --eval_json_append VALUE"
+            echo "[!x!] Error: unsupported JSON command option: $arg"
+            echo "[i] Use --eval_json and --append VALUE"
             exit 1
         fi
         # Only add non-flag arguments (those that don't start with --) to the path
@@ -390,37 +1016,46 @@ if [ "$has_tool_flag" = false ]; then
         fi
     done
 
-    if [ "$expect_eval_append" = true ]; then
-        echo "[!x!] Error: --eval_json_append requires VALUE"
+    if [ "$expect_append" = true ]; then
+        echo "[!x!] Error: --append requires VALUE"
         exit 1
     fi
 
-    # Enforce a single dotted LLM_orch path token before `--`
+    # Enforce a single dotted JSON path token before `--`
     if [ ${#JSON_PATH_PARTS[@]} -eq 0 ]; then
         echo "[!x!] Error: No command path provided"
-        echo "[i] Usage: hdlforge --eval_json <dotted.path> [--eval_json_append VALUE ...]"
-        echo "[i] Example: hdlforge --eval_json testing.base.sim.run --eval_json_append '--extra-env TESTCASE=arp_test'"
+        echo "[i] Usage: hdlforge --eval_json <json.command.path> [--append VALUE ...]"
+        echo "[i] Example: hdlforge --eval_json testing.base.sim.run --append '--extra-env TESTCASE=arp_test'"
         exit 1
     fi
     if [ ${#JSON_PATH_PARTS[@]} -ne 1 ]; then
-        echo "[!x!] Error: LLM_orch path must be a single dotted token"
+        echo "[!x!] Error: JSON path must be a single dotted token"
         echo "[i] Use dots instead of spaces, e.g.: hdlforge --eval_json testing.arp_test.sim.build_and_run"
         exit 1
     fi
     
-    JSON_PATH="LLM_orch.${JSON_PATH_PARTS[0]}"
+    JSON_PATH="${JSON_PATH_PARTS[0]}"
     
-    NODE_TYPE=$(jq -r ".${JSON_PATH} | type" "$PROJECT_JSON" 2>/dev/null)
+    NODE_TYPE=$(jq -r --arg json_path "$JSON_PATH" 'getpath($json_path | split(".")) | type' "$PROJECT_JSON" 2>/dev/null)
+
+    if ([ -z "$NODE_TYPE" ] || [ "$NODE_TYPE" = "null" ]) && [[ "$JSON_PATH" != LLM_orch.* ]]; then
+        JSON_PATH_CANDIDATE="LLM_orch.${JSON_PATH}"
+        NODE_TYPE_CANDIDATE=$(jq -r --arg json_path "$JSON_PATH_CANDIDATE" 'getpath($json_path | split(".")) | type' "$PROJECT_JSON" 2>/dev/null)
+        if [ -n "$NODE_TYPE_CANDIDATE" ] && [ "$NODE_TYPE_CANDIDATE" != "null" ]; then
+            JSON_PATH="$JSON_PATH_CANDIDATE"
+            NODE_TYPE="$NODE_TYPE_CANDIDATE"
+        fi
+    fi
 
     if [ -z "$NODE_TYPE" ] || [ "$NODE_TYPE" = "null" ]; then
         echo "[!x!] Error: Command not found at JSON path: ${JSON_PATH}"
-        echo "[i] Available paths in LLM_orch:"
-        jq -r '.LLM_orch | paths(scalars) as $p | "  LLM_orch." + ($p | join("."))' "$PROJECT_JSON" 2>/dev/null | head -20 || echo "  (unable to parse JSON structure)"
+        echo "[i] Available command-like string paths:"
+        jq -r 'paths(strings) as $p | "  " + ($p | join("."))' "$PROJECT_JSON" 2>/dev/null | head -20 || echo "  (unable to parse JSON structure)"
         exit 1
     fi
 
     if [ "$NODE_TYPE" = "object" ] || [ "$NODE_TYPE" = "array" ]; then
-        echo "Run options for ${JSON_PATH_PARTS[0]}:"
+        echo "Run options for ${JSON_PATH}:"
         jq -r --arg json_path "$JSON_PATH" --arg prefix "${JSON_PATH_PARTS[0]}" '
             getpath($json_path | split(".")) |
             paths(scalars) as $p |
@@ -430,25 +1065,25 @@ if [ "$has_tool_flag" = false ]; then
     fi
 
     if [ "$NODE_TYPE" != "string" ]; then
-        echo "[!x!] Error: ${JSON_PATH} resolves to ${NODE_TYPE}, but LLM_orch commands must be strings."
+        echo "[!x!] Error: ${JSON_PATH} resolves to ${NODE_TYPE}, but JSON commands must be strings."
         exit 1
     fi
 
     # Fetch command from JSON using jq
-    COMMAND=$(jq -r ".${JSON_PATH}" "$PROJECT_JSON" 2>/dev/null)
+    COMMAND=$(jq -r --arg json_path "$JSON_PATH" 'getpath($json_path | split("."))' "$PROJECT_JSON" 2>/dev/null)
 
     if [ -z "$COMMAND" ]; then
         echo "[!x!] Error: Empty command at JSON path: ${JSON_PATH}"
         exit 1
     fi
     
-    for _eval_append_arg in "${EVAL_JSON_APPEND_ARGS[@]}"; do
-        COMMAND="${COMMAND} ${_eval_append_arg}"
+    for _append_arg in "${APPEND_ARGS[@]}"; do
+        COMMAND="${COMMAND} ${_append_arg}"
     done
     
     # Execute the fetched command recursively
     if [ "$NO_PRINT" = false ]; then
-        echo "[i] LLM Orchestration Mode: ${JSON_PATH}"
+        echo "[i] JSON Command Mode: ${JSON_PATH}"
         echo "[i] Executing: ${COMMAND}"
         echo ""
     fi
@@ -470,6 +1105,14 @@ echo "--------$(pwd): $Date: $timestamp Time $time------" >> "$log_file"
 
 # Export original directory for Python scripts that need to resolve relative paths
 export HDLFORGE_ORIG_DIR="$ORIG_DIR"
+
+if [ "$DRY_RUN" = true ]; then
+    echo "[i] HDLForge dry-run: final --tool command resolved"
+    echo "[i] Working directory: $(pwd)"
+    echo "[i] Command: $(hdlforge_shell_quote_args python3 "$TASKS_DIR/tasks.py" "$@")"
+    echo "[i] --tool execution skipped"
+    exit 0
+fi
 
 # Execute the command
 exec python3 "$TASKS_DIR/tasks.py" "$@" | tee -a "$log_file"
