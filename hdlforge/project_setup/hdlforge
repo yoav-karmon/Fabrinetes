@@ -66,6 +66,11 @@ hdlforge_shell_quote_args() {
     printf '%s' "$command_text"
 }
 
+hdlforge_print_usage() {
+    echo "Usage: hdlforge [--project <project_file>] [--env-python <array-leaf-or-json> | --env-path <array-leaf-or-json> | --env-var <array-leaf-or-json>] [--dry-run] --tool <tool_name> [--arg value --arg value...]"
+    echo "   or: hdlforge [--project <project_file>] [--env-python <array-leaf-or-json> | --env-path <array-leaf-or-json> | --env-var <array-leaf-or-json>] [--dry-run] <llm_orch.dotted.path> [--append <fragment>]"
+}
+
 hdlforge_append_unique() {
     local array_name="$1"
     local value="$2"
@@ -564,8 +569,7 @@ hdlforge_inject_default_eval_json() {
 
     if [ "$has_eval_json" = true ] && [ "$non_flag_count" -gt 0 ]; then
         echo "[!x!] Error: explicit --eval_json cannot be combined with shorthand shortcut path: $non_flag_value"
-        echo "[i] Use either: hdlforge --eval_json <json.command.path>"
-        echo "[i] Or:         hdlforge <llm_orch.dotted.path>"
+        hdlforge_print_usage
         return 1
     fi
 
@@ -627,8 +631,7 @@ if [ $# -lt 1 ]; then
     if [ -n "$hdlforge_files" ] && [ $(echo "$hdlforge_files" | wc -l) -eq 1 ]; then
         # Exactly one file found - use it in the example
         example_file=$(echo "$hdlforge_files" | head -1)
-        echo "Usage: hdlforge [--project <project_file>] [--env-python <array-leaf-or-json> | --env-path <array-leaf-or-json> | --env-var <array-leaf-or-json>] [--dry-run] --tool <tool_name> [--arg value --arg value...]"
-        echo "   or: hdlforge [--project <project_file>] [--env-python <array-leaf-or-json> | --env-path <array-leaf-or-json> | --env-var <array-leaf-or-json>] [--dry-run] <llm_orch.dotted.path> [--append <fragment>]"
+        hdlforge_print_usage
         echo ""
         echo "Available Tools:"
         echo "  vivado        - FPGA Development Tasks (synthesis, implementation, bitstream)"
@@ -641,8 +644,7 @@ if [ $# -lt 1 ]; then
         echo ""
         echo "hdlforge auto-detected project file in the current directory: $example_file"
     else
-        echo "Usage: hdlforge [--project <project_file>] [--env-python <array-leaf-or-json> | --env-path <array-leaf-or-json> | --env-var <array-leaf-or-json>] [--dry-run] --tool <tool_name> [--arg value --arg value...]"
-        echo "   or: hdlforge [--project <project_file>] [--env-python <array-leaf-or-json> | --env-path <array-leaf-or-json> | --env-var <array-leaf-or-json>] [--dry-run] <llm_orch.dotted.path> [--append <fragment>]"
+        hdlforge_print_usage
         echo ""
         echo "Available Tools:"
         echo "  vivado        - FPGA Development Tasks (synthesis, implementation, bitstream)"
@@ -891,7 +893,7 @@ if [ "$eval_json_mode" = true ]; then
     for arg in "$@"; do
         if [[ "$arg" == "--tool" ]]; then
             echo "[!x!] Error: --tool cannot be used with --eval_json"
-            echo "[i] Put --tool in the JSON command and append leaf args with --append VALUE"
+            hdlforge_print_usage
             exit 1
         fi
     done
@@ -915,8 +917,7 @@ done
 if [ "$has_tool_flag" = false ]; then
     if [ "$eval_json_mode" = false ]; then
         echo "[!x!] Error: --tool is required unless --eval_json is used"
-        echo "[i] Usage: hdlforge --tool <tool_name> [options...]"
-        echo "[i] Or:    hdlforge --eval_json <json.command.path> [--append VALUE]"
+        hdlforge_print_usage
         exit 1
     fi
 
@@ -942,8 +943,7 @@ if [ "$has_tool_flag" = false ]; then
     
     if [ -z "$PROJECT_JSON" ] || [ ! -f "$PROJECT_JSON" ]; then
         echo "[!x!] Error: --tool is required or project JSON file not found"
-        echo "[i] Usage: hdlforge --tool <tool_name> [options...]"
-        echo "[i] Or provide a project JSON file (*.hdlforge.json) with LLM_orch configuration"
+        hdlforge_print_usage
         exit 1
     fi
     
@@ -966,7 +966,7 @@ if [ "$has_tool_flag" = false ]; then
         if [ "$expect_append" = true ]; then
             if [ ${#APPEND_ARGS[@]} -gt 0 ]; then
                 echo "[!x!] Error: only one --append is supported"
-                echo "[i] Put the full CLI fragment in one quoted append value"
+                hdlforge_print_usage
                 exit 1
             fi
             APPEND_ARGS+=("$arg")
@@ -984,7 +984,7 @@ if [ "$has_tool_flag" = false ]; then
         fi
         if [[ "$arg" == "--" ]]; then
             echo "[!x!] Error: anonymous passthrough is not supported in LLM_orch commands"
-            echo "[i] Use --eval_json and one --append VALUE for leaf args"
+            hdlforge_print_usage
             exit 1
         fi
         if [[ "$arg" == "--eval_json" ]]; then
@@ -997,17 +997,17 @@ if [ "$has_tool_flag" = false ]; then
         fi
         if [[ "$arg" == "--eval_json_append" ]]; then
             echo "[!x!] Error: --eval_json_append was renamed to --append"
-            echo "[i] Use --append VALUE to append one command fragment to the JSON command"
+            hdlforge_print_usage
             exit 1
         fi
         if [[ "$arg" == "--eval_json_arg" ]]; then
             echo "[!x!] Error: --eval_json_arg was replaced by --append"
-            echo "[i] Use --append VALUE to append one command fragment to the JSON command"
+            hdlforge_print_usage
             exit 1
         fi
         if [[ "$arg" == --* ]]; then
             echo "[!x!] Error: unsupported JSON command option: $arg"
-            echo "[i] Use --eval_json and --append VALUE"
+            hdlforge_print_usage
             exit 1
         fi
         # Only add non-flag arguments (those that don't start with --) to the path
@@ -1018,19 +1018,19 @@ if [ "$has_tool_flag" = false ]; then
 
     if [ "$expect_append" = true ]; then
         echo "[!x!] Error: --append requires VALUE"
+        hdlforge_print_usage
         exit 1
     fi
 
     # Enforce a single dotted JSON path token before `--`
     if [ ${#JSON_PATH_PARTS[@]} -eq 0 ]; then
         echo "[!x!] Error: No command path provided"
-        echo "[i] Usage: hdlforge --eval_json <json.command.path> [--append VALUE ...]"
-        echo "[i] Example: hdlforge --eval_json testing.base.sim.run --append '--extra-env TESTCASE=arp_test'"
+        hdlforge_print_usage
         exit 1
     fi
     if [ ${#JSON_PATH_PARTS[@]} -ne 1 ]; then
         echo "[!x!] Error: JSON path must be a single dotted token"
-        echo "[i] Use dots instead of spaces, e.g.: hdlforge --eval_json testing.arp_test.sim.build_and_run"
+        hdlforge_print_usage
         exit 1
     fi
     
