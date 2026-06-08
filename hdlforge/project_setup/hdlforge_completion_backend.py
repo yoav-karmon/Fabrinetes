@@ -15,8 +15,8 @@ NETWORK_COMMANDS = ["send_raw", "send_arp", "send_icmp", "send_udp"]
 HW_SERVER_COMMANDS = ["program", "scan_ila", "scan_jtag", "read_dna"]
 VERILATOR_STEPS = ["build", "sim", "lint"]
 GLOBAL_ENV_FLAGS = ["--env-python", "--env-path", "--env-var"]
-GLOBAL_FLAGS = [*GLOBAL_ENV_FLAGS, "--dry-run"]
-GLOBAL_VALUE_FLAGS = {"--project", "--tool", "--env-python", "--env-path", "--env-var"}
+GLOBAL_FLAGS = [*GLOBAL_ENV_FLAGS, "--dry-run", "--no-print"]
+GLOBAL_VALUE_FLAGS = {"--project", "--tool", "--cmd", "--env-python", "--env-path", "--env-var"}
 REPEATABLE_GLOBAL_ENV_FLAGS = {"--env-python", "--env-path", "--env-var"}
 
 
@@ -738,17 +738,19 @@ def parse_llm_mode(tokens_before_current: list[str], cwd: Path) -> ParsedState:
     state = ParsedState(tokens=tokens_before_current, cwd=cwd, seen=set(tokens_before_current))
     state.project_file = detect_project_file(tokens_before_current, cwd)
 
-    expecting_project_value = False
+    expecting_value_flag: str | None = None
     expecting_append_value = False
     for token in tokens_before_current:
-        if expecting_project_value:
-            expecting_project_value = False
+        if expecting_value_flag:
+            if expecting_value_flag == "--cmd":
+                state.cmd = token
+            expecting_value_flag = None
             continue
         if expecting_append_value:
             expecting_append_value = False
             continue
         if token in GLOBAL_VALUE_FLAGS:
-            expecting_project_value = True
+            expecting_value_flag = token
             continue
         if token == "--eval_json":
             state.eval_json = True
@@ -778,12 +780,20 @@ def complete_llm(tokens_before_current: list[str], cur: str, cwd: Path) -> Compl
         return complete_project_files(cur, state)
     if prev in {"--env-python", "--env-path", "--env-var"}:
         return CompletionResult([])
+    if prev == "--cmd":
+        return CompletionResult([])
     if prev == "--eval_json":
         return complete_json_path(state.project_file, cur)
     if prev == "--append":
         return CompletionResult([])
 
-    llm_flags = filter_single_use(["--eval_json", "--project", "--tool", *GLOBAL_FLAGS, "--help", "-h"], state)
+    if state.cmd is not None:
+        append_flags = [] if state.has_append else ["--append"]
+        if cur.startswith("-") or not cur:
+            return complete_words(cur, append_flags)
+        return CompletionResult([])
+
+    llm_flags = filter_single_use(["--eval_json", "--cmd", "--project", "--tool", *GLOBAL_FLAGS, "--help", "-h"], state)
 
     if (cur.startswith("-") or not cur) and not state.has_llm_path:
         merged = unique(complete_llm_path(state.project_file, cur).completions + [flag for flag in llm_flags if flag.startswith(cur)])
