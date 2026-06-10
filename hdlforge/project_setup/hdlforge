@@ -1196,11 +1196,15 @@ if [ "$has_tool_flag" = false ]; then
         echo ""
     fi
 
-    if [ "$DRY_RUN" = true ] && [ "$CMD_MODE" = true ]; then
-        echo "[i] HDLForge dry-run: --cmd command resolved"
+    if [ "$DRY_RUN" = true ]; then
+        if [ "$CMD_MODE" = true ]; then
+            echo "[i] HDLForge dry-run: --cmd command resolved"
+        else
+            echo "[i] HDLForge dry-run: JSON command resolved"
+        fi
         echo "[i] Working directory: $PROJECT_JSON_DIR"
         echo "[i] Command: ${COMMAND}"
-        echo "[i] --cmd execution skipped"
+        echo "[i] execution skipped"
         exit 0
     fi
     
