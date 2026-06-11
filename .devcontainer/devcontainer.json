@@ -27,6 +27,7 @@
   "workspaceMount": "",
   "workspaceFolder": "${localEnv:CONTAINER_WORKSPACE_FOLDER}",
   "overrideCommand": false,
+  "init": true,
   "postStartCommand": "true",
   "runArgs": [
     "--pull=never",
