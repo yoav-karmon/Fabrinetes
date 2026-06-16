@@ -1044,11 +1044,6 @@ if [ "$has_tool_flag" = false ]; then
             continue
         fi
         if [ "$expect_append" = true ]; then
-            if [ ${#APPEND_ARGS[@]} -gt 0 ]; then
-                echo "[!x!] Error: only one --append is supported"
-                hdlforge_print_usage
-                exit 1
-            fi
             APPEND_ARGS+=("$arg")
             expect_append=false
             continue
@@ -1182,7 +1177,11 @@ if [ "$has_tool_flag" = false ]; then
     fi
     
     for _append_arg in "${APPEND_ARGS[@]}"; do
-        COMMAND="${COMMAND} ${_append_arg}"
+        if [[ "$COMMAND" =~ ^[[:space:]]*hdlforge([[:space:]]|$) ]]; then
+            COMMAND="${COMMAND} $(hdlforge_shell_quote_args --append "$_append_arg")"
+        else
+            COMMAND="${COMMAND} ${_append_arg}"
+        fi
     done
     
     # Execute the fetched command recursively
@@ -1214,8 +1213,11 @@ if [ "$has_tool_flag" = false ]; then
         exit 1
     }
     
-    # Execute the command (recursive call to hdlforge)
-    # Use eval to properly handle quoted arguments in the command.
+    # Execute the command (recursive call to hdlforge).
+    # Use eval to properly handle quoted arguments in the command. Disable
+    # brace expansion so CLI values like --group-fire-pattern {1:0,2:0,4}
+    # are passed as data instead of expanded by bash.
+    set +o braceexpand
     eval "$COMMAND"
     exit $?
 fi
