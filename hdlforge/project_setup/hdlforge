@@ -120,6 +120,150 @@ hdlforge_resolve_project_path() {
     fi
 }
 
+hdlforge_project_file_from_dir() {
+    local search_dir="$1"
+    local candidates=()
+
+    [ -d "$search_dir" ] || return 1
+    shopt -s nullglob
+    candidates=("$search_dir"/*.hdlforge.json "$search_dir"/*.hdlforge.toml)
+    shopt -u nullglob
+
+    if [ ${#candidates[@]} -gt 0 ]; then
+        realpath "${candidates[0]}"
+        return 0
+    fi
+    return 1
+}
+
+hdlforge_trim() {
+    local value="$1"
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+    printf '%s' "$value"
+}
+
+hdlforge_infer_project_from_source_path() {
+    local raw_path="$1"
+    local first_path
+    local resolved_path
+    local search_dir
+    local project_file
+
+    first_path="$(hdlforge_trim "${raw_path%%,*}")"
+    [ -n "$first_path" ] || return 1
+
+    first_path="${first_path/#\~/$HOME}"
+    if [[ "$first_path" == /* ]]; then
+        resolved_path="$(realpath -m "$first_path")"
+    else
+        resolved_path="$(realpath -m "$(pwd -P)/$first_path")"
+    fi
+
+    if [ -f "$resolved_path" ]; then
+        search_dir="$(dirname "$resolved_path")"
+    elif [ -d "$resolved_path" ]; then
+        search_dir="$resolved_path"
+    else
+        return 1
+    fi
+
+    while [ -n "$search_dir" ]; do
+        project_file="$(hdlforge_project_file_from_dir "$search_dir" || true)"
+        if [ -n "$project_file" ]; then
+            printf '%s\n' "$project_file"
+            return 0
+        fi
+        [ "$search_dir" = "/" ] && break
+        search_dir="$(dirname "$search_dir")"
+    done
+
+    return 1
+}
+
+hdlforge_infer_project_from_verilator_file_args() {
+    local arg
+    local expect_file_value=false
+    local project_file
+
+    for arg in "$@"; do
+        if [[ "$arg" == "--" ]]; then
+            break
+        fi
+
+        if [ "$expect_file_value" = true ]; then
+            project_file="$(hdlforge_infer_project_from_source_path "$arg" || true)"
+            if [ -n "$project_file" ]; then
+                printf '%s\n' "$project_file"
+                return 0
+            fi
+            expect_file_value=false
+            continue
+        fi
+
+        case "$arg" in
+            --lint-file|--file)
+                expect_file_value=true
+                ;;
+            --lint-file=*|--file=*)
+                project_file="$(hdlforge_infer_project_from_source_path "${arg#*=}" || true)"
+                if [ -n "$project_file" ]; then
+                    printf '%s\n' "$project_file"
+                    return 0
+                fi
+                ;;
+        esac
+    done
+
+    return 1
+}
+
+hdlforge_rewrite_selected_source_value() {
+    local raw_value="$1"
+    local invocation_dir="$2"
+    local project_dir="$3"
+    local old_ifs="$IFS"
+    local part
+    local trimmed_part
+    local resolved_part
+    local rewritten_part
+    local rewritten_value=""
+
+    IFS=','
+    for part in $raw_value; do
+        trimmed_part="$(hdlforge_trim "$part")"
+        [ -n "$trimmed_part" ] || continue
+
+        trimmed_part="${trimmed_part/#\~/$HOME}"
+        if [[ "$trimmed_part" == /* ]]; then
+            resolved_part="$(realpath -m "$trimmed_part")"
+        else
+            resolved_part="$(realpath -m "$invocation_dir/$trimmed_part")"
+        fi
+
+        if [[ "$resolved_part" == "$project_dir" ]]; then
+            rewritten_part="."
+        elif [[ "$resolved_part" == "$project_dir"/* ]]; then
+            rewritten_part="$(realpath --relative-to="$project_dir" "$resolved_part" 2>/dev/null || printf '%s' "$resolved_part")"
+        else
+            rewritten_part="$resolved_part"
+        fi
+
+        if [ -z "$rewritten_value" ]; then
+            rewritten_value="$rewritten_part"
+        else
+            rewritten_value="${rewritten_value},${rewritten_part}"
+        fi
+    done
+    IFS="$old_ifs"
+
+    if [ -n "$rewritten_value" ]; then
+        printf '%s' "$rewritten_value"
+    else
+        printf '%s' "$raw_value"
+    fi
+}
+
 hdlforge_collect_colon_paths() {
     local value="$1"
     local array_name="$2"
@@ -706,13 +850,26 @@ else
     PROJECT_FILE_PATH=""
     PROJECT_DIR=""
     PROJECT_FILENAME=""
+    TOOL_NAME=""
     
-    # Parse arguments to find --project
+    # Parse arguments to find --project and --tool
     args=("$@")
     for i in "${!args[@]}"; do
         if [[ "${args[i]}" == "--project" && $((i+1)) -lt ${#args[@]} ]]; then
             PROJECT_FILE="${args[i+1]}"
-            break
+            continue
+        fi
+        if [[ "${args[i]}" == --project=* ]]; then
+            PROJECT_FILE="${args[i]#--project=}"
+            continue
+        fi
+        if [[ "${args[i]}" == "--tool" && $((i+1)) -lt ${#args[@]} ]]; then
+            TOOL_NAME="${args[i+1]}"
+            continue
+        fi
+        if [[ "${args[i]}" == --tool=* ]]; then
+            TOOL_NAME="${args[i]#--tool=}"
+            continue
         fi
     done
     
@@ -738,6 +895,15 @@ else
         # Get the directory containing the project file
         PROJECT_DIR="$(dirname "$PROJECT_FILE_PATH")"
         PROJECT_FILENAME="$(basename "$PROJECT_FILE_PATH")"
+    elif [ "$TOOL_NAME" = "Verilator" ]; then
+        PROJECT_FILE_PATH="$(hdlforge_infer_project_from_verilator_file_args "$@" || true)"
+        if [ -n "$PROJECT_FILE_PATH" ]; then
+            PROJECT_DIR="$(dirname "$PROJECT_FILE_PATH")"
+            PROJECT_FILENAME="$(basename "$PROJECT_FILE_PATH")"
+        else
+            PROJECT_DIR="$(pwd)"
+            PROJECT_FILENAME=""
+        fi
     else
         # No project file specified - will be auto-detected by Python
         # Set PROJECT_DIR to current directory
@@ -756,6 +922,7 @@ if [ -n "$PROJECT_FILE_PATH" ] && [ -n "$PROJECT_DIR" ] && [ -n "$PROJECT_FILENA
     if [ "$CURRENT_DIR" != "$PROJECT_DIR_REAL" ]; then
         normalized_args=()
         skip_next=false
+        rewrite_next_selected_source=false
 
         for arg in "$@"; do
             if [ "$skip_next" = true ]; then
@@ -763,9 +930,24 @@ if [ -n "$PROJECT_FILE_PATH" ] && [ -n "$PROJECT_DIR" ] && [ -n "$PROJECT_FILENA
                 continue
             fi
 
+            if [ "$rewrite_next_selected_source" = true ]; then
+                normalized_args+=("$(hdlforge_rewrite_selected_source_value "$arg" "$CURRENT_DIR" "$PROJECT_DIR_REAL")")
+                rewrite_next_selected_source=false
+                continue
+            fi
+
             if [[ "$arg" == "--project" ]]; then
                 skip_next=true
                 normalized_args+=("--project" "$PROJECT_FILENAME")
+            elif [[ "$arg" == --project=* ]]; then
+                normalized_args+=("--project=$PROJECT_FILENAME")
+            elif [[ "$arg" == "--lint-file" || "$arg" == "--file" ]]; then
+                normalized_args+=("$arg")
+                rewrite_next_selected_source=true
+            elif [[ "$arg" == --lint-file=* ]]; then
+                normalized_args+=("--lint-file=$(hdlforge_rewrite_selected_source_value "${arg#--lint-file=}" "$CURRENT_DIR" "$PROJECT_DIR_REAL")")
+            elif [[ "$arg" == --file=* ]]; then
+                normalized_args+=("--file=$(hdlforge_rewrite_selected_source_value "${arg#--file=}" "$CURRENT_DIR" "$PROJECT_DIR_REAL")")
             else
                 normalized_args+=("$arg")
             fi
@@ -1178,7 +1360,11 @@ if [ "$has_tool_flag" = false ]; then
     
     for _append_arg in "${APPEND_ARGS[@]}"; do
         if [[ "$COMMAND" =~ ^[[:space:]]*hdlforge([[:space:]]|$) ]]; then
-            COMMAND="${COMMAND} $(hdlforge_shell_quote_args --append "$_append_arg")"
+            if [[ "$COMMAND" =~ (^|[[:space:]])--tool([[:space:]]|$) ]]; then
+                COMMAND="${COMMAND} ${_append_arg}"
+            else
+                COMMAND="${COMMAND} $(hdlforge_shell_quote_args --append "$_append_arg")"
+            fi
         else
             COMMAND="${COMMAND} ${_append_arg}"
         fi

@@ -31,6 +31,83 @@ from hw_server_tasks import hw_server, help_hw_server
 from project_file import ProjectFile
 
 
+def normalize_cli_args(argv: List[str]) -> List[str]:
+    normalized = []
+    idx = 0
+    while idx < len(argv):
+        arg = argv[idx]
+        if arg == "--flags" and idx + 1 < len(argv):
+            normalized.append(f"--flags={argv[idx + 1]}")
+            idx += 2
+            continue
+        normalized.append(arg)
+        idx += 1
+    return normalized
+
+
+def _load_help_project(project: str | None) -> ProjectFile | None:
+    if project is None:
+        root_folder = Path(os.environ.get("ROOT_FOLDER", os.getcwd()))
+        project_files = sorted(root_folder.glob("*.hdlforge.json"))
+        project_files.extend(sorted(root_folder.glob("*.hdlforge.toml")))
+        if len(project_files) != 1:
+            return None
+        project = str(project_files[0])
+
+    try:
+        return ProjectFile(project)
+    except SystemExit:
+        return None
+
+
+def _as_token_list(raw_value: Any) -> List[str]:
+    if raw_value is None:
+        return []
+    if isinstance(raw_value, list):
+        return [str(value) for value in raw_value]
+    return [str(raw_value)]
+
+
+def _print_token_table(tokens: List[str]) -> None:
+    for index, token in enumerate(tokens, start=1):
+        print(f"    {index:3d}. {token}")
+
+
+def print_verilator_project_flag_help(project: str | None, sim_target_name: str | None) -> None:
+    project_file = _load_help_project(project)
+    if project_file is None:
+        return
+
+    build_args = project_file.verilator_config.get("build_args", {})
+    flag_tokens = _as_token_list(
+        build_args.get("verilator_flags") if isinstance(build_args, dict) else build_args
+    )
+
+    print("PROJECT BUILD_ARGS FLAG CATALOG:")
+    print(f"  Project: {project_file.project_file_path}")
+    print("  JSON:    verilator.config.build_args.verilator_flags")
+    print(f"  Count:   {len(flag_tokens)}")
+    if flag_tokens:
+        _print_token_table(flag_tokens)
+    else:
+        print("    (none)")
+    print()
+
+    if not sim_target_name:
+        return
+
+    sim_target = project_file.get_sim_target(sim_target_name)
+    target_tokens = _as_token_list((sim_target or {}).get("build_args"))
+    print("ACTIVE SIM TARGET BUILD_ARGS:")
+    print(f"  Target: {sim_target_name}")
+    print(f"  Count:  {len(target_tokens)}")
+    if target_tokens:
+        _print_token_table(target_tokens)
+    else:
+        print("    (none)")
+    print()
+
+
 def projects(c, set_project=None, list_projects=False):
     """
     List available projects recursively from the current directory.
@@ -244,7 +321,7 @@ def help_vivado():
     print("=" * 80)
 
 
-def help_verilator():
+def help_verilator(project: str | None = None, sim_target_name: str | None = None):
     """
     Show detailed help for Verilator tool
     """
@@ -258,8 +335,9 @@ def help_verilator():
     print("USAGE:")
     print("  hdlforge --tool Verilator <--arg1> <value1> <--arg2> <value2> ...")
     print()
-    print("REQUIRED ARGUMENTS:")
-    print("    --SimTargetName <TARGET>            Simulation target name (must match target in project config)")
+    print("TARGET ARGUMENTS:")
+    print("    --SimTargetName <TARGET>            Required for build, sim, and full-target lint")
+    print("                                          Optional for lint when --file/--lint-file is provided")
     print()
     print("AVAILABLE STEPS:")
     print("    --step build                         Compile SystemVerilog files to C++ executable")
@@ -270,15 +348,19 @@ def help_verilator():
     print("    --project <PATH>                     Specify project file path (optional)")
     print("    --clean                              Clean build directory before running")
     print("    --flags <FLAGS>                      Additional Verilator flags; may be repeated")
-    print("    --lint-file <PATH[,PATH2]>           Lint only selected project-relative source file(s)")
+    print("    --file <PATH[,PATH2]>                Lint selected project file(s) with package/library lookup")
+    print("    --lint-file <PATH[,PATH2]>           Lint only selected source file(s), without dependencies")
     print("    --extra-env <KEY=VAL,KEY2=VAL2>      Additional environment variables")
     print()
     print("NOTES:")
-    print("  • SimTargetName must be defined in your project's verilator_settings.sim_targets")
+    print("  • SimTargetName must be defined in your project's verilator_settings.sim_targets when used")
     print("  • Multiple --step flags can be provided to run multiple steps in sequence")
     print("  • Build step must be run before sim step")
-    print("  • Lint step is independent from build/sim and accepts optional --lint-file")
+    print("  • --file and --lint-file imply --step lint when no step is supplied")
+    print("  • Lint step is independent from build/sim and accepts optional --file or --lint-file")
+    print("  • Targetless file lint scopes -Werror-<CODE> failures to the selected file(s)")
     print()
+    print_verilator_project_flag_help(project, sim_target_name)
     print("=" * 80)
 
 
@@ -441,7 +523,8 @@ if __name__ == "__main__":
     parser.add_argument('--SimTargetName', help='Simulation target name')
     parser.add_argument('--clean', action='store_true', help='Clean before building')
     parser.add_argument('--flags', action='append', help='Additional Verilator flags; may be repeated')
-    parser.add_argument('--lint-file', action='append', help='Project-relative Verilator source file(s) for lint')
+    parser.add_argument('--file', dest='project_lint_file', action='append', help='Project-relative Verilator source file(s) for dependency-aware lint')
+    parser.add_argument('--lint-file', action='append', help='Project-relative Verilator source file(s) for raw selected-file lint')
     parser.add_argument('--extra-env', help='Extra environment variables')
     
     # Vivado arguments
@@ -526,7 +609,7 @@ if __name__ == "__main__":
     parser.add_argument('--list', action='store_true', help='List all available projects recursively from current directory')
     
     # Use parse_known_args to detect extra arguments for better error messages
-    args, unknown = parser.parse_known_args()
+    args, unknown = parser.parse_known_args(normalize_cli_args(sys.argv[1:]))
     
     # Check for common mistakes with vcd_analyzer
     if args.tool == 'vcd_analyzer' and args.get_modules_list and unknown:
@@ -551,7 +634,7 @@ if __name__ == "__main__":
             if args.tool == 'vivado':
                 help_vivado()
             elif args.tool == 'Verilator':
-                help_verilator()
+                help_verilator(args.project, args.SimTargetName)
             elif args.tool == 'network':
                 help_network()
             elif args.tool == 'vcd_analyzer':
@@ -576,9 +659,17 @@ if __name__ == "__main__":
     
     # Handle command dispatch based on --tool
     if args.tool == 'Verilator':
+        if not args.step and (args.lint_file or args.project_lint_file):
+            args.step = ["lint"]
         # Check if required arguments are missing - show help
-        if not args.SimTargetName and not args.help:
-            help_verilator()
+        steps = args.step or []
+        targetless_file_lint = (
+            steps
+            and all(step == "lint" for step in steps)
+            and bool(args.lint_file or args.project_lint_file)
+        )
+        if not args.SimTargetName and not args.help and not targetless_file_lint:
+            help_verilator(args.project, args.SimTargetName)
             sys.exit(0)
         Verilator(
             c,
@@ -589,6 +680,7 @@ if __name__ == "__main__":
             args.flags,
             args.extra_env,
             args.lint_file,
+            args.project_lint_file,
         )
     elif args.tool == 'vivado':
         # Check if deprecated --step is used with vivado

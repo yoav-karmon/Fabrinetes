@@ -125,8 +125,49 @@ def get_explicit_flag_values(tokens: list[str], flag: str) -> list[str]:
             values.append(tokens[idx + 1])
             idx += 2
             continue
+        if token.startswith(f"{flag}="):
+            values.append(token.split("=", 1)[1])
         idx += 1
     return values
+
+
+def _project_file_from_dir(directory: Path) -> Path | None:
+    for suffix in ("*.hdlforge.json", "*.hdlforge.toml"):
+        matches = sorted(directory.glob(suffix))
+        if matches:
+            return matches[0].resolve()
+    return None
+
+
+def _project_file_from_source_path(raw_path: str, cwd: Path) -> Path | None:
+    first_path = raw_path.split(",", 1)[0].strip()
+    if not first_path:
+        return None
+
+    candidate = Path(os.path.expanduser(first_path))
+    if not candidate.is_absolute():
+        candidate = cwd / candidate
+
+    try:
+        resolved = candidate.resolve()
+    except OSError:
+        return None
+
+    search_dir = resolved if resolved.is_dir() else resolved.parent
+    for directory in [search_dir, *search_dir.parents]:
+        project_file = _project_file_from_dir(directory)
+        if project_file:
+            return project_file
+    return None
+
+
+def detect_project_file_from_selected_sources(tokens: list[str], cwd: Path) -> Path | None:
+    for flag in ("--lint-file", "--file"):
+        for raw_path in reversed(get_explicit_flag_values(tokens, flag)):
+            project_file = _project_file_from_source_path(raw_path, cwd)
+            if project_file:
+                return project_file
+    return None
 
 
 def detect_project_file(tokens: list[str], cwd: Path) -> Path | None:
@@ -138,11 +179,11 @@ def detect_project_file(tokens: list[str], cwd: Path) -> Path | None:
         if candidate.is_file():
             return candidate.resolve()
 
-    for suffix in ("*.hdlforge.json", "*.hdlforge.toml"):
-        matches = sorted(cwd.glob(suffix))
-        if matches:
-            return matches[0].resolve()
-    return None
+    inferred = detect_project_file_from_selected_sources(tokens, cwd)
+    if inferred:
+        return inferred
+
+    return _project_file_from_dir(cwd)
 
 
 def project_json_data(state: ParsedState) -> dict | None:
@@ -499,6 +540,11 @@ VALUE_HANDLER_TREE: dict[str, dict[str, Handler]] = {
             _state.cwd,
             suffixes=(".sv", ".v", ".svh", ".vh"),
         ),
+        "--file": lambda cur, _state: complete_path(
+            cur,
+            _state.cwd,
+            suffixes=(".sv", ".v", ".svh", ".vh"),
+        ),
     },
     "tool:network": {
         "--cmd": complete_network_cmds,
@@ -615,9 +661,9 @@ def suggest_vivado_flags(state: ParsedState) -> list[str]:
 
 def suggest_verilator_flags(state: ParsedState) -> list[str]:
     return filter_single_use(
-        ["--step", "--SimTargetName", "--clean", "--verbose", "--flags", "--lint-file", "--extra-env", "--project", *GLOBAL_FLAGS, "--help", "-h"],
+        ["--step", "--SimTargetName", "--clean", "--verbose", "--flags", "--lint-file", "--file", "--extra-env", "--project", *GLOBAL_FLAGS, "--help", "-h"],
         state,
-        repeatable={"--step", "--flags", "--lint-file"},
+        repeatable={"--step", "--flags", "--lint-file", "--file"},
     )
 
 

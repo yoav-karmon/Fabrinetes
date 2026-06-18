@@ -116,6 +116,88 @@ def _resolve_lint_files(lint_file, working_path: Path) -> List[Path]:
     return lint_files
 
 
+def _dedupe_paths(paths: List[Path]) -> List[Path]:
+    deduped_paths = []
+    seen_paths = set()
+    for path in paths:
+        resolved_path = path.resolve()
+        if resolved_path in seen_paths:
+            continue
+        seen_paths.add(resolved_path)
+        deduped_paths.append(resolved_path)
+    return deduped_paths
+
+
+def _resolve_project_lint_sources(selected_files: List[Path], source_files: List[Path]) -> List[Path]:
+    if not selected_files:
+        return []
+
+    source_indices = {source_file.resolve(): index for index, source_file in enumerate(source_files)}
+    missing_files = [selected_file for selected_file in selected_files if selected_file.resolve() not in source_indices]
+    if missing_files:
+        missing_text = ", ".join(str(missing_file) for missing_file in missing_files)
+        raise FileNotFoundError(
+            f"Verilator lint --file path(s) are not in the project source list: {missing_text}. "
+            "Use --lint-file for raw selected-file lint outside the ordered project source list."
+        )
+
+    package_sources = [
+        source_file
+        for source_file in source_files
+        if source_file.name.endswith("_pkg.sv") or "PACKAGES" in source_file.parts
+    ]
+    return _dedupe_paths([*package_sources, *selected_files])
+
+
+def _resolve_project_lint_library_files(source_files: List[Path], lint_sources: List[Path]) -> List[Path]:
+    lint_source_set = {lint_source.resolve() for lint_source in lint_sources}
+    return _dedupe_paths([
+        source_file
+        for source_file in source_files
+        if source_file.resolve() not in lint_source_set
+    ])
+
+
+def _werror_warning_codes(cli_flags: List[str]) -> List[str]:
+    warning_codes = []
+    for cli_flag in cli_flags:
+        match = re.match(r"^-Werror-([0-9A-Za-z_-]+)$", cli_flag)
+        if match:
+            warning_codes.append(match.group(1))
+    return warning_codes
+
+
+def _demote_werror_flags(cli_flags: List[str], warning_codes: List[str]) -> List[str]:
+    warning_code_set = set(warning_codes)
+    demoted_flags = []
+    for cli_flag in cli_flags:
+        match = re.match(r"^-Werror-([0-9A-Za-z_-]+)$", cli_flag)
+        if match and match.group(1) in warning_code_set:
+            warning_flag = f"-Wwarn-{match.group(1)}"
+            if warning_flag not in demoted_flags:
+                demoted_flags.append(warning_flag)
+            continue
+        demoted_flags.append(cli_flag)
+    return demoted_flags
+
+
+def _selected_file_warning_lines(output: str, selected_files: List[Path], warning_codes: List[str]) -> List[str]:
+    selected_file_set = {selected_file.resolve() for selected_file in selected_files}
+    warning_code_set = set(warning_codes)
+    diagnostic_pattern = re.compile(r"^%(?:Warning|Error)-([^:]+): ([^:]+):[0-9]+:[0-9]+:")
+    scoped_lines = []
+
+    for line in output.splitlines():
+        match = diagnostic_pattern.match(line)
+        if not match or match.group(1) not in warning_code_set:
+            continue
+        diagnostic_path = Path(match.group(2)).expanduser().resolve()
+        if diagnostic_path in selected_file_set:
+            scoped_lines.append(line)
+
+    return scoped_lines
+
+
 def _verilator_run_dir_name(SimTargetName: str, extra_env: Dict[str, Any]) -> str:
     """Unique cocotb test_dir under build_dir for feature shards and config_test suffixes."""
     testcase = extra_env.get("TESTCASE", "").strip()
@@ -191,7 +273,7 @@ def verify_sim_target(SimTargetName, verilator_settings):
     return sim_targets_dict[SimTargetName]
 
 
-def Verilator(c, project, step=None, clean=False, SimTargetName=None, flags=None, extra_env=None, lint_file=None):
+def Verilator(c, project, step=None, clean=False, SimTargetName=None, flags=None, extra_env=None, lint_file=None, project_lint_file=None):
     # Import shared utilities
     from environment import capture_environment_variables
     from display import print_task_args
@@ -209,6 +291,8 @@ def Verilator(c, project, step=None, clean=False, SimTargetName=None, flags=None
         step = [step]
     elif step is None:
         step = []
+    if not step and (lint_file or project_lint_file):
+        step = ["lint"]
     
     REPO_TOP = Path(os.environ["REPO_TOP"])  # Fail fast if REPO_TOP is not set
     
@@ -226,33 +310,51 @@ def Verilator(c, project, step=None, clean=False, SimTargetName=None, flags=None
     ALLOWED_STEPS["SimTargetName"] = available_sim_targets
     
     print_task_args(locals(), str(REPO_TOP), ALLOWED_STEPS)
-    
-    # Check if SimTargetName is specified before proceeding
-    if SimTargetName is None:
-        print(f"\n[!x!]  SimTargetName must be specified. Use --SimTargetName <target_name>")
+
+    targetless_file_lint = (
+        SimTargetName is None
+        and step
+        and all(requested_step == "lint" for requested_step in step)
+        and bool(lint_file or project_lint_file)
+    )
+
+    if SimTargetName is None and not targetless_file_lint:
+        print(
+            "\n[!x!]  SimTargetName must be specified for build/sim or full-target lint. "
+            "For file-only lint, use --file <path> or --lint-file <path>."
+        )
         return
     
     build_dir = project_file.verilator_build_dir
     SOURCES_DICT_LIST = project_file.get_verilator_sources()
-      
-    
-    # Verify the parameters and get the target data
-    SimTarget = project_file.get_sim_target(SimTargetName)
-    if SimTarget is None:
-        print(f"\n[!x!]  SimTargetName '{SimTargetName}' not found in verilator.config['sim_targets']")
-        print(f"Available SimTargetNames: {', '.join(available_sim_targets)}")
-        exit(1)    
-    
-    top_module = SimTarget["top_module"]
-    build_args = _split_cli_flags(SimTarget.get("build_args", []))
-    lint_args = _split_cli_flags(SimTarget.get("lint_args", []))
-    defines = SimTarget.get("defines", {})
-    parameters = SimTarget.get("parameters", {})
-    python_file_path = Path(working_path) / SimTarget["python_file"] 
-    test_name = SimTarget.get("test_name", None)
-    if test_name is None and extra_env.get("TESTCASE"):
-        test_name = str(extra_env["TESTCASE"]).strip() or None
-    run_dir_name = _verilator_run_dir_name(SimTargetName, extra_env)
+
+    if targetless_file_lint:
+        top_module = None
+        build_args = []
+        lint_args = []
+        defines = {}
+        parameters = {}
+        python_file_path = None
+        test_name = None
+        run_dir_name = "lint"
+    else:
+        # Verify the parameters and get the target data
+        SimTarget = project_file.get_sim_target(SimTargetName)
+        if SimTarget is None:
+            print(f"\n[!x!]  SimTargetName '{SimTargetName}' not found in verilator.config['sim_targets']")
+            print(f"Available SimTargetNames: {', '.join(available_sim_targets)}")
+            exit(1)
+
+        top_module = SimTarget["top_module"]
+        build_args = _split_cli_flags(SimTarget.get("build_args", []))
+        lint_args = _split_cli_flags(SimTarget.get("lint_args", []))
+        defines = SimTarget.get("defines", {})
+        parameters = SimTarget.get("parameters", {})
+        python_file_path = Path(working_path) / SimTarget["python_file"]
+        test_name = SimTarget.get("test_name", None)
+        if test_name is None and extra_env.get("TESTCASE"):
+            test_name = str(extra_env["TESTCASE"]).strip() or None
+        run_dir_name = _verilator_run_dir_name(SimTargetName, extra_env)
     
     print(f"\n[~] processing steps {step}", flush=True)
     sys.stdout.flush()
@@ -262,30 +364,88 @@ def Verilator(c, project, step=None, clean=False, SimTargetName=None, flags=None
                 try:
                     veruilator_sources_file = _resolve_verilator_source_files(SOURCES_DICT_LIST)
                     selected_lint_files = _resolve_lint_files(lint_file, working_path)
-                    lint_sources = selected_lint_files if selected_lint_files else veruilator_sources_file
+                    project_selected_lint_files = _resolve_lint_files(project_lint_file, working_path)
+                    project_lint_sources = _resolve_project_lint_sources(
+                        project_selected_lint_files,
+                        veruilator_sources_file,
+                    )
+                    lint_sources = _dedupe_paths([*project_lint_sources, *selected_lint_files])
+                    if not lint_sources:
+                        lint_sources = veruilator_sources_file
+                    project_lint_library_files = (
+                        _resolve_project_lint_library_files(veruilator_sources_file, lint_sources)
+                        if project_selected_lint_files
+                        else []
+                    )
                     includes_paths_list = _resolve_include_paths(
                         verilator_settings.get("includes_paths", []),
                         working_path,
                     )
+                    selected_warning_error_codes = (
+                        _werror_warning_codes(cli_flags)
+                        if targetless_file_lint and lint_sources
+                        else []
+                    )
+                    active_cli_flags = (
+                        _demote_werror_flags(cli_flags, selected_warning_error_codes)
+                        if selected_warning_error_codes
+                        else cli_flags
+                    )
 
                     command = ["verilator", "--lint-only"]
-                    if not selected_lint_files:
+                    if not selected_lint_files and not project_selected_lint_files and top_module is not None:
                         command.extend(["--top-module", str(top_module)])
                     command.extend(f"-I{include_path}" for include_path in includes_paths_list)
+                    for library_file in project_lint_library_files:
+                        command.extend(["-v", str(library_file)])
                     command.extend(build_args)
                     command.extend(lint_args)
-                    command.extend(cli_flags)
+                    command.extend(active_cli_flags)
                     command.extend(str(source_file) for source_file in lint_sources)
 
                     print(f"[i] Verilator step: {s}", flush=True)
                     print(f"[i] Linting {len(lint_sources)} source file(s)", flush=True)
+                    if project_selected_lint_files:
+                        print("[i] Project-aware selected lint file(s):", flush=True)
+                        for selected_file in project_selected_lint_files:
+                            print(f"    {selected_file}", flush=True)
+                        print(f"[i] Included project package sources: {len(project_lint_sources) - len(project_selected_lint_files)}", flush=True)
+                        print(f"[i] Added project source library files: {len(project_lint_library_files)}", flush=True)
                     if selected_lint_files:
-                        print("[i] Selected lint file(s):", flush=True)
+                        print("[i] Raw selected lint file(s):", flush=True)
                         for selected_file in selected_lint_files:
                             print(f"    {selected_file}", flush=True)
+                    if selected_warning_error_codes:
+                        print(
+                            "[i] Selected-file warning failures: "
+                            f"{', '.join(selected_warning_error_codes)}",
+                            flush=True,
+                        )
                     print(f"[i] Verilator lint command: {shlex.join(command)}", flush=True)
                     print(f"\n================start of verilator output : lint================", flush=True)
-                    subprocess.run(command, cwd=working_path, check=True)
+                    if selected_warning_error_codes:
+                        completed_lint = subprocess.run(
+                            command,
+                            cwd=working_path,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT,
+                            text=True,
+                            check=False,
+                        )
+                        print(completed_lint.stdout, end="", flush=True)
+                        selected_warning_lines = _selected_file_warning_lines(
+                            completed_lint.stdout,
+                            [*project_selected_lint_files, *selected_lint_files],
+                            selected_warning_error_codes,
+                        )
+                        if selected_warning_lines:
+                            raise RuntimeError(
+                                "Selected file warning(s) matched fatal lint rule:\n"
+                                + "\n".join(selected_warning_lines)
+                            )
+                        completed_lint.check_returncode()
+                    else:
+                        subprocess.run(command, cwd=working_path, check=True)
                     print(f"================end of verilator output : lint================\n", flush=True)
                     print("[+] Verilator lint completed", flush=True)
                 except Exception as e:

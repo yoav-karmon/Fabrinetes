@@ -23,6 +23,13 @@ Tools:
 Verilator:
   hdlforge --tool Verilator --step build --SimTargetName <target>
   hdlforge --tool Verilator --step sim --SimTargetName <target>
+  hdlforge --tool Verilator --step lint --SimTargetName <target>
+  hdlforge --tool Verilator --file <source.sv> --flags -Wno-fatal --flags -Werror-UNUSEDSIGNAL
+  hdlforge --tool Verilator --lint-file <source.sv> --flags -Wno-fatal
+  --file lints selected project files with package sources and source-dir lookup
+  --lint-file lints only the selected file path without dependency sources
+  --file and --lint-file imply --step lint when no step is supplied
+  targetless file lint scopes -Werror-<CODE> failures to selected files
 
 Vivado:
   hdlforge --tool vivado --generate_prj_with_external_tcl
