@@ -421,6 +421,22 @@ def complete_json_path(project_file: Path | None, cur: str) -> CompletionResult:
     return CompletionResult(completions, nospace=any(entry.endswith(".") for entry in completions))
 
 
+def is_deployment_program_file_path(dotted: str | None) -> bool:
+    if not dotted:
+        return False
+    if dotted.startswith("LLM_orch."):
+        dotted = dotted.removeprefix("LLM_orch.")
+
+    parts = dotted.split(".")
+    return (
+        len(parts) == 6
+        and parts[0] == "deployment"
+        and parts[1] == "manager"
+        and parts[2] == "program"
+        and parts[-1] == "file"
+    )
+
+
 def parse_classic_state(tokens: list[str], cwd: Path) -> ParsedState:
     state = ParsedState(tokens=tokens, cwd=cwd, seen=set())
     state.project_file = detect_project_file(tokens, cwd)
@@ -831,6 +847,8 @@ def complete_llm(tokens_before_current: list[str], cur: str, cwd: Path) -> Compl
     if prev == "--eval_json":
         return complete_json_path(state.project_file, cur)
     if prev == "--append":
+        if is_deployment_program_file_path(state.llm_path):
+            return complete_path(cur, state.cwd, suffixes=(".bit",))
         return CompletionResult([])
 
     if state.cmd is not None:
