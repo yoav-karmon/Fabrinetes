@@ -136,7 +136,24 @@ proc hdlforge_wait_for_runs { run_names label } {
     foreach run_name $run_names {
         set run_obj [hdlforge_one_run $run_name]
         puts "(i) Waiting for $label run $run_index ($run_name) to complete..."
-        wait_on_run $run_obj
+        set wait_rc [catch {wait_on_run $run_obj} wait_msg]
+        if { $wait_rc != 0 } {
+            set status [get_property STATUS $run_obj]
+            set progress [get_property PROGRESS $run_obj]
+            set run_dir [get_property DIRECTORY $run_obj]
+            set log_file [file join $run_dir "runme.log"]
+            puts ""
+            puts "\[!x!\] Vivado $label run failed: $run_name"
+            puts "      Status:   $status"
+            puts "      Progress: $progress"
+            puts "      Log:      $log_file"
+            puts "      Reason:   $wait_msg"
+            puts ""
+            puts "      Check the log above or run:"
+            puts "        tail -120 $log_file"
+            close_project
+            exit 1
+        }
         incr run_index
     }
 }
@@ -257,4 +274,5 @@ foreach impl_run $all_impl_runs {
 puts "============================================================"
 
 puts "(i) tcl script completed."
-
+close_project
+exit 0

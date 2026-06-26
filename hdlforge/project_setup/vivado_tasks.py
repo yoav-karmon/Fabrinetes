@@ -5,6 +5,7 @@ Vivado task handlers for HDLForge
 
 import os
 import sys
+import subprocess
 from pathlib import Path
 from typing import List
 from enum import Enum
@@ -265,17 +266,23 @@ def vivado(
         # Join enabled impl names with space for TCL script
         impl_names_str = " ".join(enabled_impls)
         
-        with c.cd(str(project_file.vivado_build_dir)):
-            table = [["Step", step]]
-            table.append(["Synth", synth_names_str])
-            table.append(["Impl", impl_names_str])
-            table.append(["Parameters", paramaters])
-            table.append(["Defines", defines])
-            print(tabulate(table, headers="firstrow", tablefmt="grid"))
+        table = [["Step", step]]
+        table.append(["Synth", synth_names_str])
+        table.append(["Impl", impl_names_str])
+        table.append(["Parameters", paramaters])
+        table.append(["Defines", defines])
+        print(tabulate(table, headers="firstrow", tablefmt="grid"))
 
-            cmd = f"vivado -mode batch -source {SCRIPT_DIR}/compile.tcl -notrace -tclargs  {project_file.vivado_project_xpr_relative} {step} '{synth_names_str}' '{impl_names_str}' '{paramaters}' '{defines}'"
-            print(f"\n[i] Running Vivado compile TCL script with command: {cmd}\n", flush=True)
-            c.run(cmd, pty=True, echo=True)
+        cmd = f"vivado -mode batch -source {SCRIPT_DIR}/compile.tcl -notrace -tclargs  {project_file.vivado_project_xpr_relative} {step} '{synth_names_str}' '{impl_names_str}' '{paramaters}' '{defines}'"
+        print(f"\n[i] Running Vivado compile TCL script with command: {cmd}\n", flush=True)
+        try:
+            subprocess.run(cmd, shell=True, cwd=str(project_file.vivado_build_dir), check=True)
+        except subprocess.CalledProcessError as e:
+            print(f"[!x!] Vivado compile command failed with exit code: {e.returncode}")
+            exit(e.returncode)
+        except KeyboardInterrupt:
+            print("\n[!x!] Vivado compile command interrupted by user")
+            exit(130)
 
     # Convert step strings to enum values
     def to_vivado_step(step_str: str) -> VivadoStep:
