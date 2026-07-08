@@ -556,12 +556,9 @@ def Verilator(c, project, step=None, clean=False, SimTargetName=None, flags=None
                         results_xml_path = test_output_dir / "results.xml"
                         _validate_cocotb_results(results_xml_path, test_name)
 
-                        # Post-sim: generate report + collect artifacts.
-                        # The shared integration main_test_bench already collects artifacts
-                        # itself so the same run can be reused by HW-oriented helpers too.
-                        if python_file_path.name == "main_test_bench.py":
+                        if not SimTarget.get("post_sim_collect", True):
                             print(
-                                "[i] Skipping post_sim_collect; main_test_bench.py handles artifact collection",
+                                "[i] Skipping post_sim_collect; disabled by sim target config",
                                 flush=True,
                             )
                         else:
