@@ -99,7 +99,7 @@ def complete_path(cur: str, base_dir: Path, *, suffixes: tuple[str, ...] | None 
         if not name.startswith(prefix):
             continue
         if entry.is_dir():
-            completions.append(f"{display_dir}{name}/")
+            completions.append(f"{display_dir}{name}")
             continue
         if suffixes and not any(name.endswith(suffix) for suffix in suffixes):
             continue
