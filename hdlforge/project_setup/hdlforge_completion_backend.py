@@ -464,9 +464,14 @@ def parse_classic_state(tokens: list[str], cwd: Path) -> ParsedState:
             state.chain_mode = True
         elif token in {
             "--syn",
+            "--reset_synth",
             "--impl",
+            "--reset_impl",
+            "--impl_and_bitstream",
             "--bit",
+            "--reset_bitstream",
             "--all",
+            "--continue",
             "--lint",
             "--list_runs",
             "--reset_run",
@@ -540,10 +545,16 @@ VALUE_HANDLER_TREE: dict[str, dict[str, Handler]] = {
     },
     "tool:vivado": {
         "--syn": complete_vivado_run_names,
+        "--reset_synth": complete_vivado_run_names,
         "--impl": complete_vivado_run_names,
+        "--reset_impl": complete_vivado_run_names,
+        "--impl_and_bitstream": complete_vivado_run_names,
         "--bit": complete_vivado_run_names,
+        "--reset_bitstream": complete_vivado_run_names,
         "--all": complete_vivado_run_names,
+        "--continue": complete_vivado_run_names,
         "--reset_run": complete_vivado_run_names,
+        "--more_options": lambda _cur, _state: CompletionResult([]),
         "--file_path": lambda cur, _state: complete_path(cur, _state.cwd),
         "--project_tcl_json_file": lambda cur, _state: complete_path(cur, _state.cwd, suffixes=(".json",)),
     },
@@ -632,9 +643,14 @@ def filter_single_use(flags: list[str], state: ParsedState, *, repeatable: set[s
 def suggest_vivado_flags(state: ParsedState) -> list[str]:
     actions = [
         "--syn",
+        "--reset_synth",
         "--impl",
+        "--reset_impl",
+        "--impl_and_bitstream",
         "--bit",
+        "--reset_bitstream",
         "--all",
+        "--continue",
         "--lint",
         "--list_runs",
         "--reset_run",
@@ -654,8 +670,8 @@ def suggest_vivado_flags(state: ParsedState) -> list[str]:
         return filter_single_use(actions + ["--project", *GLOBAL_FLAGS, "--verbose", "--help", "-h"], state)
 
     modifiers: list[str]
-    if selected in {"--syn", "--impl", "--bit", "--all", "--lint", "--reset_run"}:
-        modifiers = ["--clean"]
+    if selected in {"--syn", "--reset_synth", "--impl", "--reset_impl", "--impl_and_bitstream", "--bit", "--reset_bitstream", "--all", "--continue", "--lint", "--reset_run"}:
+        modifiers = ["--clean", "--more_options"]
     elif selected == "--generate_prj_with_external_tcl":
         modifiers = ["--clean", "--force"]
     elif selected in {"--file_add", "--file_remove"}:
@@ -672,7 +688,11 @@ def suggest_vivado_flags(state: ParsedState) -> list[str]:
     else:
         modifiers = []
 
-    return filter_single_use(modifiers + ["--project", *GLOBAL_FLAGS, "--verbose", "--help", "-h"], state)
+    return filter_single_use(
+        modifiers + ["--project", *GLOBAL_FLAGS, "--verbose", "--help", "-h"],
+        state,
+        repeatable={"--more_options"},
+    )
 
 
 def suggest_verilator_flags(state: ParsedState) -> list[str]:

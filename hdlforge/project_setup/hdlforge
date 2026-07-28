@@ -72,8 +72,8 @@ hdlforge_print_usage() {
     echo "   or: hdlforge [--project <project_file>] [--env-python <array-leaf-or-json> | --env-path <array-leaf-or-json> | --env-var <array-leaf-or-json>] [--dry-run] [--no-print] --cmd <shell-command> [--append <fragment>]"
     echo ""
     echo "Examples:"
-    echo "  hdlforge testing.integration_test.sim.base.run"
-    echo "  hdlforge --eval_json LLM_orch.testing.integration_test.sim.base.run"
+    echo "  hdlforge testing.integration_test.sim.trigger_test.run_all"
+    echo "  hdlforge --eval_json LLM_orch.testing.integration_test.sim.trigger_test.run_all"
     echo "  hdlforge --cmd 'python3 -c \"print(42)\"'"
     echo "  hdlforge --no-print --cmd 'python3 -c \"print(42)\"'"
 }
