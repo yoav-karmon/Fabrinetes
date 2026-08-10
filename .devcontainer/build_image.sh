@@ -10,10 +10,28 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 1
 fi
 
-devcontainer_path="$(jq -er '.devcontainerFile' "$fabrinetes_config")"
-devcontainer_config="$(cd "$fabrinetes_config_dir/$(dirname "$devcontainer_path")" && pwd)/$(basename "$devcontainer_path")"
+if ! devcontainer_path="$(jq -er '.devcontainerFile | select(type == "string" and length > 0)' "$fabrinetes_config")"; then
+  echo "error: [config 2/4] invalid specific configuration or devcontainerFile: $fabrinetes_config" >&2
+  exit 1
+fi
+devcontainer_config_dir="$fabrinetes_config_dir/$(dirname "$devcontainer_path")"
+if [ ! -d "$devcontainer_config_dir" ]; then
+  echo "error: [config 1/4] generic configuration directory does not exist: $devcontainer_config_dir" >&2
+  exit 1
+fi
+devcontainer_config="$(cd "$devcontainer_config_dir" && pwd)/$(basename "$devcontainer_path")"
 run_config_dir="$(dirname "$devcontainer_config")"
 dockerfile="$run_config_dir/Dockerfile"
+merge_script="$run_config_dir/merge_devcontainer_config.sh"
+config_id="$(printf '%s' "$fabrinetes_config" | sha256sum | cut -c1-16)"
+effective_devcontainer_config="${TMPDIR:-/tmp}/fabrinetes-${UID}-${config_id}.devcontainer.json"
+trap 'rm -f "$effective_devcontainer_config"' EXIT
+
+if [ ! -x "$merge_script" ]; then
+  echo "error: missing executable config merger: $merge_script" >&2
+  exit 1
+fi
+"$merge_script" "$devcontainer_config" "$fabrinetes_config" "$effective_devcontainer_config"
 
 builder_value() {
   jq -er ".customizations.Fabrinetes.builder.$1" "$fabrinetes_config"
@@ -82,8 +100,8 @@ export REPO_MOUNT_TARGET="/home/$DEVCONTAINER_USER/workspace"
 export FABRINETES="/home/$DEVCONTAINER_USER/workspace"
 export VIVADO_SETTINGS="$(expand_builder_value "$(mount_value vivadoSettings)")"
 
-packages_file="$(jq -er '.build.args.PACKAGES_FILE' "$devcontainer_config")"
-python_packages_file="$(jq -er '.build.args.PYTHON_PACKAGES_FILE' "$devcontainer_config")"
+packages_file="$(jq -er '.build.args.PACKAGES_FILE' "$effective_devcontainer_config")"
+python_packages_file="$(jq -er '.build.args.PYTHON_PACKAGES_FILE' "$effective_devcontainer_config")"
 
 for build_file in "$packages_file" "$python_packages_file"; do
   case "$build_file" in
@@ -94,7 +112,7 @@ for build_file in "$packages_file" "$python_packages_file"; do
   esac
 done
 
-for required_file in "$devcontainer_config" "$fabrinetes_config" "$dockerfile" "$build_context/$packages_file" "$build_context/$python_packages_file"; do
+for required_file in "$effective_devcontainer_config" "$fabrinetes_config" "$dockerfile" "$build_context/$packages_file" "$build_context/$python_packages_file"; do
   if [ ! -f "$required_file" ]; then
     echo "error: missing required build file: $required_file" >&2
     exit 1
@@ -103,5 +121,5 @@ done
 
 devcontainer build \
   --workspace-folder "$workspace_folder" \
-  --config "$devcontainer_config" \
+  --config "$effective_devcontainer_config" \
   --image-name "$image_name"

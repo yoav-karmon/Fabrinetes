@@ -88,10 +88,21 @@ fabrinetes_config="$fabrinetes_config_dir/$(basename "$fabrinetes_config_arg")"
 require_file "$fabrinetes_config"
 require_command jq
 
-devcontainer_path="$(jq -er '.devcontainerFile' "$fabrinetes_config")"
-run_config="$(cd "$fabrinetes_config_dir/$(dirname "$devcontainer_path")" && pwd)/$(basename "$devcontainer_path")"
+if ! devcontainer_path="$(jq -er '.devcontainerFile | select(type == "string" and length > 0)' "$fabrinetes_config")"; then
+  die "[config 2/4] invalid specific configuration or devcontainerFile: $fabrinetes_config"
+fi
+run_config_path="$fabrinetes_config_dir/$(dirname "$devcontainer_path")"
+[ -d "$run_config_path" ] || die "[config 1/4] generic configuration directory does not exist: $run_config_path"
+run_config="$(cd "$run_config_path" && pwd)/$(basename "$devcontainer_path")"
 run_config_dir="$(dirname "$run_config")"
 require_file "$run_config"
+merge_script="$run_config_dir/merge_devcontainer_config.sh"
+require_file "$merge_script"
+[ -x "$merge_script" ] || die "config merger is not executable: $merge_script"
+config_id="$(printf '%s' "$fabrinetes_config" | sha256sum | cut -c1-16)"
+effective_run_config="${TMPDIR:-/tmp}/fabrinetes-${UID}-${config_id}.devcontainer.json"
+trap 'rm -f "$effective_run_config"' EXIT
+"$merge_script" "$run_config" "$fabrinetes_config" "$effective_run_config"
 
 # Runner metadata is custom project metadata. The devcontainer CLI ignores it,
 # but these wrapper scripts use it as their source of truth.
@@ -160,4 +171,4 @@ require_file "$FABRINETES_BUILD_CONTEXT/python-packages.txt"
 
 devcontainer up \
   --workspace-folder "$workspace_folder" \
-  --config "$run_config"
+  --config "$effective_run_config"

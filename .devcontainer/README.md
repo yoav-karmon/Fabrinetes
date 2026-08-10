@@ -21,6 +21,12 @@ directory becomes the Docker build context and supplies `packages.txt` and
 directory. The image default user matches the host user and has passwordless
 sudo.
 
+Before build or run, the wrapper validates the generic and selected Fabrinetes
+JSON files, recursively merges their `customizations`, and validates the
+effective temporary config. Objects merge recursively, arrays combine without
+duplicates, and selected-config scalars override generic values. A reported
+`[config N/4]` error stops before `devcontainer build` or `up`.
+
 Launch from the Fabrinetes repo root:
 
 ```bash
