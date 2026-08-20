@@ -87,6 +87,7 @@ fabrinetes_config="$fabrinetes_config_dir/$(basename "$fabrinetes_config_arg")"
 
 require_file "$fabrinetes_config"
 require_command jq
+require_command docker
 
 if ! devcontainer_path="$(jq -er '.devcontainerFile | select(type == "string" and length > 0)' "$fabrinetes_config")"; then
   die "[config 2/4] invalid specific configuration or devcontainerFile: $fabrinetes_config"
@@ -100,8 +101,9 @@ merge_script="$run_config_dir/merge_devcontainer_config.sh"
 require_file "$merge_script"
 [ -x "$merge_script" ] || die "config merger is not executable: $merge_script"
 config_id="$(printf '%s' "$fabrinetes_config" | sha256sum | cut -c1-16)"
-effective_run_config="${TMPDIR:-/tmp}/fabrinetes-${UID}-${config_id}.devcontainer.json"
-trap 'rm -f "$effective_run_config"' EXIT
+effective_run_config_dir="$fabrinetes_config_dir/../.generated/${config_id}"
+effective_run_config="$effective_run_config_dir/devcontainer.json"
+mkdir -p "$effective_run_config_dir"
 "$merge_script" "$run_config" "$fabrinetes_config" "$effective_run_config"
 
 # Runner metadata is custom project metadata. The devcontainer CLI ignores it,
@@ -163,6 +165,30 @@ required_env_vars=(
 for env_var in "${required_env_vars[@]}"; do
   require_env "$env_var"
 done
+
+if docker inspect "$CONTAINER_NAME" >/dev/null 2>&1; then
+  label_config="$(docker inspect -f '{{ index .Config.Labels "devcontainer.config_file" }}' "$CONTAINER_NAME")"
+  if [ -n "$label_config" ] && [ ! -f "$label_config" ]; then
+    mkdir -p "$(dirname "$label_config")"
+    cp "$effective_run_config" "$label_config"
+  fi
+
+  container_status="$(docker inspect -f '{{.State.Status}}' "$CONTAINER_NAME")"
+  case "$container_status" in
+    running)
+      echo "container: $CONTAINER_NAME"
+      echo "status: running"
+      exit 0
+      ;;
+    *)
+      echo "container: $CONTAINER_NAME"
+      echo "status: $container_status -> starting"
+      docker start "$CONTAINER_NAME" >/dev/null
+      echo "status: running"
+      exit 0
+      ;;
+  esac
+fi
 
 # Make ${localWorkspaceFolder} in the run config point at the selected support folder.
 require_file "$FABRINETES_DOCKERFILE"

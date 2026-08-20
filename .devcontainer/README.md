@@ -1,5 +1,7 @@
 # Devcontainer Configurations
 
+Common troubleshooting notes live in `common_issues.md`.
+
 ## Short Commands
 
 From the Fabrinetes repo root:

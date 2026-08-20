@@ -24,8 +24,9 @@ run_config_dir="$(dirname "$devcontainer_config")"
 dockerfile="$run_config_dir/Dockerfile"
 merge_script="$run_config_dir/merge_devcontainer_config.sh"
 config_id="$(printf '%s' "$fabrinetes_config" | sha256sum | cut -c1-16)"
-effective_devcontainer_config="${TMPDIR:-/tmp}/fabrinetes-${UID}-${config_id}.devcontainer.json"
-trap 'rm -f "$effective_devcontainer_config"' EXIT
+effective_devcontainer_config_dir="$fabrinetes_config_dir/../.generated/${config_id}"
+effective_devcontainer_config="$effective_devcontainer_config_dir/devcontainer.json"
+mkdir -p "$effective_devcontainer_config_dir"
 
 if [ ! -x "$merge_script" ]; then
   echo "error: missing executable config merger: $merge_script" >&2
