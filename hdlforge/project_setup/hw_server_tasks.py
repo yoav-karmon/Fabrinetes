@@ -14,9 +14,13 @@ import time
 import readline  # Enable command history with up/down arrows
 from pathlib import Path
 from typing import Dict, Optional, List
+from zoneinfo import ZoneInfo
 
 from prettytable import PrettyTable
 from hw_server_console import VivadoTCLConsole
+
+
+FIRMWARE_TIMEZONE = ZoneInfo("America/Chicago")
 
 
 # Menu database structure - single source of truth for menu display
@@ -621,8 +625,8 @@ def _execute_menu_choice(console: VivadoTCLConsole, choice: str,
                                 try:
                                     usr_access = _read_usr_access_value(filepath)
                                     userid = _read_userid_raw(filepath)
-                                    version = _decode_version(usr_access) if usr_access else ''
-                                    timestamp = _decode_timestamp(userid) if userid else ''
+                                    version = _format_version(usr_access) if usr_access else ''
+                                    timestamp = _format_timestamp(userid, output_type="short") if userid else ''
                                     if version or timestamp:
                                         decoded = f"{version} ({timestamp})" if version and timestamp else (version or timestamp)
                                 except:
@@ -822,8 +826,8 @@ def _execute_menu_choice(console: VivadoTCLConsole, choice: str,
             try:
                 usr_access = _read_usr_access_value(new_path)
                 userid = _read_userid_raw(new_path)
-                version = _decode_version(usr_access) if usr_access else ''
-                timestamp = _decode_timestamp(userid) if userid else ''
+                version = _format_version(usr_access) if usr_access else ''
+                timestamp = _format_timestamp(userid, output_type="short") if userid else ''
                 if version or timestamp:
                     decoded = f"{version} ({timestamp})" if version and timestamp else (version or timestamp)
             except:
@@ -1006,8 +1010,8 @@ def _execute_menu_choice(console: VivadoTCLConsole, choice: str,
                             try:
                                 new_usr_access = _read_usr_access_from_device_value(console)
                                 new_userid = _read_userid_from_device_value(console)
-                                new_version = _decode_version(new_usr_access) if new_usr_access else ''
-                                new_timestamp = _decode_timestamp(new_userid) if new_userid else ''
+                                new_version = _format_version(new_usr_access) if new_usr_access else ''
+                                new_timestamp = _format_timestamp(new_userid, output_type="short") if new_userid else ''
                                 new_decoded = f"{new_version} ({new_timestamp})" if new_version and new_timestamp else (new_version or new_timestamp)
                                 _menu_db['devices'][matched_idx]['decoded'] = new_decoded
                                 _menu_db['devices'][matched_idx]['usr_access'] = new_usr_access
@@ -1079,8 +1083,8 @@ def _execute_menu_choice(console: VivadoTCLConsole, choice: str,
                             try:
                                 usr_access = _read_usr_access_value(filepath)
                                 userid = _read_userid_raw(filepath)
-                                version = _decode_version(usr_access) if usr_access else ''
-                                timestamp = _decode_timestamp(userid) if userid else ''
+                                version = _format_version(usr_access) if usr_access else ''
+                                timestamp = _format_timestamp(userid, output_type="short") if userid else ''
                                 if version or timestamp:
                                     decoded = f"{version} ({timestamp})" if version and timestamp else (version or timestamp)
                             except:
@@ -1184,8 +1188,8 @@ def _execute_menu_choice(console: VivadoTCLConsole, choice: str,
                     try:
                         new_usr_access = _read_usr_access_from_device_value(console)
                         new_userid = _read_userid_from_device_value(console)
-                        new_version = _decode_version(new_usr_access) if new_usr_access else ''
-                        new_timestamp = _decode_timestamp(new_userid) if new_userid else ''
+                        new_version = _format_version(new_usr_access) if new_usr_access else ''
+                        new_timestamp = _format_timestamp(new_userid, output_type="short") if new_userid else ''
                         new_decoded = f"{new_version} ({new_timestamp})" if new_version and new_timestamp else (new_version or new_timestamp)
                         _menu_db['devices'][matched_idx]['decoded'] = new_decoded
                         _menu_db['devices'][matched_idx]['usr_access'] = new_usr_access
@@ -1938,7 +1942,7 @@ def _verify_bitstream_matches_config(bitstream_path: str, config_version: str, c
     # Verify version (USR_ACCESS)
     if config_version and bit_usr_access is not None:
         # Decode USR_ACCESS to version string
-        bit_version = _decode_version(bit_usr_access)
+        bit_version = _format_version(bit_usr_access)
         if bit_version != config_version:
             result_message(f"VERIFY MISMATCH - Version: config={config_version}, bitstream={bit_version}")
             all_match = False
@@ -1948,7 +1952,7 @@ def _verify_bitstream_matches_config(bitstream_path: str, config_version: str, c
     # Verify timestamp (USERID)
     if config_timestamp and bit_userid is not None:
         # Decode USERID to timestamp string
-        bit_timestamp = _decode_timestamp(bit_userid)
+        bit_timestamp = _format_timestamp(bit_userid, output_type="config")
         if bit_timestamp != config_timestamp:
             result_message(f"VERIFY MISMATCH - Timestamp: config={config_timestamp}, bitstream={bit_timestamp}")
             all_match = False
@@ -2208,8 +2212,8 @@ def _draw_menu_table(console: VivadoTCLConsole, vio_outputs: dict = None) -> Non
                     try:
                         usr_access = _read_usr_access_value(filepath)
                         userid = _read_userid_raw(filepath)
-                        version = _decode_version(usr_access) if usr_access else ''
-                        timestamp = _decode_timestamp(userid) if userid else ''
+                        version = _format_version(usr_access) if usr_access else ''
+                        timestamp = _format_timestamp(userid, output_type="short") if userid else ''
                         if version or timestamp:
                             decoded = f"{version} ({timestamp})" if version and timestamp else (version or timestamp)
                     except:
@@ -2266,7 +2270,7 @@ def _draw_menu_table(console: VivadoTCLConsole, vio_outputs: dict = None) -> Non
                     bit_userid = _read_userid_raw(bitstream_path)
                     verify_lines = []
                     if config_version and bit_usr_access is not None:
-                        bit_version = _decode_version(bit_usr_access)
+                        bit_version = _format_version(bit_usr_access)
                         if bit_version != config_version:
                             verify_lines.append(f"ver: MISMATCH")
                             verify_lines.append(f"  cfg:  {config_version}")
@@ -2274,7 +2278,7 @@ def _draw_menu_table(console: VivadoTCLConsole, vio_outputs: dict = None) -> Non
                         else:
                             verify_lines.append(f"ver: OK ({config_version})")
                     if config_timestamp and bit_userid is not None:
-                        bit_timestamp = _decode_timestamp(bit_userid)
+                        bit_timestamp = _format_timestamp(bit_userid, output_type="config")
                         if bit_timestamp != config_timestamp:
                             verify_lines.append(f"time: MISMATCH")
                             verify_lines.append(f"  cfg:  {config_timestamp}")
@@ -2864,21 +2868,10 @@ def _read_userid_raw(bitfile: str) -> Optional[int]:
 
 def _format_userid(userid: Optional[int]) -> str:
     """Format USERID as human-readable timestamp."""
-    if userid is None:
-        return "N/A"
-    try:
-        from datetime import datetime
-        # Check if it's a valid Unix timestamp
-        if 1577836800 <= userid <= 2208988800:
-            dt = datetime.fromtimestamp(userid)
-            return f"{dt.strftime('%Y-%m-%d %H:%M:%S')} (0x{userid:08X})"
-        else:
-            return f"0x{userid:08X} (not a timestamp)"
-    except Exception:
-        return f"0x{userid:08X}"
+    return _format_timestamp(userid, output_type="display")
 
 
-def _decode_version(usr_access: int) -> str:
+def _format_version(usr_access: int, output_type: str = "plain") -> str:
     """Decode USR_ACCESS value as version string (major.minor.patch).
     
     Format: 0xMMmmpppp where:
@@ -2894,27 +2887,40 @@ def _decode_version(usr_access: int) -> str:
         major = (usr_access >> 16) & 0xFFFF
         minor = (usr_access >> 8) & 0xFF
         patch = usr_access & 0xFF
-        return f"v{major}.{minor}.{patch}"
+        version = f"v{major}.{minor}.{patch}"
+        if output_type == "display":
+            return f"{version} (0x{usr_access:08X})"
+        if output_type == "plain":
+            return version
+        if output_type in {"artifact", "release"}:
+            return f"v{major}.{minor}"
+        raise ValueError(f"unknown version output type: {output_type}")
     except Exception:
         return ""
 
 
-def _decode_timestamp(userid: int) -> str:
-    """Decode USERID value as timestamp if it's a valid Unix timestamp.
-    
-    Returns formatted date/time string or empty string if not a valid timestamp.
-    """
+def _format_timestamp(userid: Optional[int], output_type: str = "display") -> str:
+    """Format an embedded USERID epoch in America/Chicago."""
     if userid is None:
-        return ""
+        return "N/A" if output_type == "display" else ""
     try:
         from datetime import datetime
-        # Check if it's a valid Unix timestamp (2020-01-01 to 2040-01-01)
         if 1577836800 <= userid <= 2208988800:
-            dt = datetime.fromtimestamp(userid)
-            return dt.strftime('%Y-%m-%d %H:%M')
-        return ""
+            timestamp = datetime.fromtimestamp(userid, tz=FIRMWARE_TIMEZONE)
+            if output_type == "display":
+                return f"{timestamp.strftime('%Y-%m-%d %H:%M:%S %Z')} (0x{userid:08X})"
+            if output_type == "short":
+                return timestamp.strftime("%Y-%m-%d %H:%M %Z")
+            if output_type == "config":
+                return timestamp.strftime("%Y-%m-%d %H:%M")
+            if output_type == "artifact":
+                return timestamp.strftime("%Y_%m_%d-%Hh_%Mm_%Ss_%Z")
+            if output_type == "release":
+                return timestamp.strftime("%Y%m%d_%H%M%S")
+            raise ValueError(f"unknown timestamp output type: {output_type}")
+        return f"0x{userid:08X} (not a timestamp)" if output_type == "display" else ""
     except Exception:
-        return ""
+        return f"0x{userid:08X}" if output_type == "display" else ""
 
 
 def _format_version_and_timestamp(usr_access: Optional[int], userid: Optional[int] = None) -> str:
@@ -2925,12 +2931,12 @@ def _format_version_and_timestamp(usr_access: Optional[int], userid: Optional[in
     parts = []
     
     if usr_access is not None:
-        version = _decode_version(usr_access)
+        version = _format_version(usr_access)
         if version:
             parts.append(version)
     
     if userid is not None:
-        timestamp = _decode_timestamp(userid)
+        timestamp = _format_timestamp(userid, output_type="short")
         if timestamp:
             parts.append(f"({timestamp})")
     
