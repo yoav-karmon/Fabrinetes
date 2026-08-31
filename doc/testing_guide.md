@@ -1,35 +1,61 @@
-Testing guide
+# Container Testing Guide
 
-Check Docker:
-  docker ps
+Run Docker and lifecycle commands on the host server. Always pass the intended
+consumer-specific configuration explicitly.
 
-Check Dev Containers CLI:
-  devcontainer --help
+## Source Validation
 
-Start container:
-  cd <repo top>
-  .devcontainer/run_container.sh
+From the Fabrinetes repository root:
 
-Open shell:
-  .devcontainer/open_container_shell.sh
+```bash
+bash -n .devcontainer/*.sh
+jq -e . .devcontainer/devcontainer.json .devcontainer/Fabrinetes.devcontainer.json
+.devcontainer/test_merge_devcontainer_config.sh
+```
 
-Check user and home:
-  whoami
-  pwd
-  echo "$HOME"
+The merger tests cover recursive customization merging, mandatory tools,
+generated mounts, invalid paths, missing sources, duplicate targets, and
+Vivado settings-script coverage.
 
-Check tools:
-  command -v git
-  command -v python3
-  command -v hdlforge
+## Host Checks
 
-Check Vivado if mounted:
-  command -v vivado
-  echo "$VIVADO_SETTINGS"
-  echo "$XILINXD_LICENSE_FILE"
+```bash
+docker ps
+devcontainer --help
+CONFIG=.devcontainer/Fabrinetes.devcontainer.json
+.devcontainer/Fabrinetes.sh "$CONFIG" --image-status
+.devcontainer/Fabrinetes.sh "$CONFIG" --container-status
+```
 
-Check repo paths:
-  git rev-parse --show-toplevel
-  echo "$REPO_TOP"
-  echo "$FABRINETES"
-  echo "$HDLFORGE"
+Build or run only when that lifecycle action is intended:
+
+```bash
+.devcontainer/Fabrinetes.sh "$CONFIG" --build
+.devcontainer/Fabrinetes.sh "$CONFIG" --run
+.devcontainer/Fabrinetes.sh "$CONFIG" --shell
+```
+
+When two configs must coexist, verify that their image names, container names,
+hostnames, and Codex/VS Code/Cursor `serverPath` values are distinct before
+running the second config.
+
+## Container Checks
+
+Inside the selected container:
+
+```bash
+whoami
+hostname
+printf '%s\n' "$HOME" "$FABRINETES" "$HDLFORGE" "$VIVADO_SETTINGS"
+command -v git python3 hdlforge vivado
+git rev-parse --show-toplevel
+test -f "$VIVADO_SETTINGS"
+mountpoint "$HOME/.codex"
+mountpoint "$HOME/.vscode-server"
+mountpoint "$HOME/.cursor-server"
+```
+
+Also verify each configured `additionalMounts[].containerPath` and the
+configured repository target with `mountpoint`. For concurrent configurations,
+inspect Docker mounts and confirm each tool target maps to that configuration's
+own host-storage source.

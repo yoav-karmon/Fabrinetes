@@ -1,35 +1,40 @@
-How to make sure HDLForge works
+# How To Verify HDLForge Setup
 
-Folder structure used by the examples:
+The selected consumer-specific `*.devcontainer.json` owns the repository mount
+and Fabrinetes location. Configure its runner fields with absolute or
+user-relative paths:
 
-   host/server:
-     /home/<user>/repo/fpga/git-sub-module/Fabrinetes
+```json
+"runner": {
+  "home": "~",
+  "repoMountSource": "~/repo/fpga",
+  "repoMountTarget": "~/repo/fpga",
+  "fabrinetes": "~/repo/fpga/git-sub-module/Fabrinetes"
+}
+```
 
-   this is only an example. Fabrinetes can be cloned anywhere.
+`repoMountSource` is a host/server path. `repoMountTarget` and `fabrinetes` are
+container paths. The source directory and the Fabrinetes checkout must exist
+before starting the container.
 
-1. edit .devcontainer/fabrinetes-run/devcontainer.json:
+From the repository that owns the selected config, run host-side status checks:
 
-   "source=${localWorkspaceFolder}/<relative path to folder to mount>,target=<path inside the container>,type=bind"
+```bash
+CONFIG=.devcontainer/Fabrinetes.devcontainer.json
+.devcontainer/Fabrinetes.sh "$CONFIG" --image-status
+.devcontainer/Fabrinetes.sh "$CONFIG" --container-status
+```
 
-   ##########################################################################################
-   # in this example, devcontainer is launched with the Fabrinetes repo as the workspace.   #
-   # ${localWorkspaceFolder} = Fabrinetes repo top                                          #
-   #                                                                                        #
-   # ../.. goes from:                                                                       #
-   # /home/<user>/repo/fpga/git-sub-module/Fabrinetes                                       #
-   #                                                                                        #
-   # to:                                                                                    #
-   # /home/<user>/repo/fpga                                                                 #
-   ##########################################################################################
+After the container is running, open its shell and verify the resolved setup:
 
-   recommended example:
-   "source=${localWorkspaceFolder}/../..,target=/home/${localEnv:USER}/repo/fpga,type=bind"
+```bash
+.devcontainer/Fabrinetes.sh "$CONFIG" --shell
+printf '%s\n' "$REPO_TOP" "$FABRINETES" "$HDLFORGE"
+test -d "$FABRINETES/hdlforge/project_setup"
+command -v hdlforge
+hdlforge --help
+```
 
-
-2. edit .devcontainer/fabrinetes-run/devcontainer.json:
-
-   "FABRINETES": "<Fabrinetes repo path inside the container>"
-
-   recommended example:
-
-   "FABRINETES": "/home/${localEnv:USER}/repo/fpga/git-sub-module/Fabrinetes"
+The mounted `init_env.sh` sets `HDLFORGE` from `FABRINETES`, adds the HDLForge
+entrypoint to `PATH`, and allows the mounted repository's `init_repo_env.sh` to
+add repository-specific environment values.
