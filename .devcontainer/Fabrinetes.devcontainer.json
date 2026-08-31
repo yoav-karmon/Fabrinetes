@@ -2,21 +2,37 @@
   "devcontainerFile": "devcontainer.json",
   "customizations": {
     "Fabrinetes": {
-      "mount": {
-        "amdRoot": "/DATA/amd",
-        "amdTarget": "/DATA/amd",
-        "vivadoSettings": "/DATA/amd/2025.1/Vivado/settings64.sh"
+      "requiredTools": {
+        "codex": {
+          "serverPath": "~/.codex"
+        },
+        "vscode": {
+          "serverPath": "~/vscode-server-container/.vscode-server"
+        },
+        "cursor": {
+          "serverPath": "~/vscode-server-container/.cursor-server"
+        },
+        "vivado": {
+          "settingsScript": "/DATA/amd/2025.1/Vivado/settings64.sh",
+          "settingsEnvironmentVariable": "VIVADO_SETTINGS"
+        }
       },
+      "additionalMounts": [
+        {
+          "serverPath": "/DATA/amd",
+          "containerPath": "/DATA/amd"
+        }
+      ],
       "builder": {
         "image": "${localEnv:USER}_fabrinetes:local"
       },
       "runner": {
         "containerName": "${localEnv:USER}_fabrinetes-run.run",
         "hostname": "fabrinetes",
-        "home": "/home/${localEnv:USER}",
-        "repoMountSource": "../../..",
-        "repoMountTarget": "/home/${localEnv:USER}/repo/fpga",
-        "fabrinetes": "/home/${localEnv:USER}/repo/fpga/git-sub-module/Fabrinetes"
+        "home": "~",
+        "repoMountSource": "~/repo/fpga",
+        "repoMountTarget": "~/repo/fpga",
+        "fabrinetes": "~/repo/fpga/git-sub-module/Fabrinetes"
       }
     }
   }

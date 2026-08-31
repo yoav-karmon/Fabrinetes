@@ -11,7 +11,6 @@
       "USER_GID": "${localEnv:DEVCONTAINER_GID}"
     }
   },
-  "initializeCommand": "mkdir -p ${localEnv:CODEX_FOLDER_HOST} ${localEnv:VSCODE_FOLDER_HOST}",
   "containerEnv": {
     "CONTAINER_USER": "${localEnv:DEVCONTAINER_USER}",
     "CONTAINER_HOME": "/home/${localEnv:DEVCONTAINER_USER}",
@@ -19,8 +18,7 @@
     "HOME": "/home/${localEnv:DEVCONTAINER_USER}",
     "CODEX_HOME": "/home/${localEnv:DEVCONTAINER_USER}/.codex",
     "FABRINETES": "${localEnv:FABRINETES}",
-    "HOST_MACHINE": "${localEnv:HOST_MACHINE}",
-    "VIVADO_SETTINGS": "${localEnv:VIVADO_SETTINGS}"
+    "HOST_MACHINE": "${localEnv:HOST_MACHINE}"
   },
   "remoteUser": "${localEnv:DEVCONTAINER_USER}",
   "updateRemoteUserUID": true,
@@ -37,11 +35,8 @@
     "--privileged"
   ],
   "mounts": [
-    "source=${localEnv:AMD_ROOT},target=${localEnv:AMD_TARGET},type=bind",
     "source=/tmp,target=/tmp,type=bind",
     "source=${localEnv:HOME}/.ssh,target=/home/${localEnv:DEVCONTAINER_USER}/.ssh,type=bind",
-    "source=${localEnv:CODEX_FOLDER_HOST},target=/home/${localEnv:DEVCONTAINER_USER}/.codex,type=bind",
-    "source=${localEnv:VSCODE_FOLDER_HOST},target=/home/${localEnv:DEVCONTAINER_USER}/.vscode-server,type=bind",
     "source=${localEnv:REPO_MOUNT_SOURCE},target=${localEnv:REPO_MOUNT_TARGET},type=bind",
     "source=${localWorkspaceFolder}/bashrc-func,target=/etc/bashrc-func,type=bind,readonly",
     "source=${localWorkspaceFolder}/bashrc-root,target=/home/${localEnv:DEVCONTAINER_USER}/.bashrc,type=bind,readonly",

@@ -29,6 +29,30 @@ effective temporary config. Objects merge recursively, arrays combine without
 duplicates, and selected-config scalars override generic values. A reported
 `[config N/4]` error stops before `devcontainer build` or `up`.
 
+The selected config must declare all four required tools under
+`customizations.Fabrinetes.requiredTools`. `codex`, `vscode`, and `cursor`
+each take a host `serverPath`; the merger mounts them at their fixed folders
+under the container user's home. `vivado` declares the container-side
+`settingsScript` and `settingsEnvironmentVariable`. The settings script must
+be inside exactly one declared additional mount and must exist on the server.
+
+Use `customizations.Fabrinetes.additionalMounts` for other bind mounts:
+
+```json
+"additionalMounts": [
+  {
+    "serverPath": "/DATA/amd",
+    "containerPath": "/DATA/amd"
+  }
+]
+```
+
+Every `serverPath`, `containerPath`, runner home, and runner path must be
+absolute or start with `~`. The merger resolves `~`, rejects relative paths
+and duplicate container targets, and fails when any declared server source is
+missing. JSON does not support comments, so examples belong in this README
+rather than in the configuration file.
+
 Launch from the Fabrinetes repo root:
 
 ```bash

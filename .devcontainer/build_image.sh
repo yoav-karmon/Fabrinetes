@@ -38,10 +38,6 @@ builder_value() {
   jq -er ".customizations.Fabrinetes.builder.$1" "$fabrinetes_config"
 }
 
-mount_value() {
-  jq -er ".customizations.Fabrinetes.mount.$1" "$fabrinetes_config"
-}
-
 resolve_build_dir() {
   local path="$1"
 
@@ -92,14 +88,9 @@ image_name="$(expand_builder_value "$(builder_value image)")"
 export CONTAINER_NAME="${DEVCONTAINER_USER}_fabrinetes-build.run"
 export CONTAINER_HOSTNAME="fabrinetes-build"
 export CONTAINER_WORKSPACE_FOLDER="/home/$DEVCONTAINER_USER"
-export CODEX_FOLDER_HOST="$(expand_builder_value "$(jq -er '.customizations.Fabrinetes.runner.codexFolderHost // "${localEnv:HOME}/.codex"' "$fabrinetes_config")")"
-export VSCODE_FOLDER_HOST="$(expand_builder_value "$(jq -er '.customizations.Fabrinetes.runner.vscodeFolderHost // "${localEnv:HOME}/vscode-server-container/.vscode-server"' "$fabrinetes_config")")"
-export AMD_ROOT="$(expand_builder_value "$(mount_value amdRoot)")"
-export AMD_TARGET="$(expand_builder_value "$(mount_value amdTarget)")"
 export REPO_MOUNT_SOURCE="$build_context"
 export REPO_MOUNT_TARGET="/home/$DEVCONTAINER_USER/workspace"
 export FABRINETES="/home/$DEVCONTAINER_USER/workspace"
-export VIVADO_SETTINGS="$(expand_builder_value "$(mount_value vivadoSettings)")"
 
 packages_file="$(jq -er '.build.args.PACKAGES_FILE' "$effective_devcontainer_config")"
 python_packages_file="$(jq -er '.build.args.PYTHON_PACKAGES_FILE' "$effective_devcontainer_config")"
