@@ -195,16 +195,48 @@ proc hdlforge::project::bitstream_needs_work {run_name} {
     return [list $needs_work $status $progress $needs_refresh]
 }
 
+proc hdlforge::project::idr_owner {run_obj} {
+    # Vivado 2025 exposes the synthesis PARENT for IDR children too, and
+    # does not expose the XPR IsChild flag as a run property. Match generated
+    # child names against an existing IDR flow owner, not a global i_* prefix.
+    set run_name [get_property NAME $run_obj]
+    foreach owner [get_runs -quiet -filter {FLOW =~ "Vivado IDR Flow*"}] {
+        set owner_name [get_property NAME $owner]
+        set prefix "${owner_name}_"
+        if {[string first $prefix $run_name] != 0} {
+            continue
+        }
+        set suffix [string range $run_name [string length $prefix] end]
+        if {[regexp {^(rqs|ml_strat_[0-9]+|eco_flow)$} $suffix]} {
+            return $owner_name
+        }
+    }
+    return ""
+}
+
 proc hdlforge::project::collect_impl_children {synth_runs} {
     set child_runs {}
     foreach run_obj [get_runs] {
         if {[get_property IS_IMPLEMENTATION $run_obj] != 1} {
             continue
         }
+        if {[idr_owner $run_obj] ne ""} {
+            continue
+        }
+        # IDR is an opt-in flow; ordinary builds discover regular runs only.
+        if {[string match "Vivado IDR Flow*" [get_property FLOW $run_obj]]} {
+            continue
+        }
         if {[lsearch -exact $synth_runs [get_property PARENT $run_obj]] == -1} {
             continue
         }
         set run_name [get_property NAME $run_obj]
+        # Optional space-separated run names excluded from automatic builds.
+        # Runs remain in the project and may still be launched explicitly.
+        if {[info exists ::env(HDLFORGE_DISABLED_IMPL_RUNS)] &&
+            [lsearch -exact [normalize_run_names $::env(HDLFORGE_DISABLED_IMPL_RUNS)] $run_name] != -1} {
+            continue
+        }
         if {[lsearch -exact $child_runs $run_name] == -1} {
             lappend child_runs $run_name
         }
@@ -218,6 +250,10 @@ proc hdlforge::project::validate_impl_runs {impl_runs synth_runs} {
         set run_obj [one_run $impl_run]
         if {[get_property IS_IMPLEMENTATION $run_obj] != 1} {
             error "Run '$impl_run' is not an implementation run"
+        }
+        set owner [idr_owner $run_obj]
+        if {$owner ne ""} {
+            error "Run '$impl_run' is an IDR child; select its parent '$owner' instead"
         }
         if {[lsearch -exact $synth_runs [get_property PARENT $run_obj]] == -1} {
             error "Implementation run '$impl_run' is not a child of requested synth runs: $synth_runs"
