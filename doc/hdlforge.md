@@ -75,3 +75,33 @@ Environment:
 More:
   hdlforge_project_file.md
   how_hdlforge_keeps_paths_clean.md
+
+Bash completion descriptions:
+  Double-Tab displays command candidates one per row, with a description when
+  provided by the selected project's JSON. Normal Tab and menu completion
+  insert only the command token. File-path completion keeps native Bash behavior.
+  Long labels and descriptions are shortened to fit the terminal; group help provides
+  the full text. Existing shells pick up runtime changes on their next completion.
+
+  Optional top-level metadata, separate from executable LLM_orch commands:
+
+```json
+{
+  "LLM_orch": {
+    "build": {
+      "status": "python3 tools/status.py"
+    }
+  },
+  "LLM_orch_help": {
+    "build": "Build commands",
+    "build.status": "Show the current build status"
+  }
+}
+```
+
+  Keys are dotted shortcut paths without the LLM_orch prefix. Values may be
+  strings or objects containing a description or help string. The same metadata
+  applies to shorthand and --eval_json LLM_orch.* completion. Missing descriptions
+  leave the description column empty. Completion only reads JSON; it does not
+  execute help commands. The backend's optional --describe switch adds separate
+  __DESC__ records; its default output remains plain completion candidates.

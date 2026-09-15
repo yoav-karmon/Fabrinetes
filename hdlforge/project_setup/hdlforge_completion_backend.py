@@ -3,6 +3,7 @@
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -415,7 +416,7 @@ def complete_json_path(project_file: Path | None, cur: str) -> CompletionResult:
     candidates.extend(
         path
         for path, value in walk_string_paths_with_values(data)
-        if not path.startswith("LLM_orch.") and "hdlforge" in value
+        if not path.startswith(("LLM_orch.", "LLM_orch_help.")) and "hdlforge" in value
     )
     completions = sorted({entry for entry in candidates if entry.startswith(cur)})
     return CompletionResult(completions, nospace=any(entry.endswith(".") for entry in completions))
@@ -907,10 +908,23 @@ def complete_llm(tokens_before_current: list[str], cur: str, cwd: Path) -> Compl
     return CompletionResult([])
 
 
+def completion_description(data: dict, candidate: str) -> str:
+    """Read optional display text; never execute a command to obtain help."""
+    path = candidate.rstrip(".").removeprefix("LLM_orch.")
+    descriptions = data.get("LLM_orch_help", {})
+    value = descriptions.get(path, "") if isinstance(descriptions, dict) else ""
+    if isinstance(value, dict):
+        value = value.get("description") or value.get("help", "")
+    if not isinstance(value, str):
+        return ""
+    return " ".join(re.sub(r"[\x00-\x1f\x7f-\x9f]", " ", value).split())
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--cwd", required=True)
     parser.add_argument("--comp-cword", type=int, required=True)
+    parser.add_argument("--describe", action="store_true")
     parser.add_argument("words", nargs=argparse.REMAINDER)
     args = parser.parse_args()
 
@@ -937,6 +951,13 @@ def main() -> int:
     print(f"__META__ filenames={1 if result.filenames else 0} nospace={1 if result.nospace else 0}")
     for item in result.completions:
         print(item)
+    if args.describe and not result.filenames:
+        project_file = detect_project_file(tokens_before_current, cwd)
+        data = load_json(project_file) if project_file and project_file.suffix == ".json" else {}
+        for item in result.completions:
+            description = completion_description(data or {}, item)
+            if description:
+                print(f"__DESC__\t{item}\t{description}")
     return 0
 
 
