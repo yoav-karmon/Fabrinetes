@@ -48,3 +48,19 @@ host-storage folders while sharing selected external mounts.
   `PYTHONPATH` values.
 - Each `<project>.hdlforge.json` owns its Verilator, Vivado, and `LLM_orch`
   configuration.
+
+## Execute A Command
+
+From the host, pass one quoted Bash command to the configured running container:
+
+```bash
+./Fabrinetes.sh path/to/Fabrinetes.devcontainer.json --exec 'pwd && echo "$HOME"'
+```
+
+`--exec` uses the same container user, home directory, and working directory as
+`--shell`. It explicitly loads `.bashrc` in noninteractive Bash, suppressing
+startup stdout while preserving startup errors and command output. It forwards standard input without
+allocating a terminal, runs the command once, and returns its exit status.
+Pipes, redirects, and variables inside single quotes are evaluated in the
+container. Missing, empty, or extra command arguments are rejected. The container
+must already be running; this option does not start it.

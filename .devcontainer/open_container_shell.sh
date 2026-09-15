@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-: "${1:?usage: open_container_shell.sh <Fabrinetes-devcontainer-json>}"
+: "${1:?usage: open_container_shell.sh <Fabrinetes-devcontainer-json> [<command>]}"
+
+if [ "$#" -gt 2 ] || { [ "$#" -eq 2 ] && [[ ! "$2" =~ [^[:space:]] ]]; }; then
+  echo "error: expected at most one non-empty quoted command" >&2
+  exit 1
+fi
 
 fabrinetes_config="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
 fabrinetes_config_dir="$(dirname "$fabrinetes_config")"
@@ -37,6 +42,11 @@ expand_local_env() {
     value="${value//\$\{localEnv:$env_var\}/${!env_var}}"
   done
 
+  case "$value" in
+    "~") value="$HOME" ;;
+    "~/"*) value="$HOME/${value#\~/}" ;;
+  esac
+
   printf '%s\n' "$value"
 }
 
@@ -47,9 +57,22 @@ export DEVCONTAINER_USER="$USER"
 container="$(expand_local_env "$container_name_template")"
 home_dir="$(expand_local_env "$home_template")"
 
-docker exec \
+if [[ "$home_dir" != /* ]]; then
+  echo "error: runner.home must resolve to an absolute path: $home_dir" >&2
+  exit 1
+fi
+
+docker_options=(-i)
+shell_command=(bash -i)
+if [ "$#" -eq 2 ]; then
+  shell_command=(bash --noprofile --norc -c 'source "$HOME/.bashrc" >/dev/null || exit; eval "$1"' Fabrinetes-exec "$2")
+else
+  docker_options+=(-t)
+fi
+
+exec docker exec \
   -u "$USER" \
   -e HOME="$home_dir" \
   -w "$home_dir" \
-  -it "$container" \
-  bash -i
+  "${docker_options[@]}" "$container" \
+  "${shell_command[@]}"

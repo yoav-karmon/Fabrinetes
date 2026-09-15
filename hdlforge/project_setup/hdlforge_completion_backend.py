@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
+from completion_vivado_profiles import profile_context, profile_description
 from table_formatter import create_matrix_table_from_data
 
 
@@ -927,6 +928,8 @@ def completion_description(data: dict, candidate: str) -> str:
         value = parent.get("#" + parts[-1], value)
     if isinstance(value, dict):
         value = value.get("description") or value.get("help", "")
+    if not value:
+        value = profile_description(data, candidate)
     if not isinstance(value, str):
         return ""
     return " ".join(re.sub(r"[\x00-\x1f\x7f-\x9f]", " ", value).split())
@@ -935,13 +938,19 @@ def completion_description(data: dict, candidate: str) -> str:
 def completion_table(candidates: list[str], data: dict, columns: int) -> list[str]:
     """Render display-only choices with HDLForge's bundled table formatter."""
     columns = max(30, columns)
-    command_width = min(max(len(item) for item in candidates), (columns - 7) // 2)
+    profiles = {profile_context(data, item)[0] for item in candidates}
+    parents = {item.rstrip(".").rsplit(".", 1)[0] for item in candidates}
+    profile_menu = len(profiles) == 1 and "" not in profiles
+    prefix = next(iter(parents)) + "." if profile_menu and len(parents) == 1 else ""
+    labels = [item.removeprefix(prefix) if prefix else item for item in candidates]
+    command_width = min(max(len("Command"), max(len(item) for item in labels)), (columns - 7) // 2)
     description_width = columns - command_width - 7
-    rows = [[item, completion_description(data, item)] for item in candidates]
+    rows = [[label, completion_description(data, item)] for label, item in zip(labels, candidates)]
     rendered = create_matrix_table_from_data(["Command", "Description"], rows,
                                             col_wrapped_limits={0: command_width, 1: description_width})
     # Readline must not arrange the rendered lines in multiple columns.
-    return [line.ljust(columns // 2 + 1) for line in rendered.splitlines()]
+    lines = ([f"Commands under {prefix}"] if prefix else []) + rendered.splitlines()
+    return [line.ljust(columns // 2 + 1) for line in lines]
 
 
 def main() -> int:
@@ -985,7 +994,7 @@ def main() -> int:
                 description = completion_description(data or {}, item)
                 if description:
                     print(f"__DESC__\t{item}\t{description}")
-        if args.display_table and len(result.completions) > 1:
+        if args.display_table and result.completions:
             for line in completion_table(result.completions, data or {}, args.columns):
                 print(f"__TABLE__\t{line}")
     return 0

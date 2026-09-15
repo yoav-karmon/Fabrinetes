@@ -22,7 +22,8 @@ def capture_environment_variables(c: invoke.Context):
     }
 
     validate_repository_environment(captured_vars, invoked_dir)
-    print_environment_variables(captured_vars)
+    if os.environ.get("HDLFORGE_NOPRINT", "0") in ("", "0"):
+        print_environment_variables(captured_vars)
 
     return captured_vars
 
@@ -58,7 +59,7 @@ def validate_repository_environment(captured_vars: dict, invoked_dir: str):
     repo_top = captured_vars.get("REPO_TOP", "")
     if not repo_top:
         print("❌ ERROR: REPO_TOP is not set")
-        print("   HDLForge must source ~/.bashrc and run update_repo_path before Python tasks")
+        print("   HDLForge must initialize the repository environment before Python tasks")
         print("   Please launch this task through the hdlforge wrapper")
         raise SystemExit(1)
 
@@ -99,6 +100,9 @@ def validate_repository_environment(captured_vars: dict, invoked_dir: str):
             print("⚠️  WARNING: Repository tools not found in PATH")
             print(f"   Expected: {repo_tools_path}")
             print("   This may cause issues with HDLForge tools")
+
+    if os.environ.get("HDLFORGE_NOPRINT", "0") not in ("", "0"):
+        return
 
     print("✅ Repository environment validation passed")
     print(f"   REPO_TOP: {repo_top}")

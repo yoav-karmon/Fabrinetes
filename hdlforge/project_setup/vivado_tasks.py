@@ -237,7 +237,8 @@ def vivado(
         table.append(["Impl", impl_names_str])
         table.append(["More options", more_options_json_list if more_options_json_list is not None else "(unchanged)"])
         table.append(["Defines", defines])
-        print(tabulate(table, headers="firstrow", tablefmt="grid"))
+        for label, value in table:
+            print(f"[i] {label}: {value}")
 
         compile_args = [
             "vivado",

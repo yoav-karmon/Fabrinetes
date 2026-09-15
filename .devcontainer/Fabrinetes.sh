@@ -2,6 +2,7 @@
 set -euo pipefail
 
 usage() {
+  echo "usage: Fabrinetes.sh <Fabrinetes-devcontainer-json> --exec '<command>'" >&2
   echo "usage: Fabrinetes.sh <Fabrinetes-devcontainer-json> --build|--run|--shell|--stop|--restart|--remove-image|--image-status|--container-status|--vscode|--clean-vscode" >&2
 }
 
@@ -12,12 +13,21 @@ die() {
 
 run_script() {
   local script="$1"
+  shift
 
   [ -x "$script" ] || die "missing executable script: $script"
-  "$script" "$fabrinetes_config"
+  "$script" "$fabrinetes_config" "$@"
 }
 
-if [ "$#" -ne 2 ]; then
+if [ "$#" -lt 2 ]; then
+  usage
+  exit 1
+fi
+
+if [ "$2" = "--exec" ]; then
+  [ "$#" -eq 3 ] || die "--exec requires exactly one quoted command"
+  [[ "$3" =~ [^[:space:]] ]] || die "--exec requires a non-empty command"
+elif [ "$#" -ne 2 ]; then
   usage
   exit 1
 fi
@@ -37,6 +47,9 @@ case "$action" in
     ;;
   --shell)
     run_script "$script_dir/open_container_shell.sh"
+    ;;
+  --exec)
+    run_script "$script_dir/open_container_shell.sh" "$3"
     ;;
   --stop)
     run_script "$script_dir/stop_container.sh"

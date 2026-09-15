@@ -2,25 +2,10 @@
 
 set -o pipefail
 
-# =============================================================================
-# FABRINETES must be set - it points to the Fabrinetes repository root
-# =============================================================================
-if [ -z "$FABRINETES" ]; then
-    echo "❌ FABRINETES environment variable is not set."
-    echo ""
-    echo "Please set FABRINETES to point to the Fabrinetes repository root:"
-    echo "  export FABRINETES=/path/to/Fabrinetes"
-    echo ""
-    echo "Add this to your ~/.bashrc or shell profile for persistence."
-    exit 1
-fi
-
-if [ ! -d "$FABRINETES/hdlforge/project_setup" ]; then
-    echo "❌ Invalid FABRINETES path: $FABRINETES"
-    echo "   Directory not found: $FABRINETES/hdlforge/project_setup"
-    exit 1
-fi
-# =============================================================================
+# Resolve symlinks so fresh shells and recursive commands use this installation.
+HDLFORGE_INSTALL_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+export FABRINETES="$(cd "$HDLFORGE_INSTALL_DIR/../.." && pwd -P)"
+export HDLFORGE="$HDLFORGE_INSTALL_DIR"
 
 if [ "${HDLFORGE_ENV_STATE_ACTIVE:-0}" != "1" ]; then
     unset HDLFORGE_ADD_PYTHONPATH
@@ -840,6 +825,11 @@ if [ $# -lt 1 ]; then
         echo ""
         echo "Note: --project is optional. If omitted, hdlforge will auto-detect *.hdlforge.json or *.hdlforge.toml files in the current directory."
     fi
+    echo ""
+    echo "Tab-Tab choices in the current directory:"
+    python3 "$FABRINETES/hdlforge/project_setup/hdlforge_completion_backend.py" \
+        --cwd "$PWD" --comp-cword 1 --display-table --columns "${COLUMNS:-80}" \
+        -- hdlforge "" | sed -n $'s/^__TABLE__\t//p'
     exit 1
 fi
 
@@ -1067,6 +1057,10 @@ if [ "$CURRENT_EVAL_JSON_MODE" = true ]; then
     export HDLFORGE_NOPRINT=1
 fi
 
+if [ "$NO_PRINT" = true ]; then
+    export HDLFORGE_NOPRINT=1
+fi
+
 # Change to project directory (only if PROJECT_DIR is set)
 if [ -n "$PROJECT_DIR" ]; then
     cd "$PROJECT_DIR" || {
@@ -1075,13 +1069,9 @@ if [ -n "$PROJECT_DIR" ]; then
     }
 fi
 
-# Source bashrc quietly to load helper functions, then refresh repository paths
-source ~/.bashrc >/dev/null 2>&1
-if ! command -v update_repo_path >/dev/null 2>&1; then
-    echo "❌ update_repo_path is not available after sourcing ~/.bashrc"
-    exit 1
-fi
-update_repo_path
+# Prepare tool and repository paths without depending on interactive startup.
+source "$HDLFORGE_INSTALL_DIR/hdlforge_environment.bash"
+hdlforge_prepare_environment || exit 1
 
 if [ -z "$REPO_TOP" ]; then
     echo "❌ Not inside a Git repository. Please run hdlforge from within a Git repository."
@@ -1333,7 +1323,7 @@ if [ "$has_tool_flag" = false ]; then
         hdlforge_print_usage
         exit 1
     else
-        JSON_PATH="${JSON_PATH_PARTS[0]}"
+        JSON_PATH="${JSON_PATH_PARTS[0]%.}"
     fi
     
     if [ "$CMD_MODE" != true ]; then
@@ -1361,13 +1351,9 @@ if [ "$has_tool_flag" = false ]; then
         fi
 
         if [ "$NODE_TYPE" = "object" ] || [ "$NODE_TYPE" = "array" ]; then
-            echo "Run options for ${JSON_PATH}:"
-            jq -r --arg json_path "$JSON_PATH" --arg prefix "${JSON_PATH_PARTS[0]}" '
-                getpath($json_path | split(".")) |
-                paths(scalars) as $p |
-                select(all($p[]; (tostring | startswith("#") | not))) |
-                "  hdlforge --eval_json \($prefix).\($p | join("."))"' \
-                "$PROJECT_JSON" 2>/dev/null || echo "  (unable to list runnable paths)"
+            python3 "$FABRINETES/hdlforge/project_setup/hdlforge_completion_backend.py" \
+                --cwd "$PWD" --comp-cword 3 --display-table --columns "${COLUMNS:-80}" \
+                -- hdlforge --project "$PROJECT_JSON" "${JSON_PATH#LLM_orch.}." | sed -n $'s/^__TABLE__\t//p'
             exit 0
         fi
 

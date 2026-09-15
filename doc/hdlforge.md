@@ -64,12 +64,16 @@ LLM_orch:
   hdlforge --env-path '["tools"]' --cmd 'my_tool' --append '<extra flags>'
 
 Environment:
-  hdlforge sources ~/.bashrc
-  hdlforge runs update_repo_path
+  hdlforge resolves its installation from its executable, including symlinks
+  hdlforge loads its bundled environment helper without sourcing ~/.bashrc
+  hdlforge loads /etc/profile.d/init_env.sh when present and configured VIVADO_SETTINGS
+  hdlforge restores its own executable path before preparing repository paths
   hdlforge captures PATH, PYTHONPATH, REPO_TOP
   hdlforge accepts native --env-python / --env-path / --env-var handoff
   hdlforge --cmd uses the same env handoff and project-root execution path
   hdlforge --cmd prints command-mode/executing lines by default; use --no-print for quiet stdout
+  --no-print propagates to nested commands and suppresses environment summaries;
+  command output and errors remain visible
   raw hdlforge --cmd can run without a project JSON; project-leaf env values still need one
 
 More:
@@ -77,10 +81,25 @@ More:
   how_hdlforge_keeps_paths_clean.md
 
 Bash completion descriptions:
+  Invoking a command group, such as hdlforge vivado --no-print, lists only
+  its immediate children. Invoke a listed subgroup to see the next level;
+  group listing does not execute any child commands. Keys beginning with #
+  remain hidden.
+  Running bare hdlforge prints usage followed by the same top-level choices
+  and descriptions as Double-Tab, using the project in the current directory.
+  This also works through Fabrinetes.sh --exec and requires no interactive
+  terminal. With no project, the table contains global options only.
   Double-Tab displays command candidates in a bordered Command/Description
   table, using descriptions from the selected project's JSON. Normal Tab and menu completion
   insert only the command token. File-path completion keeps native Bash behavior.
   Long command names and descriptions wrap within their table cells. Existing shells pick up runtime changes on their next completion.
+  Vivado build-profile menus describe stage actions. The shared command prefix appears once
+  above the table, while completion still inserts the full command token.
+  Invoking a group (with or without a trailing dot) uses the same table.
+  Synthesis shortcuts run synthesis only; implementation shortcuts run all
+  enabled implementations and require current synthesis. Combined full-build
+  shortcuts cover both stages. Menus do not inspect or list saved XPR runs.
+  Explicit JSON descriptions take precedence over standard profile help text.
 
   Put descriptions beside the command or group they describe. A key beginning
   with # is metadata: it is hidden from command listings and completion and
