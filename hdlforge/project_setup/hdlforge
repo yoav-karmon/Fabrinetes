@@ -1337,6 +1337,11 @@ if [ "$has_tool_flag" = false ]; then
     fi
     
     if [ "$CMD_MODE" != true ]; then
+        # Hash-prefixed JSON keys are descriptions, never executable commands.
+        if [[ "$JSON_PATH" == \#* || "$JSON_PATH" == *.\#* ]]; then
+            echo "[!x!] Description metadata cannot be executed: ${JSON_PATH}"
+            exit 1
+        fi
         NODE_TYPE=$(jq -r --arg json_path "$JSON_PATH" 'getpath($json_path | split(".")) | type' "$PROJECT_JSON" 2>/dev/null)
 
         if ([ -z "$NODE_TYPE" ] || [ "$NODE_TYPE" = "null" ]) && [[ "$JSON_PATH" != LLM_orch.* ]]; then
@@ -1351,7 +1356,7 @@ if [ "$has_tool_flag" = false ]; then
         if [ -z "$NODE_TYPE" ] || [ "$NODE_TYPE" = "null" ]; then
             echo "[!x!] Error: Command not found at JSON path: ${JSON_PATH}"
             echo "[i] Available command-like string paths:"
-            jq -r 'paths(strings) as $p | "  " + ($p | join("."))' "$PROJECT_JSON" 2>/dev/null | head -20 || echo "  (unable to parse JSON structure)"
+            jq -r 'paths(strings) as $p | select(all($p[]; (tostring | startswith("#") | not))) | "  " + ($p | join("."))' "$PROJECT_JSON" 2>/dev/null | head -20 || echo "  (unable to parse JSON structure)"
             exit 1
         fi
 
@@ -1360,6 +1365,7 @@ if [ "$has_tool_flag" = false ]; then
             jq -r --arg json_path "$JSON_PATH" --arg prefix "${JSON_PATH_PARTS[0]}" '
                 getpath($json_path | split(".")) |
                 paths(scalars) as $p |
+                select(all($p[]; (tostring | startswith("#") | not))) |
                 "  hdlforge --eval_json \($prefix).\($p | join("."))"' \
                 "$PROJECT_JSON" 2>/dev/null || echo "  (unable to list runnable paths)"
             exit 0

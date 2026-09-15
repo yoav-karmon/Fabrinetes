@@ -7,7 +7,7 @@ import subprocess
 import tempfile
 import unittest
 
-from hdlforge_completion_backend import completion_description, complete_llm_path
+from hdlforge_completion_backend import completion_description, complete_llm_path, complete_json_path, is_llm_leaf
 
 
 class CompletionDisplayTest(unittest.TestCase):
@@ -16,8 +16,11 @@ class CompletionDisplayTest(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.project = Path(self.temporary.name) / "sample.hdlforge.json"
         self.project.write_text(json.dumps({
-            "LLM_orch": {"demo": {"alpha": "echo alpha", "beta": "echo beta"}},
-            "LLM_orch_help": {"demo.alpha": "Read saved JSON", "demo.beta": {"description": "Query live console"}},
+            "LLM_orch": {"#demo": "Demo commands", "demo": {
+                "#alpha": "Read saved JSON", "alpha": "echo alpha",
+                "#beta": "Query live console", "beta": "echo beta",
+                "#notes": {"nested": "hdlforge must not run this"},
+            }},
         }))
 
     def complete(self, kind: int, word: str) -> list[str]:
@@ -61,6 +64,18 @@ printf '%s\\0' "${COMPREPLY[@]}"
 
     def test_help_metadata_is_not_a_command(self):
         self.assertEqual(complete_llm_path(self.project, "").completions, ["demo."])
+        self.assertEqual(complete_json_path(self.project, "LLM_orch.demo.").completions,
+                         ["LLM_orch.demo.alpha", "LLM_orch.demo.beta"])
+        self.assertFalse(is_llm_leaf(self.project, "demo.#alpha"))
+
+    def test_wrapper_rejects_direct_metadata_execution(self):
+        wrapper = Path(__file__).with_name("hdlforge")
+        subprocess.run(["git", "init", "--quiet", str(self.project.parent)], check=True)
+        for path in ("demo.#alpha", "LLM_orch.demo.#notes.nested"):
+            result = subprocess.run(["bash", str(wrapper), "--project", str(self.project), "--eval_json", path],
+                                    capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Description metadata cannot be executed", result.stdout)
 
     def test_description_handles_explicit_json_paths_and_controls(self):
         data = {"LLM_orch_help": {"demo.alpha": {"help": "Read\nJSON\x1b"}}}

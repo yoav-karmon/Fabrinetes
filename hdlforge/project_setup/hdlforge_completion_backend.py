@@ -276,7 +276,7 @@ def walk_llm_paths(node: object, prefix: str = "") -> list[str]:
 
     out: list[str] = []
     for key, value in node.items():
-        if not isinstance(key, str):
+        if not isinstance(key, str) or key.startswith("#"):
             continue
         path = f"{prefix}.{key}" if prefix else key
         out.append(path)
@@ -292,7 +292,7 @@ def walk_string_paths_with_values(node: object, prefix: str = "") -> list[tuple[
 
     out: list[tuple[str, str]] = []
     for key, value in node.items():
-        if not isinstance(key, str):
+        if not isinstance(key, str) or key.startswith("#"):
             continue
         path = f"{prefix}.{key}" if prefix else key
         out.extend(walk_string_paths_with_values(value, path))
@@ -300,6 +300,8 @@ def walk_string_paths_with_values(node: object, prefix: str = "") -> list[tuple[
 
 
 def is_llm_leaf(project_file: Path | None, dotted: str) -> bool:
+    if any(part.startswith("#") for part in dotted.split(".")):
+        return False
     if not project_file or project_file.suffix != ".json":
         return False
     data = load_json(project_file)
@@ -315,6 +317,8 @@ def is_llm_leaf(project_file: Path | None, dotted: str) -> bool:
 
 
 def is_json_string_leaf(project_file: Path | None, dotted: str) -> bool:
+    if any(part.startswith("#") for part in dotted.split(".")):
+        return False
     if not project_file or project_file.suffix != ".json":
         return False
     data = load_json(project_file)
@@ -913,6 +917,12 @@ def completion_description(data: dict, candidate: str) -> str:
     path = candidate.rstrip(".").removeprefix("LLM_orch.")
     descriptions = data.get("LLM_orch_help", {})
     value = descriptions.get(path, "") if isinstance(descriptions, dict) else ""
+    parent = data.get("LLM_orch", {})
+    parts = path.split(".")
+    for part in parts[:-1]:
+        parent = parent.get(part, {}) if isinstance(parent, dict) else {}
+    if isinstance(parent, dict):
+        value = parent.get("#" + parts[-1], value)
     if isinstance(value, dict):
         value = value.get("description") or value.get("help", "")
     if not isinstance(value, str):

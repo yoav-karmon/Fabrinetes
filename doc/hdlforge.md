@@ -83,25 +83,26 @@ Bash completion descriptions:
   Long labels and descriptions are shortened to fit the terminal; group help provides
   the full text. Existing shells pick up runtime changes on their next completion.
 
-  Optional top-level metadata, separate from executable LLM_orch commands:
+  Put descriptions beside the command or group they describe. A key beginning
+  with # is metadata: it is hidden from command listings and completion and
+  cannot be executed, including through an explicit --eval_json path.
 
 ```json
 {
   "LLM_orch": {
+    "#build": "Build commands",
     "build": {
+      "#status": "Show the current build status",
       "status": "python3 tools/status.py"
     }
-  },
-  "LLM_orch_help": {
-    "build": "Build commands",
-    "build.status": "Show the current build status"
   }
 }
 ```
 
-  Keys are dotted shortcut paths without the LLM_orch prefix. Values may be
-  strings or objects containing a description or help string. The same metadata
-  applies to shorthand and --eval_json LLM_orch.* completion. Missing descriptions
-  leave the description column empty. Completion only reads JSON; it does not
-  execute help commands. The backend's optional --describe switch adds separate
+  #status describes its sibling status; #build describes its sibling build.
+  Other # keys can hold notes and are also excluded from command traversal.
+  Shorthand and --eval_json completion both use these descriptions. Inline
+  descriptions take priority over the older top-level LLM_orch_help map,
+  which remains supported for compatibility. Completion only reads JSON;
+  it never executes help text. The backend --describe option adds separate
   __DESC__ records; its default output remains plain completion candidates.
