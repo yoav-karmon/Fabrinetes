@@ -11,7 +11,7 @@ _hdlforge_runtime_complete() {
     local -a lines display_args=()
     # COMP_TYPE '?' lists choices after successive tabs. Only that display
     # path receives labels; normal and menu completion insert plain tokens.
-    [[ "${COMP_TYPE:-9}" == 63 ]] && display_args=(--describe)
+    [[ "${COMP_TYPE:-9}" == 63 ]] && display_args=(--display-table --columns "${COLUMNS:-80}")
     if [[ -n "${HDLFORGE_COMPLETION_DEBUG:-}" ]]; then
         printf '[hdlforge completion] runtime cwd=%s cword=%s\n' "$PWD" "$COMP_CWORD" >&2
         if ! mapfile -t lines < <(python3 "$backend" --cwd "$PWD" --comp-cword "$COMP_CWORD" "${display_args[@]}" -- "${COMP_WORDS[@]}"); then
@@ -38,45 +38,18 @@ _hdlforge_runtime_complete() {
         start_index=1
     fi
 
-    local idx description_record candidate description
-    local -A descriptions=()
+    local idx
+    local -a display_lines=()
     for ((idx=start_index; idx < ${#lines[@]}; idx++)); do
-        if [[ "${lines[idx]}" == __DESC__$'\t'* ]]; then
-            description_record="${lines[idx]#*$'\t'}"
-            candidate="${description_record%%$'\t'*}"
-            descriptions["$candidate"]="${description_record#*$'\t'}"
+        if [[ "${lines[idx]}" == __TABLE__$'\t'* ]]; then
+            display_lines+=("${lines[idx]#*$'\t'}")
         else
             COMPREPLY+=("${lines[idx]}")
         fi
     done
 
-    if [[ "${COMP_TYPE:-9}" == 63 && ${#COMPREPLY[@]} -gt 1 && "$filenames" == 0 ]]; then
-        local columns="${COLUMNS:-80}" longest=0 available label display_width
-        for candidate in "${COMPREPLY[@]}"; do
-            (( ${#candidate} > longest )) && longest=${#candidate}
-        done
-        (( longest > columns * 2 / 3 )) && longest=$((columns * 2 / 3))
-        # Padding beyond half the terminal width makes Readline use one
-        # column, without changing the user's global completion settings.
-        display_width=$((columns / 2 + 1))
-        for idx in "${!COMPREPLY[@]}"; do
-            candidate="${COMPREPLY[idx]}"
-            description="${descriptions[$candidate]:-}"
-            label="$candidate"
-            if (( ${#label} > longest )); then
-                label="...${label: -$((longest - 3))}"
-            fi
-            if [[ -n "$description" ]]; then
-                available=$((columns - longest - 4))
-                if (( available > 4 )); then
-                    if (( ${#description} > available )); then
-                        description="${description:0:available-3}..."
-                    fi
-                    printf -v label '%-*s  %s' "$longest" "$label" "$description"
-                fi
-            fi
-            printf -v 'COMPREPLY[idx]' '%-*s' "$display_width" "$label"
-        done
+    if [[ "${COMP_TYPE:-9}" == 63 && ${#COMPREPLY[@]} -gt 1 && ${#display_lines[@]} -gt 0 ]]; then
+        COMPREPLY=("${display_lines[@]}")
         compopt -o nosort 2>/dev/null
     fi
 

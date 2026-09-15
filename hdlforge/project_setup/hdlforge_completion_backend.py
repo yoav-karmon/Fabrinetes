@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
+from table_formatter import create_matrix_table_from_data
+
 
 TOOLS = ["vivado", "Verilator", "network", "vcd_analyzer", "tsharkWrapper", "hw_server", "projects"]
 NETWORK_COMMANDS = ["send_raw", "send_arp", "send_icmp", "send_udp"]
@@ -930,11 +932,25 @@ def completion_description(data: dict, candidate: str) -> str:
     return " ".join(re.sub(r"[\x00-\x1f\x7f-\x9f]", " ", value).split())
 
 
+def completion_table(candidates: list[str], data: dict, columns: int) -> list[str]:
+    """Render display-only choices with HDLForge's bundled table formatter."""
+    columns = max(30, columns)
+    command_width = min(max(len(item) for item in candidates), (columns - 7) // 2)
+    description_width = columns - command_width - 7
+    rows = [[item, completion_description(data, item)] for item in candidates]
+    rendered = create_matrix_table_from_data(["Command", "Description"], rows,
+                                            col_wrapped_limits={0: command_width, 1: description_width})
+    # Readline must not arrange the rendered lines in multiple columns.
+    return [line.ljust(columns // 2 + 1) for line in rendered.splitlines()]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--cwd", required=True)
     parser.add_argument("--comp-cword", type=int, required=True)
     parser.add_argument("--describe", action="store_true")
+    parser.add_argument("--display-table", action="store_true")
+    parser.add_argument("--columns", type=int, default=80)
     parser.add_argument("words", nargs=argparse.REMAINDER)
     args = parser.parse_args()
 
@@ -961,13 +977,17 @@ def main() -> int:
     print(f"__META__ filenames={1 if result.filenames else 0} nospace={1 if result.nospace else 0}")
     for item in result.completions:
         print(item)
-    if args.describe and not result.filenames:
+    if (args.describe or args.display_table) and not result.filenames:
         project_file = detect_project_file(tokens_before_current, cwd)
         data = load_json(project_file) if project_file and project_file.suffix == ".json" else {}
-        for item in result.completions:
-            description = completion_description(data or {}, item)
-            if description:
-                print(f"__DESC__\t{item}\t{description}")
+        if args.describe:
+            for item in result.completions:
+                description = completion_description(data or {}, item)
+                if description:
+                    print(f"__DESC__\t{item}\t{description}")
+        if args.display_table and len(result.completions) > 1:
+            for line in completion_table(result.completions, data or {}, args.columns):
+                print(f"__TABLE__\t{line}")
     return 0
 
 

@@ -77,11 +77,10 @@ More:
   how_hdlforge_keeps_paths_clean.md
 
 Bash completion descriptions:
-  Double-Tab displays command candidates one per row, with a description when
-  provided by the selected project's JSON. Normal Tab and menu completion
+  Double-Tab displays command candidates in a bordered Command/Description
+  table, using descriptions from the selected project's JSON. Normal Tab and menu completion
   insert only the command token. File-path completion keeps native Bash behavior.
-  Long labels and descriptions are shortened to fit the terminal; group help provides
-  the full text. Existing shells pick up runtime changes on their next completion.
+  Long command names and descriptions wrap within their table cells. Existing shells pick up runtime changes on their next completion.
 
   Put descriptions beside the command or group they describe. A key beginning
   with # is metadata: it is hidden from command listings and completion and
@@ -106,3 +105,8 @@ Bash completion descriptions:
   which remains supported for compatibility. Completion only reads JSON;
   it never executes help text. The backend --describe option adds separate
   __DESC__ records; its default output remains plain completion candidates.
+
+Completion table formatting is bundled in hdlforge/project_setup/table_formatter.py.
+It uses only the Python standard library and does not load another repository
+or a skills directory. The backend --display-table option emits __TABLE__
+display records separately from completion tokens; --columns sets table width.

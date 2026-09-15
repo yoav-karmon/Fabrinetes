@@ -3,6 +3,7 @@
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -43,8 +44,11 @@ printf '%s\\0' "${COMPREPLY[@]}"
 
     def test_double_tab_has_one_column_with_descriptions(self):
         rows = self.complete(63, "demo.")
-        self.assertIn("Read saved JSON", rows[0])
-        self.assertIn("Query live console", rows[1])
+        self.assertTrue(rows[0].startswith("+"))
+        self.assertIn("Command", rows[1])
+        self.assertIn("Description", rows[1])
+        self.assertIn("Read saved JSON", "\n".join(rows))
+        self.assertIn("Query live console", "\n".join(rows))
         self.assertTrue(all(len(row) > 50 and "\n" not in row for row in rows))
 
     def test_single_match_is_never_annotated(self):
@@ -57,10 +61,22 @@ printf '%s\\0' "${COMPREPLY[@]}"
             "LLM_orch_help": {f"{group}.alpha": "Read JSON"},
         }))
         rows = self.complete(63, group + ".")
-        self.assertTrue(rows[0].startswith("..."))
-        self.assertIn("Read JSON", rows[0])
-        self.assertTrue(all(len(row) < 100 for row in rows))
+        self.assertTrue(rows[0].startswith("+"))
+        self.assertIn("Read JSON", "\n".join(rows))
+        self.assertTrue(all(len(row) <= 100 for row in rows))
         self.assertEqual(self.complete(9, group + "."), [f"{group}.alpha", f"{group}.beta"])
+
+    def test_table_completion_works_without_the_fpga_repository(self):
+        standalone = self.project.parent / "standalone_hdlforge"
+        standalone.mkdir()
+        for filename in ("hdlforge_completion_backend.py", "table_formatter.py"):
+            shutil.copyfile(Path(__file__).with_name(filename), standalone / filename)
+        result = subprocess.run(["python3", "-E", "-s", str(standalone / "hdlforge_completion_backend.py"),
+                                 "--cwd", str(self.project.parent), "--comp-cword", "1", "--display-table",
+                                 "--", "hdlforge", "demo."], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("__TABLE__\t+", result.stdout)
+        self.assertIn("Read saved JSON", result.stdout)
 
     def test_help_metadata_is_not_a_command(self):
         self.assertEqual(complete_llm_path(self.project, "").completions, ["demo."])
