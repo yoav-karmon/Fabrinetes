@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import os
+from contextlib import redirect_stdout
 import sys
 from pathlib import Path
 import inspect
@@ -29,6 +30,7 @@ from hw_server_tasks import hw_server, help_hw_server
 
 # Import project loader (single source of truth for project data)
 from project_file import ProjectFile
+from vivado_console import command_help, get_runs_from_live_xpr, live_run_groups, project_console, run_queries
 
 
 def normalize_cli_args(argv: List[str]) -> List[str]:
@@ -287,6 +289,15 @@ def help_vivado():
     print("    --generate_prj_with_external_tcl    Generate Vivado project using external TCL script")
     print("    --write_tcl                         Export Vivado project to TCL")
     print("    --list_runs                         List all Vivado runs")
+    print("    --get_xpr_path                      Print the absolute configured XPR path; does not start Vivado")
+    print("    --project_mng <ACTION>              Native project, console, live runs, serial build groups, and saved run management")
+    print("      --project_mng help                Show actions, descriptions, and options")
+    print("      --project_mng get_build_options   Query live targets and print complete build/reset/enable/disable commands")
+    print("      --project_mng build_run           Build --run NAME; add --reset for reset-and-full-build")
+    print("      --project_mng build_group         Build --group SYNTH; add --reset for reset-and-full-build")
+    print("      --project_mng build-status        Show background build PID/state/log; --follow tails its output")
+    print("    --project_console <ACTION>          Manage a persistent console or install reusable JSON commands")
+    print("      --project_console help            Show console actions and installation options")
     print()
     print("  Build Steps (require RUN_NAME or RUN_NAME[,RUN_NAME2,...]):")
     print("    --syn <RUN_NAME[,RUN_NAME2,...]>    Run synthesis")
@@ -512,6 +523,48 @@ def help_projects():
 if __name__ == "__main__":
     # Get original CWD from environment (set by hdlforge bash script) or fallback to current dir
     ORIGINAL_CWD = os.environ.get('HDLFORGE_ORIG_DIR', os.getcwd())
+
+    # Console arguments belong to its own parser; keep --cmd and --help intact.
+    console_parser = argparse.ArgumentParser(add_help=False)
+    console_parser.add_argument('--tool')
+    console_parser.add_argument('--project')
+    console_parser.add_argument('--get_xpr_path', action='store_true')
+    console_parser.add_argument('--project_console')
+    console_parser.add_argument('--project_mng', dest='project_console')
+    console_args, console_tail = console_parser.parse_known_args(sys.argv[1:])
+    if console_args.tool == 'vivado' and (console_args.get_xpr_path or console_args.project_console):
+        os.chdir(ORIGINAL_CWD)
+        if console_args.get_xpr_path and console_args.project_console:
+            console_parser.error('--get_xpr_path and --project_console are separate actions')
+        if console_args.get_xpr_path:
+            if console_tail:
+                console_parser.error('--get_xpr_path takes no additional options')
+            with redirect_stdout(sys.stderr):
+                selected_project = ProjectFile(console_args.project)
+                selected_project.require_vivado_project_name()
+            print(selected_project.vivado_project_xpr_path.resolve())
+            sys.exit(0)
+        if console_args.project_console == 'help':
+            project_console.table(["Native action", "Description"], [[("help" if action == "--help" else action), description]
+                                  for action, description in project_console.COMMANDS.values()])
+        console_argv = ['--help'] if console_args.project_console == 'help' else [console_args.project_console]
+        if console_args.project_console not in {'help', 'list', 'clean_logs', 'print-hdlforge-json-commends', 'print-hdlforge-json-commands', 'install-json'}:
+            with redirect_stdout(sys.stderr):
+                selected_project = ProjectFile(console_args.project)
+            console_argv.extend(['--project-json', str(selected_project._project_file_path)])
+        if console_args.project_console == 'live-runs':
+            sys.exit(get_runs_from_live_xpr.main(['--console', *console_argv[1:], *console_tail]))
+        if console_args.project_console in {'refresh-runs', 'saved-runs'}:
+            action = 'update' if console_args.project_console == 'refresh-runs' else 'get'
+            sys.exit(run_queries.main([action, *console_argv[1:], *console_tail]))
+        if console_args.project_console == 'saved-help':
+            command_help.main([*console_argv[1:], *console_tail])
+            sys.exit(0)
+        if (console_args.project_console.startswith(('run_groups', 'build'))
+                or console_args.project_console in {'get_runs', 'get_groups', 'get_build_options',
+                    'reset_run', 'reset_group', 'enable_run', 'enable_group', 'disable_run', 'disable_group'}):
+            sys.exit(live_run_groups.main(selected_project._project_file_path, console_args.project_console, console_tail))
+        sys.exit(project_console.main(console_argv + console_tail))
     
     parser = argparse.ArgumentParser(
         description='HDLForge - Hardware Development Tool',

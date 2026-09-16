@@ -13,6 +13,9 @@ from typing import Callable
 from completion_vivado_profiles import profile_context, profile_description
 from table_formatter import create_matrix_table_from_data
 
+NATIVE_HELP = json.loads(Path(__file__).with_name("native_command_help.json").read_text())
+CONSOLE_ACTIONS = {("help" if value == "--help" else value): NATIVE_HELP["project_console"]["#" + name]
+                   for name, value in NATIVE_HELP["project_console"].items() if not name.startswith("#")}
 
 TOOLS = ["vivado", "Verilator", "network", "vcd_analyzer", "tsharkWrapper", "hw_server", "projects"]
 NETWORK_COMMANDS = ["send_raw", "send_arp", "send_icmp", "send_udp"]
@@ -482,6 +485,9 @@ def parse_classic_state(tokens: list[str], cwd: Path) -> ParsedState:
             "--continue",
             "--lint",
             "--list_runs",
+            "--get_xpr_path",
+            "--project_console",
+            "--project_mng",
             "--reset_run",
             "--generate_prj_with_external_tcl",
             "--write_tcl",
@@ -535,6 +541,11 @@ def complete_static_words(words: list[str]) -> Handler:
     return lambda cur, _state: complete_words(cur, words)
 
 
+def complete_project_management(cur: str, state: ParsedState) -> CompletionResult:
+    """Only static command names; discovery happens on explicit get_groups/get_runs."""
+    return complete_words(cur, list(CONSOLE_ACTIONS))
+
+
 def complete_vivado_run_names(cur: str, state: ParsedState) -> CompletionResult:
     return complete_csv_words(cur, get_vivado_runs(state))
 
@@ -552,6 +563,15 @@ VALUE_HANDLER_TREE: dict[str, dict[str, Handler]] = {
         "--env-var": lambda _cur, _state: CompletionResult([]),
     },
     "tool:vivado": {
+        "--project_console": complete_project_management,
+        "--project_mng": complete_project_management,
+        "--action": complete_static_words([name for name in NATIVE_HELP["run_group_actions"] if not name.startswith("#")]),
+        "--group": lambda _cur, _state: CompletionResult([]),
+        "--run": lambda _cur, _state: CompletionResult([]),
+        "--json-file": lambda cur, _state: complete_path(cur, _state.cwd, suffixes=(".json",)),
+        "--key": lambda _cur, _state: CompletionResult([]),
+        "--output": lambda cur, _state: complete_path(cur, _state.cwd),
+        "--timeout": lambda _cur, _state: CompletionResult([]),
         "--syn": complete_vivado_run_names,
         "--reset_synth": complete_vivado_run_names,
         "--impl": complete_vivado_run_names,
@@ -661,6 +681,9 @@ def suggest_vivado_flags(state: ParsedState) -> list[str]:
         "--continue",
         "--lint",
         "--list_runs",
+        "--get_xpr_path",
+        "--project_console",
+        "--project_mng",
         "--reset_run",
         "--generate_prj_with_external_tcl",
         "--write_tcl",
@@ -693,6 +716,17 @@ def suggest_vivado_flags(state: ParsedState) -> list[str]:
         modifiers = ["--project_tcl_json", "--project_tcl_json_file"]
     elif selected == "--clean_logs":
         modifiers = ["--force", "--verbose"]
+    elif selected in {"--project_console", "--project_mng"}:
+        modifiers = ["--cmd", "--output", "--raw", "--timeout", "--json-file", "--key", "--overwrite", "--run", "--property", "--summary", "--json", "--jobs", "--run-timeout", "--follow"]
+        operation = next((state.tokens[index + 1] for index in range(len(state.tokens) - 1) if state.tokens[index] == selected), "")
+        if operation == "build":
+            modifiers = ["--group", "--run", "--action", "--reset", "--list-options", "--jobs", "--run-timeout"]
+        elif operation in {"build_run", "build_group", "reset_run", "reset_group", "enable_run", "enable_group", "disable_run", "disable_group"}:
+            modifiers = ["--" + operation.rsplit("_", 1)[1]]
+            if operation.startswith("build_"):
+                modifiers += ["--reset", "--jobs", "--run-timeout"]
+        elif operation in {"get_runs", "get_groups", "get_build_options"}:
+            modifiers = ["--json"]
     else:
         modifiers = []
 
@@ -918,6 +952,9 @@ def complete_llm(tokens_before_current: list[str], cur: str, cwd: Path) -> Compl
 def completion_description(data: dict, candidate: str) -> str:
     """Read optional display text; never execute a command to obtain help."""
     path = candidate.rstrip(".").removeprefix("LLM_orch.")
+    native = data.get("__native_descriptions", {}).get(candidate)
+    if native:
+        return native
     descriptions = data.get("LLM_orch_help", {})
     value = descriptions.get(path, "") if isinstance(descriptions, dict) else ""
     parent = data.get("LLM_orch", {})
@@ -989,6 +1026,11 @@ def main() -> int:
     if (args.describe or args.display_table) and not result.filenames:
         project_file = detect_project_file(tokens_before_current, cwd)
         data = load_json(project_file) if project_file and project_file.suffix == ".json" else {}
+        native = {name[1:]: value for group in (NATIVE_HELP["flags"], NATIVE_HELP["values"])
+                  for name, value in group.items() if name.startswith("#")}
+        if "--project_console" in tokens_before_current or "--project_mng" in tokens_before_current:
+            native.update(CONSOLE_ACTIONS)
+        data = {**(data or {}), "__native_descriptions": native}
         if args.describe:
             for item in result.completions:
                 description = completion_description(data or {}, item)

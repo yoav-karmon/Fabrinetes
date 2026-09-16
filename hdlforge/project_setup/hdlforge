@@ -318,7 +318,7 @@ hdlforge_clean_env_json() {
 hdlforge_find_project_json() {
     local candidates=()
 
-    if [ -n "${PROJECT_FILE_PATH:-}" ] && [[ "$PROJECT_FILE_PATH" == *.hdlforge.json ]] && [ -f "$PROJECT_FILE_PATH" ]; then
+    if [ -n "${PROJECT_FILE_PATH:-}" ] && [[ "$PROJECT_FILE_PATH" == *.json ]] && [ -f "$PROJECT_FILE_PATH" ]; then
         realpath "$PROJECT_FILE_PATH"
         return 0
     fi
@@ -1178,7 +1178,7 @@ if [ "$has_tool_flag" = false ]; then
     SEARCH_DIR="${PROJECT_DIR:-$(pwd)}"
     
     # First, try to use PROJECT_FILE_PATH if it was set
-    if [ -n "$PROJECT_FILE_PATH" ] && [[ "$PROJECT_FILE_PATH" == *.hdlforge.json ]]; then
+    if [ -n "$PROJECT_FILE_PATH" ] && [[ "$PROJECT_FILE_PATH" == *.json ]]; then
         PROJECT_JSON="$PROJECT_FILE_PATH"
     else
         # Look for project files in current directory or PROJECT_DIR
@@ -1412,6 +1412,9 @@ if [ "$has_tool_flag" = false ]; then
         exit 1
     }
     
+    # Carry the exact selection into reusable nested native-tool commands.
+    export HDLFORGE_PROJECT_FILE="$PROJECT_JSON"
+    export HDLFORGE_JSON_COMMAND_PATH="$JSON_PATH"
     # Execute the command (recursive call to hdlforge).
     # Use eval to properly handle quoted arguments in the command. Disable
     # brace expansion so CLI values like --group-fire-pattern {1:0,2:0,4}

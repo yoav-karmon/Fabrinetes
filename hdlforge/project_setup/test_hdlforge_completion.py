@@ -8,10 +8,30 @@ import subprocess
 import tempfile
 import unittest
 
-from hdlforge_completion_backend import completion_description, complete_llm_path, complete_json_path, is_llm_leaf
+from hdlforge_completion_backend import NATIVE_HELP, ParsedState, TOOLS, completion_description, complete_llm_path, complete_json_path, is_llm_leaf, suggest_flags
 
 
 class CompletionDisplayTest(unittest.TestCase):
+    def test_native_catalog_describes_all_top_level_tool_flags(self):
+        def check(tree):
+            for name, value in tree.items():
+                if not name.startswith("#"):
+                    self.assertTrue(tree.get("#" + name), name)
+                    if isinstance(value, dict):
+                        check(value)
+        check(NATIVE_HELP)
+        for tool in TOOLS:
+            for flag in suggest_flags(ParsedState([], Path.cwd(), tool=tool)):
+                self.assertTrue(NATIVE_HELP["flags"].get("#" + flag), (tool, flag))
+
+    def test_native_double_tab_includes_option_descriptions(self):
+        backend = Path(__file__).with_name("hdlforge_completion_backend.py")
+        result = subprocess.run(["python3", str(backend), "--cwd", str(self.project.parent), "--comp-cword", "3",
+                                 "--display-table", "--", "hdlforge", "--tool", "vivado", "--"], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--get_xpr_path", result.stdout)
+        self.assertIn("without starting Vivado", result.stdout)
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
@@ -69,8 +89,9 @@ printf '%s\\0' "${COMPREPLY[@]}"
     def test_table_completion_works_without_the_fpga_repository(self):
         standalone = self.project.parent / "standalone_hdlforge"
         standalone.mkdir()
-        for filename in ("hdlforge_completion_backend.py", "table_formatter.py"):
+        for filename in ("hdlforge_completion_backend.py", "table_formatter.py", "completion_vivado_profiles.py", "native_command_help.json"):
             shutil.copyfile(Path(__file__).with_name(filename), standalone / filename)
+        shutil.copytree(Path(__file__).with_name("vivado_console"), standalone / "vivado_console", ignore=shutil.ignore_patterns("__pycache__"))
         result = subprocess.run(["python3", "-E", "-s", str(standalone / "hdlforge_completion_backend.py"),
                                  "--cwd", str(self.project.parent), "--comp-cword", "1", "--display-table",
                                  "--", "hdlforge", "demo."], capture_output=True, text=True)
