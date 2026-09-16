@@ -119,7 +119,17 @@ Explicit live discovery and background builds:
     Reset only: hdlforge vivado.project_console.build.reset_run --append '--run impl_1'
   hdlforge --tool vivado --project_mng build-status
   hdlforge --tool vivado --project_mng build-status --follow
-    Inspect the worker state or follow its combined progress and runme.log output.
+    Project shortcut: hdlforge vivado.project_console.build.build_status
+    Show the worker phase, ordered run plan, disabled/reused/completed runs,
+    live Vivado stage and progress, and next pending run. Each run lists its
+    planned stages, runme.log, output directory, expected output types, files
+    already on disk, and latest log line/time. Existing files may predate this
+    build; completion or a bitstream does not establish that timing passed.
+    Workers persist progress in the existing project-console build.json state;
+    no separate monitoring configuration JSON is needed. Explicit build_status
+    queries the open console, including for older workers without a saved plan.
+    If that query fails, the saved report is displayed with a warning. Tab
+    completion remains static. --follow streams the combined worker/run log.
     Logs and state live under <build_dir>/project_console/<project_name>/. The Vivado console
     also writes vivado.log and vivado.jou there and survives caller-shell exit.
 

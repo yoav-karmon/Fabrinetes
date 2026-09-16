@@ -10,6 +10,7 @@ import re
 import time
 
 from . import build_jobs
+from .build_progress import plan_entry, update_entry
 from .build_options import OPERATIONS, available_options, print_options
 from .get_runs_from_live_xpr import load_xpr_path
 from .project_console import ProjectConsole, tcl_word
@@ -105,11 +106,18 @@ def relay_log(filename: Path | None, offset: int) -> int:
         return handle.tell()
 
 
-def build(console: ProjectConsole, path: str, jobs: int, run_timeout: float) -> None:
+def build(console: ProjectConsole, path: str, jobs: int, run_timeout: float, report=None) -> None:
     """Serialize the group while releasing the Tcl lock between status polls."""
     with console.locked("build.lock"):
         runs = snapshot(console)
         sequence, action = selected_runs(path, runs)
+        plan = [plan_entry(run) for run in sequence]
+        def publish(phase, run=None, result=None):
+            if run is not None:
+                update_entry(next(item for item in plan if item["name"] == run["name"]), run, result)
+            if report:
+                report(phase, plan)
+        publish("Selecting runs")
         if action in {"enable", "disable"}:
             set_enabled(console, [sequence[0]["name"]], action == "enable")
             log(f"{sequence[0]['name']}: {'enabled' if action == 'enable' else 'disabled'} in the XPR")
@@ -118,6 +126,7 @@ def build(console: ProjectConsole, path: str, jobs: int, run_timeout: float) -> 
             for run in sequence:
                 if blocked(run, runs):
                     log(f"[Skipped: disabled] {run['name']}")
+                    publish("Selecting runs", run, "skipped: disabled")
             sequence = [run for run in sequence if not blocked(run, runs)]
             if not sequence:
                 return
@@ -125,6 +134,7 @@ def build(console: ProjectConsole, path: str, jobs: int, run_timeout: float) -> 
             raise RuntimeError("A run is already active; wait before resetting or building another group")
         table(["Order", "Run"], [[index, run["name"]] for index, run in enumerate(sequence, 1)])
         if action in {"reset", "reset_and_build"}:
+            publish("Resetting " + sequence[0]["name"])
             if not sequence[0].get("parent_run"):
                 log("Resetting synthesis invalidates all its implementation children, including disabled or unselected ones.")
             with console.locked():
@@ -137,9 +147,11 @@ def build(console: ProjectConsole, path: str, jobs: int, run_timeout: float) -> 
             run = next(run for run in current if run["name"] == name)
             if blocked(run, current):
                 log(f"[Skipped: disabled] {name}")
+                publish("Checking " + name, run, "skipped: disabled")
                 continue
             if finished(run):
                 log(f"[Current] {name}")
+                publish("Reusing " + name, run, "reused")
                 continue
             status = run["properties"]["STATUS"]
             if run["properties"].get("NEEDS_REFRESH", "0").lower() not in {"0", "false"} or re.search(r"error|fail|cancel|abort", status, re.I):
@@ -148,6 +160,7 @@ def build(console: ProjectConsole, path: str, jobs: int, run_timeout: float) -> 
             if parent is not None and not complete(parent):
                 raise RuntimeError(f"{name}: synthesis {parent['name']} is not current and complete; continue or reset_and_build the group first")
             log(f"[Building] {name}")
+            publish("Launching " + name, run, "launching")
             directory = run["properties"].get("DIRECTORY")
             output = Path(directory) / "runme.log" if directory else None
             offset = 0
@@ -159,6 +172,7 @@ def build(console: ProjectConsole, path: str, jobs: int, run_timeout: float) -> 
                 latest_run = next(row for row in latest if row["name"] == name)
                 if blocked(latest_run, latest):
                     log(f"[Skipped: disabled] {name}")
+                    publish("Checking " + name, latest_run, "skipped: disabled")
                     continue
                 step = final_step(latest_run)
                 target = f" -to_step {step}" if step else ""
@@ -166,14 +180,18 @@ def build(console: ProjectConsole, path: str, jobs: int, run_timeout: float) -> 
             deadline = time.monotonic() + run_timeout
             while True:
                 run = next(run for run in snapshot(console) if run["name"] == name)
+                publish("Building " + name, run, "running")
                 offset = relay_log(output, offset)
                 if finished(run):
                     log(f"[Done] {name}")
+                    publish("Finished " + name, run, "complete")
                     break
                 status = run["properties"]["STATUS"]
                 if re.search(r"error|fail|cancel|abort", status, re.I):
+                    publish("Failed " + name, run, "failed")
                     raise RuntimeError(f"{name}: {status}; remaining runs were not launched")
                 if time.monotonic() >= deadline:
+                    publish("Timed out waiting for " + name, run, "timeout; may still be running")
                     raise RuntimeError(f"Timed out waiting for {name}; run may still be active. Remaining runs were not launched.")
                 time.sleep(2)
 
@@ -230,7 +248,7 @@ def main(project: Path, action: str, argv: list[str]) -> int:
             else:
                 action = f"build.{run_key(name)}.synthesis.{args.action}"
         if action == "build-status":
-            build_jobs.monitor(console, args.follow)
+            build_jobs.monitor(console, args.follow, lambda: snapshot(console))
         elif action == "get_build_options":
             options = available_options(project, snapshot(console))
             if args.json:
@@ -262,12 +280,17 @@ def main(project: Path, action: str, argv: list[str]) -> int:
                 state["status"] = "running"
                 build_jobs.write_state(path, state)
             try:
-                build(console, action, args.jobs, args.run_timeout)
-            except BaseException:
+                def report(phase, plan):
+                    state.update(phase=phase, runs=plan, updated_at=time.time())
+                    build_jobs.write_state(path, state)
+                build(console, action, args.jobs, args.run_timeout, report)
+            except BaseException as error:
                 state["status"] = "failed"
+                state.update(error=str(error), finished_at=time.time())
                 build_jobs.write_state(path, state)
                 raise
             state["status"] = "complete"
+            state.update(phase="Finished", finished_at=time.time())
             build_jobs.write_state(path, state)
         else:
             # Validate against live state before reporting a started worker.
