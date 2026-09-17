@@ -36,7 +36,7 @@ def available_options(project, runs: list) -> list[dict]:
             disabled = blocked(run, runs)
             actions = [("reset", "Reset without launching", [])]
             if not disabled:
-                actions = [("build", "Continue/full build, reuse completed results", []),
+                actions = [("build", "Submit batch; Vivado resolves dependencies", []),
                            ("build", "Reset and full build", ["--reset"]),
                            *actions, ("disable", "Disable", [])]
             else:

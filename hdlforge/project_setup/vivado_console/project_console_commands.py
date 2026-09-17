@@ -13,9 +13,12 @@ COMMANDS = {name: (action, CATALOG["project_console"]["#" + name])
 
 def shortcut_path(name: str) -> str:
     """Return the public shortcut location for a native console command."""
+    management_names = {"name": "project_info", "list": "list_consoles", "capture": "console_output"}
+    if name in management_names:
+        return "management." + management_names[name]
     if name in {"restart", "close", "status", "list", "name", "capture", "clean", "install-json", "update-json", "print-hdlforge-json-commends"}:
         return "management." + name
-    if name in {"build_run", "build_group", "reset_run", "reset_group", "build_status", "get_build_options", "clean_logs"}:
+    if name in {"build_run", "build_group", "reset_run", "reset_group", "build_status", "build_stop", "get_build_options", "clean_logs"}:
         return "build." + name
     if name in {"get_runs", "get_groups", "enable_run", "enable_group", "disable_run", "disable_group"}:
         return "runs." + name

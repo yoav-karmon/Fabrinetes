@@ -73,18 +73,21 @@ class BuildOptionsTest(unittest.TestCase):
         self.assertEqual(words[:3], ["hdlforge", "custom.project_console.runs.enable_run", "--append"])
         self.assertEqual(shlex.split(words[3]), ["--run", "name with spaces"])
 
-    def test_public_build_commands_map_to_only_the_selected_scope(self):
-        runs = [run("synth", status="Complete"), run("impl", "synth")]
-        for action, args, expected in (
-            ("build_run", ["--run", "impl"], "build.synth.implementations.impl.continue"),
-            ("build_run", ["--run", "synth", "--reset"], "build.synth.synthesis.reset_and_build"),
-            ("build_group", ["--group", "synth", "--reset"], "build.synth.reset_and_build"),
+    def test_empty_build_commands_show_options_without_launching(self):
+        for action in ("build_run", "build_group"):
+            with patch.object(live_run_groups, "load_xpr_path", return_value=Path("test.xpr")), patch.object(live_run_groups, "snapshot", return_value=[run("synth")]), patch.object(live_run_groups, "print_options") as show, patch.object(live_run_groups.batch_build, "start") as start:
+                self.assertEqual(live_run_groups.main(Path("project.json"), action, []), 0)
+                show.assert_called_once()
+                start.assert_not_called()
+
+    def test_public_build_commands_submit_without_console_query(self):
+        for action, args, target, kind in (
+            ("build_group", ["--group", "synth"], "synth", "group"),
+            ("build_run", ["--run", "impl"], "impl", "run"),
         ):
-            with patch.object(live_run_groups, "load_xpr_path", return_value=Path("test.xpr")), \
-                    patch.object(live_run_groups, "snapshot", return_value=runs), \
-                    patch.object(live_run_groups.build_jobs, "start") as start:
+            with patch.object(live_run_groups, "load_xpr_path", return_value=Path("test.xpr")), patch.object(live_run_groups, "snapshot", side_effect=AssertionError("No console query")), patch.object(live_run_groups.batch_build, "start") as start:
                 self.assertEqual(live_run_groups.main(Path("project.json"), action, args), 0)
-                self.assertEqual(start.call_args.args[2], expected)
+                self.assertEqual(start.call_args.args[1:3], (target, kind))
 
     def test_disable_is_available_while_a_worker_holds_its_build_lock(self):
         console = Mock()

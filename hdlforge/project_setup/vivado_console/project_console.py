@@ -31,12 +31,17 @@ else:
 HELPER_TCL = Path(__file__).resolve().with_name("live_project_helpers.tcl")
 
 
+class ConsoleUnavailable(RuntimeError):
+    """The console transport failed, rather than the requested Tcl command."""
+
+
 class ProjectConsole:
     def __init__(self, xpr: Path, timeout: float = 180, project_file: Path | None = None):
         self.xpr = xpr.resolve()
         self.project_file = project_file
         self.logs_directory = self.xpr.parent.parent / "project_console" / self.xpr.stem
         self.timeout = timeout
+        self.force_recovery = False
         identity = hashlib.sha1(str(self.xpr).encode()).hexdigest()[:10]
         self.session = f"agent_tmux_{os.environ.get('USER', '').replace('.', '_')}_vivado_xpr_{self.xpr.stem}_{identity}_1"
         self.directory = Path(tempfile.gettempdir()) / f"vivado-project-console-{os.getuid()}-{identity}"
@@ -79,13 +84,27 @@ class ProjectConsole:
             raise ValueError(f"Unknown console lifecycle action: {command}")
 
     def open(self) -> None:
+        try:
+            self._open()
+        except ConsoleUnavailable as error:
+            if self.exists() and not self.force_recovery:
+                raise ConsoleUnavailable(
+                    f"{error}\nRestarting may interrupt pending work. "
+                    "Confirm by retrying with --append '--force'.") from error
+            self.close(force=True)
+            self.force_recovery = False
+            self._open()
+
+    def _open(self) -> None:
         with self.locked("lifecycle.lock"):
             if not self.exists():
                 ensure_xpr_is_available(self.xpr)
                 self.helper("open")
                 # Requests from a previous console cannot complete in this one.
                 (self.directory / "pending").unlink(missing_ok=True)
-        self.request(f"if {{[_lvp_project_path] ne {tcl_word(self.xpr)}}} {{error {{Wrong project open}}}}")
+        self.request(
+            f"if {{[_lvp_project_path] eq {{}}}} {{lvp_open_project {tcl_word(self.xpr)}}}\n"
+            f"if {{[_lvp_project_path] ne {tcl_word(self.xpr)}}} {{error {{Wrong project open}}}}")
 
     def pending_request(self) -> Path | None:
         """Return the unfinished request without contacting Vivado."""
@@ -98,11 +117,11 @@ class ProjectConsole:
     def request(self, command: str) -> str:
         """Wait for a unique response file; Tcl errors propagate to the CLI."""
         if not self.exists():
-            raise RuntimeError("Console is not running")
+            raise ConsoleUnavailable("Console is not running")
         pending = self.directory / "pending"
         previous = self.pending_request()
         if previous is not None:
-            raise RuntimeError(f"Previous Tcl command is still pending: {previous}")
+            raise ConsoleUnavailable(f"Previous Tcl command is still pending: {previous}")
         request_dir = Path(tempfile.mkdtemp(prefix="request-", dir=self.directory))
         pending.write_text(str(request_dir))
         script, output, done = (request_dir / name for name in ("command.tcl", "output.log", "done"))
@@ -130,9 +149,9 @@ class ProjectConsole:
         deadline = time.monotonic() + self.timeout
         while not done.exists():
             if not self.exists():
-                raise RuntimeError(f"Vivado console exited; request: {request_dir}")
+                raise ConsoleUnavailable(f"Vivado console exited; request: {request_dir}")
             if time.monotonic() >= deadline:
-                raise RuntimeError(f"Tcl command still pending; not cancelled. Request: {request_dir}")
+                raise ConsoleUnavailable(f"Tcl command still pending; not cancelled. Request: {request_dir}")
             time.sleep(0.1)
         response = done.read_text().split("\n", 1)
         captured = output.read_text() if output.exists() else ""
@@ -158,6 +177,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("action", choices=sorted({action for action, _ in COMMANDS.values() if action != "--help"} | {"print-hdlforge-json-commands"}))
     parser.add_argument("--cmd", help="Tcl command to execute with the send action")
     parser.add_argument("--raw", action="store_true", help="Print Tcl output without table formatting")
+    parser.add_argument("--force", action="store_true", help="Confirm restarting an unavailable console; may interrupt pending work")
     parser.add_argument("--output", type=Path, help="Override the write_tcl destination; default is the project's configured Tcl")
     parser.add_argument("--timeout", type=float, default=180, help="Maximum seconds to wait for the console or command lock (default: 180)")
     parser.add_argument("--json-file", type=Path, help="Existing JSON file for install-json; update-json detects its own selected file")
@@ -197,6 +217,9 @@ def main(argv: list[str] | None = None) -> int:
         project_json = args.project_json.resolve() if args.project_json else discover_project_json(Path.cwd())
         with operation("Reading project configuration JSON", str(project_json), machine=args.raw):
             console = ProjectConsole(load_xpr_path(project_json), args.timeout, project_json)
+            console.force_recovery = args.force
+            if args.force and console.pending_request() is not None:
+                console.close(force=True)
         if args.action == "name":
             table(["Project", "Console"], [[str(console.xpr), console.session]])
             return 0

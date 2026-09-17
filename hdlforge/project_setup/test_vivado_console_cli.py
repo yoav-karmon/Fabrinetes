@@ -36,7 +36,7 @@ class NativeConsoleTest(unittest.TestCase):
             self.assertEqual(installed["keep"], "echo keep")
             self.assertNotIn("obsolete", installed["project_console"])
             self.assertNotIn("REPO_TOP", json.dumps(installed))
-            self.assertIn(str(expected), invoke("tools.project_console.management.name"))
+            self.assertIn(str(expected), invoke("tools.project_console.management.project_info"))
             self.assertFalse(expected.exists())
             # Static build help works even before an XPR exists; targets are explicit appended options.
             action = "build_run"

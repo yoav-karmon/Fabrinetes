@@ -565,7 +565,7 @@ VALUE_HANDLER_TREE: dict[str, dict[str, Handler]] = {
     "tool:vivado": {
         "--project_console": complete_project_management,
         "--project_mng": complete_project_management,
-        "--action": complete_static_words([name for name in NATIVE_HELP["run_group_actions"] if not name.startswith("#")]),
+
         "--group": lambda _cur, _state: CompletionResult([]),
         "--run": lambda _cur, _state: CompletionResult([]),
         "--json-file": lambda cur, _state: complete_path(cur, _state.cwd, suffixes=(".json",)),
@@ -717,14 +717,18 @@ def suggest_vivado_flags(state: ParsedState) -> list[str]:
     elif selected == "--clean_logs":
         modifiers = ["--force", "--verbose"]
     elif selected in {"--project_console", "--project_mng"}:
-        modifiers = ["--cmd", "--output", "--raw", "--timeout", "--json-file", "--key", "--overwrite", "--run", "--property", "--summary", "--json", "--jobs", "--run-timeout", "--follow"]
+        modifiers = ["--cmd", "--output", "--raw", "--timeout", "--json-file", "--key", "--overwrite", "--run", "--property", "--summary", "--json", "--jobs", "--follow"]
         operation = next((state.tokens[index + 1] for index in range(len(state.tokens) - 1) if state.tokens[index] == selected), "")
         if operation == "build":
-            modifiers = ["--group", "--run", "--action", "--reset", "--list-options", "--jobs", "--run-timeout"]
+            modifiers = ["--group", "--run", "--reset", "--jobs"]
         elif operation in {"build_run", "build_group", "reset_run", "reset_group", "enable_run", "enable_group", "disable_run", "disable_group"}:
             modifiers = ["--" + operation.rsplit("_", 1)[1]]
             if operation.startswith("build_"):
-                modifiers += ["--reset", "--jobs", "--run-timeout"]
+                modifiers += ["--reset", "--jobs", "--no-bitstream"]
+        elif operation == "build-status":
+            modifiers = ["--submission", "--follow", "--lines", "--quiet-seconds", "--json"]
+        elif operation == "build-stop":
+            modifiers = ["--submission"]
         elif operation in {"get_runs", "get_groups", "get_build_options"}:
             modifiers = ["--json"]
     else:
