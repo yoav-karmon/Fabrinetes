@@ -293,7 +293,7 @@
     "restart": "restart",
     "#send": "Execute Tcl in the project console. Append --cmd, for example: --append '--cmd \"get_ips\"'.",
     "send": "send",
-    "#runs": "List run names from the open project; open the console if needed.",
+    "#runs": "List run names from the saved XPR without opening Vivado.",
     "runs": "runs",
     "#export_open_project_to_tcl": "Overwrite the configured project Tcl with the open project's settings. Append --output PATH to export elsewhere.",
     "export_open_project_to_tcl": "write_tcl",
@@ -317,11 +317,9 @@
     "install-json": "install-json",
     "#update-json": "Detect this shortcut's own JSON file and parent key, then replace its complete project_console group by default. No --overwrite flag, base commands, or other JSON groups are required. Sibling groups stay intact.",
     "update-json": "update-json",
-    "#build_status": "Check saved submissions against live process identity and current logs. Append --follow, --submission ID, or --json.",
-    "build_status": "build-status",
-    "#get_runs": "Query live runs in parent/child tables, including enabled state. Append --json for live metadata.",
+    "#get_runs": "List saved XPR runs, parents, strategies, and enabled state without opening Vivado. Append --json. Use vivado.monitor.status for live progress.",
     "get_runs": "get_runs",
-    "#get_groups": "Explicitly query live synthesis groups, their status, availability, and implementation children. Append --json for live metadata.",
+    "#get_groups": "List synthesis groups, availability, and implementation children from the saved XPR without opening Vivado. Append --json.",
     "get_groups": "get_groups",
     "#build_run": "Submit one run directly to a separate Vivado batch. Append --run NAME; optional --reset, --jobs N, --no-bitstream.",
     "build_run": "build_run",
@@ -339,9 +337,7 @@
     "enable_group": "enable_group",
     "#disable_group": "Disable a synthesis group and its enabled implementations in the XPR; active runs finish, later launches are skipped. Append '--group NAME'. Use get_build_options for complete copy-paste commands.",
     "disable_group": "disable_group",
-    "#get_build_options": "Query the open project and print Group, Command, Arguments, and Explanation columns. Show each command once per group with argument variations below it. Combine the command with an Arguments cell to execute; quoting is preserved. Run from this project directory. Append --json for complete structured options.",
-    "get_build_options": "get_build_options",
-    "build_stop": "build-stop",
-    "#build_stop": "Stop one submitted batch and its children. Append --submission ID."
+    "#get_build_options": "Read saved XPR configuration without opening Vivado and print Group, Command, Arguments, and Explanation columns. Show each command once per group with argument variations below it. Combine the command with an Arguments cell to execute; quoting is preserved. Run from this project directory. Append --json for complete structured options.",
+    "get_build_options": "get_build_options"
   }
 }

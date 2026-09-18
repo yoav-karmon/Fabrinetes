@@ -97,7 +97,7 @@ Explicit live discovery and background builds:
     Full implementations run through write_bitstream; IP implementations stop at
     route_design. Continue reuses completed results and resumes partial runs.
     Stale/failed runs require reset_and_build. Failure stops the remaining sequence.
-    Builds return a worker PID, project log path, and tail command immediately.
+    Builds return a project log path and tail command immediately; no PID registry is maintained.
     Resetting synthesis invalidates ALL its children, including disabled runs.
     Resetting one implementation leaves synthesis and sibling runs intact.
   hdlforge vivado.project_console.runs.disable_group --append '--group synth_1'
@@ -117,20 +117,11 @@ Explicit live discovery and background builds:
     does not stop an already-running Vivado process.
     Native equivalent: hdlforge --tool vivado --project_mng build_group --group synth_1
     Reset only: hdlforge vivado.project_console.build.reset_run --append '--run impl_1'
-  hdlforge --tool vivado --project_mng build-status
-  hdlforge --tool vivado --project_mng build-status --follow
-    Project shortcut: hdlforge vivado.project_console.build.build_status
-    Show the worker phase, ordered run plan, disabled/reused/completed runs,
-    live Vivado stage and progress, and next pending run. Each run lists its
-    planned stages, runme.log, output directory, expected output types, files
-    already on disk, and latest log line/time. Existing files may predate this
-    build; completion or a bitstream does not establish that timing passed.
-    Workers persist progress in the existing project-console build.json state;
-    no separate monitoring configuration JSON is needed. Explicit build_status
-    queries the open console, including for older workers without a saved plan.
-    If that query fails, the saved report is displayed with a warning. Tab
-    completion remains static. --follow streams the combined worker/run log.
-    Logs and state live under <build_dir>/project_console/<project_name>/. The Vivado console
+  hdlforge vivado.monitor.status
+    Build status belongs to the project Vivado monitor. The batch launcher does
+    not track PIDs, persist submission history, or provide build-status/build-stop.
+    Immediate launch failures are printed; subsequent progress is read by the monitor.
+    Launcher logs live under <build_dir>/project_console/<project_name>/. The Vivado console
     also writes vivado.log and vivado.jou there and survives caller-shell exit.
 
 Native autocomplete descriptions:

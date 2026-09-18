@@ -5,8 +5,9 @@ import base64
 from contextlib import nullcontext
 import json
 from pathlib import Path
+import xml.etree.ElementTree as ET
 
-from . import batch_build, build_jobs
+from . import batch_build
 from .build_options import available_options, print_options
 from .get_runs_from_live_xpr import load_xpr_path
 from .project_console import ConsoleUnavailable, ProjectConsole, tcl_word
@@ -16,6 +17,23 @@ from .terminal_output import log, show_runs, table
 
 FIELDS = ["NAME", "PARENT", "IS_SYNTHESIS", "IS_IMPLEMENTATION", "STATUS", "PROGRESS", "NEEDS_REFRESH", "FLOW", "DIRECTORY", "DESCRIPTION", "CURRENT_STEP", "HDLFORGE_IS_IP", "STRATEGY"]
 HELPERS = Path(__file__).resolve().parents[1] / "project_management_helpers.tcl"
+
+
+def saved_run_options(xpr: Path) -> list:
+    """Read saved run names and configuration without opening Vivado."""
+    rows = []
+    for run in ET.parse(xpr).findall("./Runs/Run"):
+        strategy = run.find("./Strategy/StratHandle")
+        flow = strategy.get("Flow", "") if strategy is not None else ""
+        description = run.get("Description", "")
+        rows.append({"name": run.attrib["Id"], "parent_run": run.get("SynthRun"),
+                     "properties": {"NAME": run.attrib["Id"], "DESCRIPTION": description, "FLOW": flow,
+                                    "IS_SYNTHESIS": "1" if run.get("Type") == "Ft3:Synth" else "0",
+                                    "IS_IMPLEMENTATION": "0" if run.get("Type") == "Ft3:Synth" else "1",
+                                    "STATUS": "See monitor", "STRATEGY": strategy.get("Name", "") if strategy is not None else ""},
+                     "enabled": is_enabled(description),
+                     "eligible": not run.get("ParentHierarchy") and "Vivado IDR Flow" not in flow})
+    return rows
 
 
 def snapshot(console: ProjectConsole, locked: bool = False) -> list:
@@ -73,44 +91,32 @@ apply {{} {
 def main(project: Path, action: str, argv: list[str]) -> int:
     if action in {"build_run", "build_group"} and not argv:
         action = "get_build_options"
-    parser = argparse.ArgumentParser(description="Submit batches; inspect PID and logs on request.")
+    parser = argparse.ArgumentParser(description="Submit batches; use the Vivado monitor for build status.")
     selectors = parser.add_mutually_exclusive_group()
     selectors.add_argument("--run")
     selectors.add_argument("--group")
     parser.add_argument("--reset", action="store_true")
     parser.add_argument("--jobs", type=int, default=1)
     parser.add_argument("--no-bitstream", action="store_true")
-    parser.add_argument("--follow", action="store_true")
-    parser.add_argument("--submission", help="Submission ID; status defaults to all submissions")
-    parser.add_argument("--quiet-seconds", type=float, default=60)
-    parser.add_argument("--lines", type=int, default=8)
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args(argv)
-    if args.jobs < 1 or args.lines < 1 or args.quiet_seconds < 0:
-        parser.error("jobs/lines must be positive; quiet-seconds must be nonnegative")
-    console = ProjectConsole(load_xpr_path(project), project_file=project)
-    console.force_recovery = args.force
+    if args.jobs < 1:
+        parser.error("jobs must be positive")
     try:
-        if action == "build-status":
-            build_jobs.monitor(console, args.follow, args.submission, args.quiet_seconds, args.lines, args.json)
-            return 0
-        if action == "build-stop":
-            if not args.submission:
-                parser.error("Pass --submission ID to stop one batch and its children")
-            build_jobs.stop(console, args.submission)
-            return 0
         if action in {"build_run", "build_group", "reset_run", "reset_group"}:
             kind = action.split("_")[1]
             target = getattr(args, kind)
             if not target:
                 parser.error(f"Pass --{kind} NAME")
-            batch_build.start(console, target, kind, args.jobs, args.reset,
-                              action.startswith("reset_"), not args.no_bitstream)
-            return 0
+            result = batch_build.start(load_xpr_path(project), target, kind, args.jobs, args.reset,
+                                       action.startswith("reset_"), not args.no_bitstream)
+            return result["exit_code"] or 0
+        console = ProjectConsole(load_xpr_path(project), project_file=project)
+        console.force_recovery = args.force
         if action in {"build", "build.", "run_groups", "run_groups."}:
             parser.error("Use build_run --run NAME or build_group --group NAME")
-        if args.force and console.pending_request() is not None:
+        if action not in {"get_runs", "get_groups", "runs", "get_build_options"} and args.force and console.pending_request() is not None:
             console.close(force=True)
         if action in {"enable_run", "enable_group", "disable_run", "disable_group"}:
             kind = action.split("_")[1]
@@ -121,19 +127,21 @@ def main(project: Path, action: str, argv: list[str]) -> int:
                 console.open()
             set_enabled(console, [target], action.startswith("enable"))
         elif action == "get_build_options":
-            options = available_options(project, snapshot(console))
+            options = available_options(project, saved_run_options(console.xpr))
             print(json.dumps({"options": options}, indent=2)) if args.json else print_options(options)
-        elif action in {"get_runs", "get_groups"}:
-            runs = snapshot(console)
+        elif action in {"get_runs", "get_groups", "runs"}:
+            runs = saved_run_options(console.xpr)
             for run in runs:
                 run["availability"] = "excluded (IDR)" if not run["eligible"] else "disabled" if blocked(run, runs) else "enabled"
-            if action == "get_groups":
+            if action == "runs":
+                table(["Run"], [[run["name"]] for run in runs])
+            elif action == "get_groups":
                 groups = [run for run in runs if run["properties"].get("IS_SYNTHESIS") in {"1", "true"}]
                 if args.json:
                     print(json.dumps({"groups": groups}, indent=2))
                 else:
-                    table(["Group", "Status", "Availability", "Implementations"],
-                          [[run["name"], run["properties"]["STATUS"], run["availability"],
+                    table(["Group", "Availability", "Implementations"],
+                          [[run["name"], run["availability"],
                             ", ".join(child["name"] for child in runs if child.get("parent_run") == run["name"])] for run in groups])
             elif args.json:
                 print(json.dumps({"runs": runs}, indent=2))
@@ -142,6 +150,6 @@ def main(project: Path, action: str, argv: list[str]) -> int:
         else:
             parser.error(f"Unknown action: {action}")
         return 0
-    except (RuntimeError, ValueError, OSError) as error:
+    except (RuntimeError, ValueError, OSError, ET.ParseError) as error:
         log(str(error), error=True)
         return 1

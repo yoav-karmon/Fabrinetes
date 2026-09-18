@@ -10,7 +10,6 @@ from unittest.mock import Mock, patch
 from hdlforge_completion_backend import (ParsedState, complete_classic, complete_json_path,
                                         complete_llm_path, complete_project_management, is_llm_leaf)
 from vivado_console import live_run_groups
-from vivado_console.build_jobs import state_path
 from vivado_console.project_console import ConsoleUnavailable, ProjectConsole
 from vivado_console.project_console_commands import hdlforge_commands
 from vivado_console.run_enable import blocked, is_enabled
@@ -23,6 +22,35 @@ def run(name, parent=None, status="Not started", eligible=True):
 
 
 class LiveRunGroupsTest(unittest.TestCase):
+    def test_saved_options_need_no_vivado_and_exclude_idr(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)/"test.xpr"
+            path.write_text("""<Project><Runs>
+              <Run Id="synth" Type="Ft3:Synth"/>
+              <Run Id="impl" SynthRun="synth" Description="[HDLForge:disabled]"/>
+              <Run Id="idr_child" SynthRun="synth" ParentHierarchy="idr:child"/>
+              <Run Id="idr"><Strategy><StratHandle Flow="Vivado IDR Flow 2025"/></Strategy></Run>
+            </Runs></Project>""")
+            with patch.object(ProjectConsole, "open", side_effect=AssertionError("Must not open")):
+                rows = live_run_groups.saved_run_options(path)
+            self.assertEqual(rows[1]["parent_run"], "synth")
+            self.assertFalse(rows[1]["enabled"])
+            self.assertFalse(rows[2]["eligible"])
+            self.assertFalse(rows[3]["eligible"])
+
+    def test_all_read_only_run_commands_never_open_console(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)/"test.xpr"
+            path.write_text('<Project><Runs><Run Id="synth" Type="Ft3:Synth"/><Run Id="impl" SynthRun="synth"/></Runs></Project>')
+            with patch.object(live_run_groups, "load_xpr_path", return_value=path), \
+                 patch.object(ProjectConsole, "open", side_effect=AssertionError("No console")), \
+                 patch.object(ProjectConsole, "pending_request", side_effect=AssertionError("No console access")), \
+                 patch("builtins.print"):
+                for action in ("runs", "get_runs", "get_groups", "get_build_options", "build_run", "build_group"):
+                    self.assertEqual(live_run_groups.main(Path("project.json"), action, []), 0)
+                for action in ("get_runs", "get_groups", "get_build_options"):
+                    self.assertEqual(live_run_groups.main(Path("project.json"), action, ["--json", "--force"]), 0)
+
     def test_unavailable_console_requires_confirmation(self):
         console = ProjectConsole(Path('/tmp/recovery-test.xpr'))
         with patch.object(console, '_open', side_effect=ConsoleUnavailable('pending')), patch.object(console, 'exists', return_value=True), patch.object(console, 'close') as close:
@@ -91,7 +119,6 @@ class LiveRunGroupsTest(unittest.TestCase):
     def test_projects_sharing_a_build_directory_have_separate_worker_state(self):
         a = ProjectConsole(Path("/example/_vivado/a/a.xpr"))
         b = ProjectConsole(Path("/example/_vivado/b/b.xpr"))
-        self.assertNotEqual(state_path(a), state_path(b))
         self.assertNotEqual(a.logs_directory, b.logs_directory)
 
     def test_native_completion_is_static_without_a_project(self):

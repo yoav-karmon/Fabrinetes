@@ -295,8 +295,6 @@ def help_vivado():
     print("      --project_mng get_build_options   Query live targets and print complete build/reset/enable/disable commands")
     print("      --project_mng build_run           Build --run NAME; add --reset for reset-and-full-build")
     print("      --project_mng build_group         Build --group SYNTH; add --reset for reset-and-full-build")
-    print("      --project_mng build-status        Recheck submission PID identity and logs; --follow refreshes status")
-    print("      --project_mng build-stop          Stop batch and children; --submission ID")
     print("    --project_console <ACTION>          Manage a persistent console or install reusable JSON commands")
     print("      --project_console help            Show console actions and installation options")
     print()
@@ -562,7 +560,7 @@ if __name__ == "__main__":
             command_help.main([*console_argv[1:], *console_tail])
             sys.exit(0)
         if (console_args.project_console.startswith(('run_groups', 'build'))
-                or console_args.project_console in {'get_runs', 'get_groups', 'get_build_options',
+                or console_args.project_console in {'runs', 'get_runs', 'get_groups', 'get_build_options',
                     'reset_run', 'reset_group', 'enable_run', 'enable_group', 'disable_run', 'disable_group'}):
             sys.exit(live_run_groups.main(selected_project._project_file_path, console_args.project_console, console_tail))
         sys.exit(project_console.main(console_argv + console_tail))

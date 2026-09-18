@@ -40,13 +40,13 @@ class BuildOptionsTest(unittest.TestCase):
         self.assertNotIn("Run:", text)
         self.assertNotIn("--project", text)
 
-    def test_get_build_options_queries_the_live_snapshot(self):
+    def test_get_build_options_reads_saved_inventory(self):
         with patch.object(live_run_groups, "load_xpr_path", return_value=Path("test.xpr")), \
                 patch.object(live_run_groups, "ProjectConsole") as console, \
-                patch.object(live_run_groups, "snapshot", return_value=[run("live_synth")]) as snapshot, \
+                patch.object(live_run_groups, "saved_run_options", return_value=[run("live_synth")]) as snapshot, \
                 redirect_stdout(io.StringIO()) as output:
             self.assertEqual(live_run_groups.main(Path("project.json"), "get_build_options", []), 0)
-        snapshot.assert_called_once_with(console.return_value)
+        snapshot.assert_called_once_with(console.return_value.xpr)
         self.assertIn("live_synth", output.getvalue())
 
     def test_printed_shortcut_round_trips_names_and_custom_parent(self):
@@ -75,7 +75,7 @@ class BuildOptionsTest(unittest.TestCase):
 
     def test_empty_build_commands_show_options_without_launching(self):
         for action in ("build_run", "build_group"):
-            with patch.object(live_run_groups, "load_xpr_path", return_value=Path("test.xpr")), patch.object(live_run_groups, "snapshot", return_value=[run("synth")]), patch.object(live_run_groups, "print_options") as show, patch.object(live_run_groups.batch_build, "start") as start:
+            with patch.object(live_run_groups, "load_xpr_path", return_value=Path("test.xpr")), patch.object(live_run_groups, "saved_run_options", return_value=[run("synth")]), patch.object(live_run_groups, "print_options") as show, patch.object(live_run_groups.batch_build, "start") as start:
                 self.assertEqual(live_run_groups.main(Path("project.json"), action, []), 0)
                 show.assert_called_once()
                 start.assert_not_called()
@@ -85,7 +85,7 @@ class BuildOptionsTest(unittest.TestCase):
             ("build_group", ["--group", "synth"], "synth", "group"),
             ("build_run", ["--run", "impl"], "impl", "run"),
         ):
-            with patch.object(live_run_groups, "load_xpr_path", return_value=Path("test.xpr")), patch.object(live_run_groups, "snapshot", side_effect=AssertionError("No console query")), patch.object(live_run_groups.batch_build, "start") as start:
+            with patch.object(live_run_groups, "load_xpr_path", return_value=Path("test.xpr")), patch.object(live_run_groups, "snapshot", side_effect=AssertionError("No console query")), patch.object(live_run_groups.batch_build, "start", return_value={"exit_code": None}) as start:
                 self.assertEqual(live_run_groups.main(Path("project.json"), action, args), 0)
                 self.assertEqual(start.call_args.args[1:3], (target, kind))
 
@@ -94,7 +94,7 @@ class BuildOptionsTest(unittest.TestCase):
         console.locked.side_effect = lambda filename="command.lock": nullcontext() if filename == "command.lock" else self.fail("Disable must not wait for build.lock")
         with patch.object(live_run_groups, "load_xpr_path", return_value=Path("test.xpr")), \
                 patch.object(live_run_groups, "ProjectConsole", return_value=console), \
-                patch.object(live_run_groups, "snapshot", return_value=[run("synth")]):
+                patch.object(live_run_groups, "saved_run_options", return_value=[run("synth")]):
             self.assertEqual(live_run_groups.main(Path("project.json"), "disable_group", ["--group", "synth"]), 0)
         self.assertIn("HDLForge:disabled", console.request.call_args.args[0])
 

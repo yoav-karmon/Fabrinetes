@@ -725,10 +725,6 @@ def suggest_vivado_flags(state: ParsedState) -> list[str]:
             modifiers = ["--" + operation.rsplit("_", 1)[1]]
             if operation.startswith("build_"):
                 modifiers += ["--reset", "--jobs", "--no-bitstream"]
-        elif operation == "build-status":
-            modifiers = ["--submission", "--follow", "--lines", "--quiet-seconds", "--json"]
-        elif operation == "build-stop":
-            modifiers = ["--submission"]
         elif operation in {"get_runs", "get_groups", "get_build_options"}:
             modifiers = ["--json"]
     else:
