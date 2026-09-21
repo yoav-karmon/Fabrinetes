@@ -71,12 +71,7 @@ def print_task_args(local_vars: dict, REPO_TOP: str, allowed_values: dict[str, L
                     # Map internal step names to API flag names
                     step_to_flag = {
                         "list_runs": "--list_runs",
-                        "reset_run": "--reset_run <run_name>",
-                        "syn": "--syn <run_name>",
-                        "impl": "--impl <run_name>",
-                        "bit": "--bit <run_name>",
                         "lint": "--lint",
-                        "all": "--all <run_name>",
                         "generate_prj_with_external_tcl": "--generate_prj_with_external_tcl",
                         "write_tcl": "--write_tcl",
                         "file_remove": "--file_remove --file_path <path>",

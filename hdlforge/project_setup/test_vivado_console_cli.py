@@ -11,6 +11,16 @@ WRAPPER = Path(__file__).with_name("hdlforge")
 
 
 class NativeConsoleTest(unittest.TestCase):
+    def test_retired_build_flags_are_rejected_before_any_project_action(self):
+        with tempfile.TemporaryDirectory() as directory:
+            subprocess.run(['git', 'init', '-q', directory], check=True)
+            for flag in ('--syn', '--reset_synth', '--impl', '--reset_impl', '--impl_and_bitstream',
+                         '--bit', '--reset_bitstream', '--reset_run', '--all', '--continue', '--more_options'):
+                result = subprocess.run([str(WRAPPER), '--no-print', '--tool', 'vivado', flag, 'unused'],
+                                        cwd=directory, capture_output=True, text=True, timeout=30)
+                self.assertNotEqual(result.returncode, 0, flag)
+                self.assertIn('unrecognized arguments', result.stderr, result.stdout + result.stderr)
+
     def test_install_and_resolve_explicit_json_in_an_independent_repository(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

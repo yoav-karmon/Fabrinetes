@@ -131,26 +131,12 @@ Native autocomplete descriptions:
 
 Native Vivado build commands:
   hdlforge --tool vivado --generate_prj_with_external_tcl
-  hdlforge --tool vivado --syn synth_1
-  hdlforge --tool vivado --syn synth_1 --more_options '["-generic DEBUG=1"]'
-  hdlforge --tool vivado --impl synth_1
-  hdlforge --tool vivado --impl_and_bitstream synth_1
-  hdlforge --tool vivado --bit synth_1
-  hdlforge --tool vivado --continue synth_1
-  hdlforge --tool vivado --reset_synth synth_1
-  hdlforge --tool vivado --reset_run synth_1  # compatibility alias for --reset_synth
-  hdlforge --tool vivado --reset_impl synth_1
-  hdlforge --tool vivado --reset_bitstream synth_1
-  --more_options accepts a JSON array of raw Vivado MORE OPTIONS entries
-  repeat --more_options to append additional arrays in command-line order
-
-Interactive Vivado project helpers:
-  source <Fabrinetes>/hdlforge/project_setup/project_management_helpers.tcl
-  hdlforge::project::help
-  hdlforge::project::print_runs
-  hdlforge::project::reset_synth {synth_1}
-  hdlforge::project::reset_impl {synth_1}
-  hdlforge::project::reset_bitstream {synth_1}
+  hdlforge --tool vivado --project_mng build_run --run synth_1
+  hdlforge --tool vivado --project_mng build_group --group synth_1 --no-bitstream
+  hdlforge --tool vivado --project_mng build_group --group synth_1
+  hdlforge --tool vivado --project_mng reset_run --run synth_1
+  hdlforge --tool vivado --project_mng reset_group --group synth_1
+  hdlforge --tool vivado --monitor status
 
 LLM_orch:
   hdlforge <shortcut.path>

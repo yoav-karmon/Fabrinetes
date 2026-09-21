@@ -10,7 +10,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from completion_vivado_profiles import profile_context, profile_description
 from table_formatter import create_matrix_table_from_data
 
 NATIVE_HELP = json.loads(Path(__file__).with_name("native_command_help.json").read_text())
@@ -197,23 +196,6 @@ def project_json_data(state: ParsedState) -> dict | None:
     if not state.project_file or state.project_file.suffix != ".json":
         return None
     return load_json(state.project_file)
-
-
-def get_vivado_runs(state: ParsedState) -> list[str]:
-    data = project_json_data(state)
-    if not data:
-        return []
-
-    runs: list[str] = []
-    vivado_cfg = (((data.get("vivado") or {}).get("config")) or {})
-    runs.extend(vivado_cfg.get("syth_list") or [])
-
-    for item in vivado_cfg.get("runs_flow") or []:
-        synth_run = (item or {}).get("synth_run")
-        if synth_run:
-            runs.append(synth_run)
-
-    return unique([run for run in runs if isinstance(run, str)])
 
 
 def get_sim_targets(state: ParsedState) -> list[str]:
@@ -474,21 +456,12 @@ def parse_classic_state(tokens: list[str], cwd: Path) -> ParsedState:
         elif token in {"-ic", "--interactive-chain"}:
             state.chain_mode = True
         elif token in {
-            "--syn",
-            "--reset_synth",
-            "--impl",
-            "--reset_impl",
-            "--impl_and_bitstream",
-            "--bit",
-            "--reset_bitstream",
-            "--all",
-            "--continue",
             "--lint",
             "--list_runs",
             "--get_xpr_path",
             "--project_console",
             "--project_mng",
-            "--reset_run",
+            "--monitor",
             "--generate_prj_with_external_tcl",
             "--write_tcl",
             "--file_add",
@@ -546,10 +519,6 @@ def complete_project_management(cur: str, state: ParsedState) -> CompletionResul
     return complete_words(cur, list(CONSOLE_ACTIONS))
 
 
-def complete_vivado_run_names(cur: str, state: ParsedState) -> CompletionResult:
-    return complete_csv_words(cur, get_vivado_runs(state))
-
-
 def complete_sim_target_names(cur: str, state: ParsedState) -> CompletionResult:
     return complete_words(cur, get_sim_targets(state))
 
@@ -563,6 +532,11 @@ VALUE_HANDLER_TREE: dict[str, dict[str, Handler]] = {
         "--env-var": lambda _cur, _state: CompletionResult([]),
     },
     "tool:vivado": {
+        "--monitor": complete_static_words([name for name in NATIVE_HELP['monitor'] if not name.startswith('#')]),
+        "--metric": lambda cur, state: complete_static_words(['elapsed_seconds', 'cpu_seconds', 'peak_memory_mb', 'wns_ns', 'tns_ns', 'whs_ns', 'ths_ns'] if 'performance' in state.tokens else ['all', 'wns', 'tns', 'whs', 'ths'])(cur, state),
+        "--files": lambda cur, state: complete_path(cur, state.cwd, suffixes=(".json",)),
+        "--kind": complete_static_words(['all', 'completed', 'intermediate']),
+        "--file": lambda cur, state: complete_path(cur, state.cwd, suffixes=(".json",)),
         "--project_console": complete_project_management,
         "--project_mng": complete_project_management,
 
@@ -572,17 +546,6 @@ VALUE_HANDLER_TREE: dict[str, dict[str, Handler]] = {
         "--key": lambda _cur, _state: CompletionResult([]),
         "--output": lambda cur, _state: complete_path(cur, _state.cwd),
         "--timeout": lambda _cur, _state: CompletionResult([]),
-        "--syn": complete_vivado_run_names,
-        "--reset_synth": complete_vivado_run_names,
-        "--impl": complete_vivado_run_names,
-        "--reset_impl": complete_vivado_run_names,
-        "--impl_and_bitstream": complete_vivado_run_names,
-        "--bit": complete_vivado_run_names,
-        "--reset_bitstream": complete_vivado_run_names,
-        "--all": complete_vivado_run_names,
-        "--continue": complete_vivado_run_names,
-        "--reset_run": complete_vivado_run_names,
-        "--more_options": lambda _cur, _state: CompletionResult([]),
         "--file_path": lambda cur, _state: complete_path(cur, _state.cwd),
         "--project_tcl_json_file": lambda cur, _state: complete_path(cur, _state.cwd, suffixes=(".json",)),
     },
@@ -670,21 +633,12 @@ def filter_single_use(flags: list[str], state: ParsedState, *, repeatable: set[s
 
 def suggest_vivado_flags(state: ParsedState) -> list[str]:
     actions = [
-        "--syn",
-        "--reset_synth",
-        "--impl",
-        "--reset_impl",
-        "--impl_and_bitstream",
-        "--bit",
-        "--reset_bitstream",
-        "--all",
-        "--continue",
         "--lint",
         "--list_runs",
         "--get_xpr_path",
         "--project_console",
         "--project_mng",
-        "--reset_run",
+        "--monitor",
         "--generate_prj_with_external_tcl",
         "--write_tcl",
         "--file_add",
@@ -701,8 +655,8 @@ def suggest_vivado_flags(state: ParsedState) -> list[str]:
         return filter_single_use(actions + ["--project", *GLOBAL_FLAGS, "--verbose", "--help", "-h"], state)
 
     modifiers: list[str]
-    if selected in {"--syn", "--reset_synth", "--impl", "--reset_impl", "--impl_and_bitstream", "--bit", "--reset_bitstream", "--all", "--continue", "--lint", "--reset_run"}:
-        modifiers = ["--clean", "--more_options"]
+    if selected == "--lint":
+        modifiers = ["--clean"]
     elif selected == "--generate_prj_with_external_tcl":
         modifiers = ["--clean", "--force"]
     elif selected in {"--file_add", "--file_remove"}:
@@ -716,6 +670,12 @@ def suggest_vivado_flags(state: ParsedState) -> list[str]:
         modifiers = ["--project_tcl_json", "--project_tcl_json_file"]
     elif selected == "--clean_logs":
         modifiers = ["--force", "--verbose"]
+    elif selected == "--monitor":
+        operation = next((state.tokens[index + 1] for index in range(len(state.tokens) - 1) if state.tokens[index] == selected), "")
+        modifiers = {'performance': ['--files', '--metric', '--stage', '--graph'], 'timing-graph': ['--run', '--file', '--metric', '--kind'],
+                     'tail': ['--run', '--lines', '--no-follow'],
+                     'collect': ['--run'],
+                     'install-json': ['--json-file', '--key', '--overwrite']}.get(operation, [])
     elif selected in {"--project_console", "--project_mng"}:
         modifiers = ["--cmd", "--output", "--raw", "--timeout", "--json-file", "--key", "--overwrite", "--run", "--property", "--summary", "--json", "--jobs", "--follow"]
         operation = next((state.tokens[index + 1] for index in range(len(state.tokens) - 1) if state.tokens[index] == selected), "")
@@ -733,7 +693,6 @@ def suggest_vivado_flags(state: ParsedState) -> list[str]:
     return filter_single_use(
         modifiers + ["--project", *GLOBAL_FLAGS, "--verbose", "--help", "-h"],
         state,
-        repeatable={"--more_options"},
     )
 
 
@@ -965,8 +924,6 @@ def completion_description(data: dict, candidate: str) -> str:
         value = parent.get("#" + parts[-1], value)
     if isinstance(value, dict):
         value = value.get("description") or value.get("help", "")
-    if not value:
-        value = profile_description(data, candidate)
     if not isinstance(value, str):
         return ""
     return " ".join(re.sub(r"[\x00-\x1f\x7f-\x9f]", " ", value).split())
@@ -975,18 +932,14 @@ def completion_description(data: dict, candidate: str) -> str:
 def completion_table(candidates: list[str], data: dict, columns: int) -> list[str]:
     """Render display-only choices with HDLForge's bundled table formatter."""
     columns = max(30, columns)
-    profiles = {profile_context(data, item)[0] for item in candidates}
-    parents = {item.rstrip(".").rsplit(".", 1)[0] for item in candidates}
-    profile_menu = len(profiles) == 1 and "" not in profiles
-    prefix = next(iter(parents)) + "." if profile_menu and len(parents) == 1 else ""
-    labels = [item.removeprefix(prefix) if prefix else item for item in candidates]
+    labels = candidates
     command_width = min(max(len("Command"), max(len(item) for item in labels)), (columns - 7) // 2)
     description_width = columns - command_width - 7
     rows = [[label, completion_description(data, item)] for label, item in zip(labels, candidates)]
     rendered = create_matrix_table_from_data(["Command", "Description"], rows,
                                             col_wrapped_limits={0: command_width, 1: description_width})
     # Readline must not arrange the rendered lines in multiple columns.
-    lines = ([f"Commands under {prefix}"] if prefix else []) + rendered.splitlines()
+    lines = rendered.splitlines()
     return [line.ljust(columns // 2 + 1) for line in lines]
 
 
@@ -1030,6 +983,8 @@ def main() -> int:
                   for name, value in group.items() if name.startswith("#")}
         if "--project_console" in tokens_before_current or "--project_mng" in tokens_before_current:
             native.update(CONSOLE_ACTIONS)
+        if "--monitor" in tokens_before_current:
+            native.update({name[1:]: value for name, value in NATIVE_HELP['monitor'].items() if name.startswith('#')})
         data = {**(data or {}), "__native_descriptions": native}
         if args.describe:
             for item in result.completions:

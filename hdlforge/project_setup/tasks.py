@@ -3,6 +3,7 @@
 import os
 from contextlib import redirect_stdout
 import sys
+import subprocess
 from pathlib import Path
 import inspect
 import cocotb
@@ -243,7 +244,7 @@ def help(c):
     print("QUICK START:")
     print("  1. Set up your project: hdlforge --tool projects")
     print("  2. Generate project with external TCL: hdlforge --tool vivado --generate_prj_with_external_tcl")
-    print("  3. Run synthesis: hdlforge --tool vivado --syn <synth_run_name>")
+    print("  3. Run synthesis: hdlforge --tool vivado --project_mng build_run --run <synth_run_name>")
     print("  4. Run simulation: hdlforge --tool Verilator --step build --step sim --SimTargetName <target>")
     print()
     print("GETTING HELP:")
@@ -291,6 +292,7 @@ def help_vivado():
     print("    --list_runs                         List all Vivado runs")
     print("    --get_xpr_path                      Print the absolute configured XPR path; does not start Vivado")
     print("    --project_mng <ACTION>              Native project, console, batch builds, and saved run management")
+    print("    --monitor <ACTION>                  Monitor status, timing-graph, tail, collection, and management; use help")
     print("      --project_mng help                Show actions, descriptions, and options")
     print("      --project_mng get_build_options   Query live targets and print complete build/reset/enable/disable commands")
     print("      --project_mng build_run           Build --run NAME; add --reset for reset-and-full-build")
@@ -298,19 +300,7 @@ def help_vivado():
     print("    --project_console <ACTION>          Manage a persistent console or install reusable JSON commands")
     print("      --project_console help            Show console actions and installation options")
     print()
-    print("  Build Steps (require RUN_NAME or RUN_NAME[,RUN_NAME2,...]):")
-    print("    --syn <RUN_NAME[,RUN_NAME2,...]>    Run synthesis")
-    print("    --reset_synth <RUN_NAME[,RUN_NAME2,...]> Reset synthesis runs")
-    print("    --impl <RUN_NAME[,RUN_NAME2,...]>   Run implementation")
-    print("    --reset_impl <RUN_NAME[,RUN_NAME2,...]> Reset child implementation runs")
-    print("    --impl_and_bitstream <RUN_NAME[,RUN_NAME2,...]> Run implementation through bitstream")
-    print("    --bit <RUN_NAME[,RUN_NAME2,...]>    Generate bitstream")
-    print("    --reset_bitstream <RUN_NAME[,RUN_NAME2,...]> Reset only the write_bitstream step")
-    print("    --all <RUN_NAME[,RUN_NAME2,...]>    Run synthesis, implementation and bitstream generation")
-    print("    --continue <RUN_NAME[,RUN_NAME2,...]> Continue from current run state through bitstream generation")
-    print("    --reset_run <RUN_NAME[,RUN_NAME2,...]> Compatibility alias for --reset_synth")
-    print("    --more_options <JSON_ARRAY>         Append Vivado synthesis run MORE OPTIONS; repeatable")
-    print("                                        Example: '[\"-generic NAME=VALUE\"]'")
+    print("  Build and reset runs through --project_mng build_run/build_group/reset_run/reset_group.")
     print()
     print("  File Management (require --file_path):")
     print("    --file_add --file_path <PATH>        Add a file to the Vivado project")
@@ -530,7 +520,22 @@ if __name__ == "__main__":
     console_parser.add_argument('--get_xpr_path', action='store_true')
     console_parser.add_argument('--project_console')
     console_parser.add_argument('--project_mng', dest='project_console')
+    console_parser.add_argument('--monitor', nargs='?', const='help')
     console_args, console_tail = console_parser.parse_known_args(sys.argv[1:])
+    if console_args.tool == 'vivado' and console_args.monitor:
+        os.chdir(ORIGINAL_CWD)
+        if console_args.project_console or console_args.get_xpr_path:
+            console_parser.error('--monitor cannot be combined with project management actions')
+        monitor_script = Path(os.environ.get('REPO_TOP', ORIGINAL_CWD)) / 'tools/vivado_monitor/vivado_monitor.py'
+        if not monitor_script.is_file():
+            console_parser.error(f'Monitor is not installed in this repository: {monitor_script}')
+        action = console_args.monitor
+        if action in {'help', 'help-slack', 'help-verbose'}:
+            action = '-' + action
+        monitor_argv = [sys.executable, str(monitor_script)]
+        if console_args.project:
+            monitor_argv.extend(['--project', console_args.project])
+        sys.exit(subprocess.call([*monitor_argv, action, *console_tail]))
     if console_args.tool == 'vivado' and (console_args.get_xpr_path or console_args.project_console):
         os.chdir(ORIGINAL_CWD)
         if console_args.get_xpr_path and console_args.project_console:
@@ -567,6 +572,7 @@ if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(
         description='HDLForge - Hardware Development Tool',
+        allow_abbrev=console_args.tool != 'vivado',
         add_help=False  # We'll handle help manually
     )
     parser.add_argument('-h', '--help', action='store_true', help='Show help message')
@@ -588,18 +594,7 @@ if __name__ == "__main__":
     
     # Vivado arguments
     parser.add_argument('--list_runs', action='store_true', help='List all Vivado runs')
-    parser.add_argument('--reset_run', type=str, metavar='RUN_NAME[,RUN_NAME2,...]', help='Compatibility alias for --reset_synth')
-    parser.add_argument('--syn', type=str, metavar='RUN_NAME[,RUN_NAME2,...]', help='Run synthesis')
-    parser.add_argument('--reset_synth', type=str, metavar='RUN_NAME[,RUN_NAME2,...]', help='Reset synthesis runs directly through compile.tcl')
-    parser.add_argument('--impl', type=str, metavar='RUN_NAME[,RUN_NAME2,...]', help='Run implementation')
-    parser.add_argument('--reset_impl', type=str, metavar='RUN_NAME[,RUN_NAME2,...]', help='Reset child implementation runs')
-    parser.add_argument('--impl_and_bitstream', type=str, metavar='RUN_NAME[,RUN_NAME2,...]', help='Run implementation through bitstream generation')
-    parser.add_argument('--bit', type=str, metavar='RUN_NAME[,RUN_NAME2,...]', help='Generate bitstream')
-    parser.add_argument('--reset_bitstream', type=str, metavar='RUN_NAME[,RUN_NAME2,...]', help='Reset only the write_bitstream step')
     parser.add_argument('--lint', action='store_true', help='Run lint')
-    parser.add_argument('--all', type=str, metavar='RUN_NAME[,RUN_NAME2,...]', help='Run synthesis, implementation and bitstream generation')
-    parser.add_argument('--continue', dest='continue_run', type=str, metavar='RUN_NAME[,RUN_NAME2,...]', help='Continue fresh or incomplete runs through bitstream generation')
-    parser.add_argument('--more_options', action='append', metavar='JSON_ARRAY', help='JSON array of Vivado synthesis MORE OPTIONS entries; may be repeated')
     parser.add_argument('--generate_prj_with_external_tcl', action='store_true', help='Generate Vivado project using external TCL script')
     parser.add_argument('--write_tcl', action='store_true', help='Export Vivado project to TCL')
     parser.add_argument('--file_remove', action='store_true', help='Remove a file from the Vivado project')
@@ -752,60 +747,19 @@ if __name__ == "__main__":
         if args.step:
             print("[!x!] Error: --step is deprecated for vivado tool")
             print("[i] Use direct flags instead:")
-            print("    --syn <RUN_NAME[,RUN_NAME2,...]>     Run synthesis")
-            print("    --reset_synth <RUN_NAME[,RUN_NAME2,...]> Reset synthesis runs")
-            print("    --impl <RUN_NAME[,RUN_NAME2,...]>    Run implementation")
-            print("    --reset_impl <RUN_NAME[,RUN_NAME2,...]> Reset child implementation runs")
-            print("    --impl_and_bitstream <RUN_NAME[,RUN_NAME2,...]> Run implementation through bitstream")
-            print("    --bit <RUN_NAME[,RUN_NAME2,...]>     Generate bitstream")
-            print("    --reset_bitstream <RUN_NAME[,RUN_NAME2,...]> Reset only write_bitstream")
-            print("    --all <RUN_NAME[,RUN_NAME2,...]>     Run all steps")
-            print("    --continue <RUN_NAME[,RUN_NAME2,...]> Continue through bitstream generation")
-            print("    --more_options <JSON_ARRAY>          Set synthesis MORE OPTIONS")
             print("    --lint               Run lint")
             print("    --list_runs          List all runs")
             print()
             help_vivado()
             sys.exit(1)
         
-        # Collect steps from direct flags and extract run_name
+        # Collect non-build project operations from direct flags
         steps_from_flags = []
-        run_name = None
         
         if args.list_runs:
             steps_from_flags.append('list_runs')
-        if args.reset_run:
-            steps_from_flags.append('reset_run')
-            run_name = args.reset_run
-        if args.syn:
-            steps_from_flags.append('syn')
-            run_name = args.syn
-        if args.reset_synth:
-            steps_from_flags.append('reset_synth')
-            run_name = args.reset_synth
-        if args.impl:
-            steps_from_flags.append('impl')
-            run_name = args.impl
-        if args.reset_impl:
-            steps_from_flags.append('reset_impl')
-            run_name = args.reset_impl
-        if args.impl_and_bitstream:
-            steps_from_flags.append('impl_and_bitstream')
-            run_name = args.impl_and_bitstream
-        if args.bit:
-            steps_from_flags.append('bit')
-            run_name = args.bit
-        if args.reset_bitstream:
-            steps_from_flags.append('reset_bitstream')
-            run_name = args.reset_bitstream
         if args.lint:
             steps_from_flags.append('lint')
-        if args.all:
-            steps_from_flags.append('all')
-            run_name = args.all
-        if args.continue_run:
-            steps_from_flags.append('continue')
-            run_name = args.continue_run
         if args.generate_prj_with_external_tcl:
             steps_from_flags.append('generate_prj_with_external_tcl')
         if args.write_tcl:
@@ -832,27 +786,6 @@ if __name__ == "__main__":
             help_vivado()
             sys.exit(0)
         
-        # Validate that run_name is provided when needed
-        requires_run_name = any(step in ['reset_run', 'syn', 'reset_synth', 'impl', 'reset_impl', 'impl_and_bitstream', 'bit', 'reset_bitstream', 'all', 'continue'] for step in final_steps)
-        if requires_run_name and not run_name:
-            print("[!x!] Run name is required for reset_run, syn, impl, bit, or all commands")
-            print("[i] Usage examples:")
-            print("    hdlforge --tool vivado --reset_run <synth_run_name>")
-            print("    hdlforge --tool vivado --syn <synth_run_name[,synth_run_name2,...]>")
-            print("    hdlforge --tool vivado --reset_synth <synth_run_name[,synth_run_name2,...]>")
-            print("    hdlforge --tool vivado --impl <synth_run_name[,synth_run_name2,...]>")
-            print("    hdlforge --tool vivado --reset_impl <synth_run_name[,synth_run_name2,...]>")
-            print("    hdlforge --tool vivado --impl_and_bitstream <synth_run_name[,synth_run_name2,...]>")
-            print("    hdlforge --tool vivado --bit <synth_run_name[,synth_run_name2,...]>")
-            print("    hdlforge --tool vivado --reset_bitstream <synth_run_name[,synth_run_name2,...]>")
-            print("    hdlforge --tool vivado --all <synth_run_name[,synth_run_name2,...]>")
-            print("    hdlforge --tool vivado --continue <synth_run_name[,synth_run_name2,...]>")
-            exit(1)
-
-        if args.more_options is not None and not any(step in ['syn', 'all', 'continue'] for step in final_steps):
-            print("[!x!] --more_options requires --syn, --all, or --continue")
-            exit(1)
-        
         # Validate that file_path is provided when needed
         requires_file_path = any(step in ['file_remove', 'file_add'] for step in final_steps)
         if requires_file_path and not args.file_path:
@@ -869,11 +802,9 @@ if __name__ == "__main__":
             final_steps,
             args.clean,
             args.force,
-            run_name,
             args.file_path,
             args.project_tcl_json,
             args.project_tcl_json_file,
-            args.more_options,
         )
     elif args.tool == 'network':
         # Network tool selected
