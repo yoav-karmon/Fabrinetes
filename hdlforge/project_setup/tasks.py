@@ -31,7 +31,7 @@ from hw_server_tasks import hw_server, help_hw_server
 
 # Import project loader (single source of truth for project data)
 from project_file import ProjectFile
-from vivado_console import command_help, get_runs_from_live_xpr, live_run_groups, project_console, run_queries
+from vivado_console import project_console
 
 
 def normalize_cli_args(argv: List[str]) -> List[str]:
@@ -244,7 +244,7 @@ def help(c):
     print("QUICK START:")
     print("  1. Set up your project: hdlforge --tool projects")
     print("  2. Generate project with external TCL: hdlforge --tool vivado --generate_prj_with_external_tcl")
-    print("  3. Run synthesis: hdlforge --tool vivado --project_mng build_run --run <synth_run_name>")
+    print("  3. Run synthesis: hdlforge --tool vivado --project_console build_run --run <synth_run_name>")
     print("  4. Run simulation: hdlforge --tool Verilator --step build --step sim --SimTargetName <target>")
     print()
     print("GETTING HELP:")
@@ -289,18 +289,17 @@ def help_vivado():
     print("  Project Management:")
     print("    --generate_prj_with_external_tcl    Generate Vivado project using external TCL script")
     print("    --write_tcl                         Export Vivado project to TCL")
-    print("    --list_runs                         List all Vivado runs")
     print("    --get_xpr_path                      Print the absolute configured XPR path; does not start Vivado")
-    print("    --project_mng <ACTION>              Native project, console, batch builds, and saved run management")
+    print("    --project_console <ACTION>              Persistent Vivado Tcl console and live run management")
     print("    --monitor <ACTION>                  Monitor status, timing-graph, tail, collection, and management; use help")
-    print("      --project_mng help                Show actions, descriptions, and options")
-    print("      --project_mng get_build_options   Query live targets and print complete build/reset/enable/disable commands")
-    print("      --project_mng build_run           Build --run NAME; add --reset for reset-and-full-build")
-    print("      --project_mng build_group         Build --group SYNTH; add --reset for reset-and-full-build")
+    print("      --project_console help                Show actions, descriptions, and options")
+    print("      --project_console help                List console actions and arguments")
+    print("      --project_console build_run           Build --run NAME; add --reset for reset-and-full-build")
+    print("      --project_console build_group         Build --group SYNTH; add --reset for reset-and-full-build")
     print("    --project_console <ACTION>          Manage a persistent console or install reusable JSON commands")
     print("      --project_console help            Show console actions and installation options")
     print()
-    print("  Build and reset runs through --project_mng build_run/build_group/reset_run/reset_group.")
+    print("  Build and reset runs through --project_console build_run/build_group/reset_run/reset_group.")
     print()
     print("  File Management (require --file_path):")
     print("    --file_add --file_path <PATH>        Add a file to the Vivado project")
@@ -519,7 +518,6 @@ if __name__ == "__main__":
     console_parser.add_argument('--project')
     console_parser.add_argument('--get_xpr_path', action='store_true')
     console_parser.add_argument('--project_console')
-    console_parser.add_argument('--project_mng', dest='project_console')
     console_parser.add_argument('--monitor', nargs='?', const='help')
     console_args, console_tail = console_parser.parse_known_args(sys.argv[1:])
     if console_args.tool == 'vivado' and console_args.monitor:
@@ -548,26 +546,9 @@ if __name__ == "__main__":
                 selected_project.require_vivado_project_name()
             print(selected_project.vivado_project_xpr_path.resolve())
             sys.exit(0)
-        if console_args.project_console == 'help':
-            project_console.table(["Native action", "Description"], [[("help" if action == "--help" else action), description]
-                                  for action, description in project_console.COMMANDS.values()])
-        console_argv = ['--help'] if console_args.project_console == 'help' else [console_args.project_console]
-        if console_args.project_console not in {'help', 'list', 'clean_logs', 'print-hdlforge-json-commends', 'print-hdlforge-json-commands', 'install-json'}:
-            with redirect_stdout(sys.stderr):
-                selected_project = ProjectFile(console_args.project)
-            console_argv.extend(['--project-json', str(selected_project._project_file_path)])
-        if console_args.project_console == 'live-runs':
-            sys.exit(get_runs_from_live_xpr.main(['--console', *console_argv[1:], *console_tail]))
-        if console_args.project_console in {'refresh-runs', 'saved-runs'}:
-            action = 'update' if console_args.project_console == 'refresh-runs' else 'get'
-            sys.exit(run_queries.main([action, *console_argv[1:], *console_tail]))
-        if console_args.project_console == 'saved-help':
-            command_help.main([*console_argv[1:], *console_tail])
-            sys.exit(0)
-        if (console_args.project_console.startswith(('run_groups', 'build'))
-                or console_args.project_console in {'runs', 'get_runs', 'get_groups', 'get_build_options',
-                    'reset_run', 'reset_group', 'enable_run', 'enable_group', 'disable_run', 'disable_group'}):
-            sys.exit(live_run_groups.main(selected_project._project_file_path, console_args.project_console, console_tail))
+        console_argv = [console_args.project_console]
+        if console_args.project:
+            console_argv.extend(['--project-json', console_args.project])
         sys.exit(project_console.main(console_argv + console_tail))
     
     parser = argparse.ArgumentParser(
@@ -593,7 +574,6 @@ if __name__ == "__main__":
     parser.add_argument('--extra-env', help='Extra environment variables')
     
     # Vivado arguments
-    parser.add_argument('--list_runs', action='store_true', help='List all Vivado runs')
     parser.add_argument('--lint', action='store_true', help='Run lint')
     parser.add_argument('--generate_prj_with_external_tcl', action='store_true', help='Generate Vivado project using external TCL script')
     parser.add_argument('--write_tcl', action='store_true', help='Export Vivado project to TCL')
@@ -748,7 +728,6 @@ if __name__ == "__main__":
             print("[!x!] Error: --step is deprecated for vivado tool")
             print("[i] Use direct flags instead:")
             print("    --lint               Run lint")
-            print("    --list_runs          List all runs")
             print()
             help_vivado()
             sys.exit(1)
@@ -756,8 +735,6 @@ if __name__ == "__main__":
         # Collect non-build project operations from direct flags
         steps_from_flags = []
         
-        if args.list_runs:
-            steps_from_flags.append('list_runs')
         if args.lint:
             steps_from_flags.append('lint')
         if args.generate_prj_with_external_tcl:

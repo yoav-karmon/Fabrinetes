@@ -38,9 +38,9 @@ Vivado:
     The XPR need not exist yet. Configuration diagnostics go to stderr.
   hdlforge --tool vivado --project_console help
     Show persistent-console actions and arguments; requires no project shortcut.
-  hdlforge --tool vivado --project_console print-hdlforge-json-commends
+  hdlforge --tool vivado --project_console print-json
     Print the reusable project_console group as JSON.
-  hdlforge --tool vivado --project_console print-hdlforge-json-commends --json-file example.hdlforge.json --key LLM_orch.vivado --overwrite
+  hdlforge --tool vivado --project_console install-json --json-file example.hdlforge.json --key LLM_orch.vivado --overwrite
     Install under this dotted parent key. Replace project_console and its
     description entirely; preserve siblings. Create missing parent objects.
     Installation requires an existing JSON object, not an XPR or Vivado process.
@@ -50,93 +50,73 @@ Vivado:
     The implementation lives in hdlforge/project_setup/vivado_console, with no
     dependency on an FPGA repository's tools or .codex directories.
 
-Native project management:
-  hdlforge --tool vivado --project_mng help
-  hdlforge --tool vivado --project_mng restart
-  hdlforge --tool vivado --project_mng live-runs
-  hdlforge --tool vivado --project_mng refresh-runs
-  hdlforge --tool vivado --project_mng saved-runs --summary
-  hdlforge --tool vivado --project_mng saved-runs --run synth_1 --property STATUS
-  --project_console remains an alias of --project_mng.
+Persistent Vivado project console:
+  hdlforge --tool vivado --project_console help
+  hdlforge --tool vivado --project_console install-json --json-file project.json --key LLM_orch.vivado
+  hdlforge vivado.project_console.update-json
+    One namespace owns project lifecycle, builds, run queries and run control.
+    There is no separate batch launcher, build manager or saved run-status database.
+    Existing project shortcuts need update-json; unrelated settings are preserved.
 
-  hdlforge --tool vivado --project_mng install-json --json-file project.json --key LLM_orch.vivado
-    Insert a self-contained project_console group under the given parent key.
-    Existing groups produce a warning and remain unchanged unless --overwrite
-    is supplied. Overwrite replaces the whole group, removing obsolete keys.
-  hdlforge vivado.project_console.management.update-json
-    Detect the selected JSON and invoking key through HDLForge's invocation
-    context, then replace that project_console group by default. Siblings stay intact.
-    Direct native update-json can locate a single installed group; with multiple
-    groups, invoke the desired group's shortcut. No other JSON commands are used.
+  hdlforge vivado.project_console.management.open_console
+  hdlforge vivado.project_console.management.inspect_console
+  hdlforge vivado.project_console.runs.list_runs
+  hdlforge vivado.project_console.runs.enumerate_groups
+  hdlforge vivado.project_console.runs.inspect_run --append '--run impl_1 --verbose'
+  hdlforge vivado.project_console.runs.status_run --append '--run impl_1'
+  hdlforge vivado.project_console.runs.group_status --append '--group synth_1'
+  hdlforge vivado.project_console.build.build_group --append '--group synth_1 --jobs 2'
+  hdlforge vivado.project_console.build.launch_run --append '--run synth_1'
+  hdlforge vivado.project_console.build.write_bitstream --append '--run impl_1'
+    Launch uses Vivado launch_runs and returns without waiting for completion.
+    Vivado manages its own workers and synthesis dependencies. Omitting a target
+    lists live choices. --no-bitstream stops at implementation, --reset resets first.
+    reset_run/group and stop_run/group are explicit separate commands.
 
-Explicit live discovery and background builds:
-  hdlforge vivado.project_console.runs.get_groups
-  hdlforge vivado.project_console.runs.get_runs
-    Query the open console only when these commands execute. get_groups shows
-    synthesis groups and their implementation children; get_runs shows separate
-    parent/child status tables with availability. Append '--json' for metadata.
-    Saved-run commands are absent from installed groups.
-  hdlforge vivado.project_console.build.get_build_options
-    Query the open project and print one table row per synthesis group, with
-    aligned Command, Arguments, and Explanation columns. Each command appears once
-    per group with argument variations below it; combine it with an Arguments cell.
-    Commands omit --project and use correctly quoted --append arguments; run them
-    from the selected project directory. Output includes
-    continue/full build, reset-and-full-build, reset, disable, and enable as
-    applicable. Disabled entries offer enable/reset; build stays blocked.
-    Append '--json' for structured options. Tab-Tab completes static names only;
-    it never queries Vivado. Build actions live under build; run discovery and availability live under runs.
-  hdlforge vivado.project_console.build.build_group --append '--group synth_1 --reset'
-  hdlforge vivado.project_console.build.build_run --append '--run synth_1'
-  hdlforge vivado.project_console.build.build_run --append '--run impl_1'
-    Choose --group SYNTH for synthesis and its enabled implementation children,
-    or --run NAME for exactly one synthesis/implementation run. build_run and
-    build_group continue without resetting; add --reset for reset-and-full-build.
-    reset_run/reset_group reset without launch. A single implementation
-    needs current, completed synthesis. Names are validated against live Vivado.
-    Full implementations run through write_bitstream; IP implementations stop at
-    route_design. Continue reuses completed results and resumes partial runs.
-    Stale/failed runs require reset_and_build. Failure stops the remaining sequence.
-    Builds return a project log path and tail command immediately; no PID registry is maintained.
-    Resetting synthesis invalidates ALL its children, including disabled runs.
-    Resetting one implementation leaves synthesis and sibling runs intact.
-  hdlforge vivado.project_console.runs.disable_group --append '--group synth_1'
-  hdlforge vivado.project_console.runs.enable_run --append '--run impl_1'
-    Disabled runs remain visible in listings. Disabling synthesis blocks the entire
-    group, including direct child continue/build commands. Enabling the group
-    preserves individual child exclusions. Disable does not stop an active run;
-    the worker rechecks availability before every subsequent launch.
-    Vivado has no run-wide enabled property. HDLForge preserves description text
-    and stores [HDLForge:enabled] or [HDLForge:disabled] marker lines in the native
-    run DESCRIPTION property. State survives XPR restart and HDLForge's project
-    Tcl export/recreation; raw Vivado write_project_tcl omits run descriptions.
-    This controls HDLForge launches; launching directly in Vivado bypasses it.
-    IDR owners/children remain excluded. Existing HDLFORGE_DISABLED_IMPL_RUNS
-    exclusions are honored until an explicit native enable overrides them.
-    --jobs defaults to 1. --run-timeout defaults to 86400 seconds per run; timeout
-    does not stop an already-running Vivado process.
-    Native equivalent: hdlforge --tool vivado --project_mng build_group --group synth_1
-    Reset only: hdlforge vivado.project_console.build.reset_run --append '--run impl_1'
-  hdlforge vivado.monitor.status
-    Build status belongs to the project Vivado monitor. The batch launcher does
-    not track PIDs, persist submission history, or provide build-status/build-stop.
-    Immediate launch failures are printed; subsequent progress is read by the monitor.
-    Launcher logs live under <build_dir>/project_console/<project_name>/. The Vivado console
-    also writes vivado.log and vivado.jou there and survives caller-shell exit.
+  hdlforge vivado.project_console.runs.reuse_status --append '--run impl_1'
+  hdlforge vivado.project_console.settings.clear_refresh --append '--run impl_1'
+    clear_refresh clears NEEDS_REFRESH only; it does not validate stale results.
 
-Native autocomplete descriptions:
-  native_command_help.json supplies #name descriptions for HDLForge's own flags,
-  tool choices, and project-management actions. Double-Tab displays descriptions;
-  ordinary completion inserts plain tokens. Run discovery requires explicit get_groups/get_runs.
+  hdlforge vivado.project_console.settings.edit_run_property --append '--run impl_1 --property STRATEGY --value Performance_Explore'
+    Without --property, list the selected run's properties. Edits are read back immediately; active runs are protected.
+  hdlforge vivado.project_console.settings.enable_incremental --append '--run synth_1'
+  hdlforge vivado.project_console.settings.disable_incremental --append '--run impl_1'
+    Both clear a manually selected incremental checkpoint. On enables automatic incremental reuse; off disables it.
+  hdlforge vivado.project_console.project.close_project --append '--force'
+    Close the project but keep the console alive.
+  hdlforge vivado.project_console.project.regenerate_project --append '--force'
+    Close, preserve the old directory, regenerate from configured Tcl, and reopen. Without --force, prompt to export before closing. Active runs are protected.
+    enable_run/group and disable_run/group persist availability in DESCRIPTION.
 
-Native Vivado build commands:
-  hdlforge --tool vivado --generate_prj_with_external_tcl
-  hdlforge --tool vivado --project_mng build_run --run synth_1
-  hdlforge --tool vivado --project_mng build_group --group synth_1 --no-bitstream
-  hdlforge --tool vivado --project_mng build_group --group synth_1
-  hdlforge --tool vivado --project_mng reset_run --run synth_1
-  hdlforge --tool vivado --project_mng reset_group --group synth_1
-  hdlforge --tool vivado --monitor status
+  hdlforge vivado.project_console.project.export_open_project_to_tcl
+  hdlforge vivado.project_console.project.generate_project_from_tcl
+    Generation requires the open project to close first. Interactive mode offers
+    export to <project>.before-close.tcl before closing. Noninteractive mode refuses
+    unless --force is supplied. Force skips the export/prompt, not active-run checks.
+    Old generated project directories are preserved, never implicitly deleted.
+
+  hdlforge vivado.project_console.aux.execute_tcl --append '--cmd "get_projects"'
+  hdlforge vivado.project_console.aux.source_tcl --append '--file script.tcl'
+  hdlforge vivado.project_console.management.attach_console
+    send/source execute on the console as it stands, even with no project open.
+    Interactive attaches to tmux; Ctrl-b d detaches without stopping the console.
+    Noninteractive clients exit after responses; the console remains alive.
+    stop and restart ask before closing an open project; --force skips the prompt.
+
+Output:
+  Every Tcl request has VIVADO OUTPUT BEGIN/END boundaries and OK/ERROR status.
+  The full native output includes stdout, stderr, warnings and errors. The Tcl
+  result and error stack are retained. A formatted live summary follows the block.
+  --raw suppresses summary tables. --json emits response envelopes containing the
+  complete transcript, result, return code and structured records. --verbose on
+  info commands requests all properties. Subsequent build-worker output stays in
+  the run log; it is not misrepresented as part of the launch response.
+
+Implementation:
+  hdlforge/project_setup/vivado_console/run_commands.tcl owns run operations.
+  console_transport.py carries serialized requests to the persistent console.
+  project_console.py selects procedures and prints responses, without inferring status.
+  Completion is static; only explicit commands contact Vivado.
 
 LLM_orch:
   hdlforge <shortcut.path>

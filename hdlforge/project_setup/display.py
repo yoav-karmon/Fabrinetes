@@ -70,7 +70,6 @@ def print_task_args(local_vars: dict, REPO_TOP: str, allowed_values: dict[str, L
                 if key == "step" and isinstance(value, list):
                     # Map internal step names to API flag names
                     step_to_flag = {
-                        "list_runs": "--list_runs",
                         "lint": "--lint",
                         "generate_prj_with_external_tcl": "--generate_prj_with_external_tcl",
                         "write_tcl": "--write_tcl",

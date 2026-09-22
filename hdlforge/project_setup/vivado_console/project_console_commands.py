@@ -10,43 +10,67 @@ CATALOG = json.loads((Path(__file__).resolve().parents[1] / "native_command_help
 COMMANDS = {name: (action, CATALOG["project_console"]["#" + name])
             for name, action in CATALOG["project_console"].items() if not name.startswith("#")}
 
+GROUPS = {
+    "aux": ("Execute Tcl commands or source Tcl files in the console.", "send source"),
+    "management": ("Console status, start, stop, restart and terminal access.",
+                   "status start stop restart interactive list_consoles console_output"),
+    "project": ("Close, export, generate or regenerate the project.",
+                "close_project export_open_project_to_tcl generate_project_from_tcl regenerate_project"),
+    "runs": ("List runs and groups; inspect live status and properties.",
+             "get_runs get_groups run_info run_status group_info group_status reuse_status follow"),
+    "build": ("Launch, stop or reset runs and groups through Tcl.",
+              "build_run build_group build_bitstream stop_run stop_group reset_run reset_group"),
+    "settings": ("Edit run properties, incremental compilation and launch enablement.",
+                 "set_run_property incremental_on incremental_off clear_refresh enable_run disable_run enable_group disable_group"),
+    "help": ("Command help and JSON installation.", "help install-json print-json"),
+}
+
+DISPLAY_NAMES = {
+    "follow": "follow_active_groups",
+    "send": "execute_tcl", "source": "source_tcl",
+    "status": "inspect_console", "start": "open_console", "stop": "terminate_console", "restart": "restart_console",
+    "interactive": "attach_console", "list_consoles": "list_consoles", "console_output": "capture_output",
+    "close_project": "close_project", "export_open_project_to_tcl": "export_open_project_to_tcl",
+    "generate_project_from_tcl": "generate_project_from_tcl", "regenerate_project": "regenerate_project",
+    "get_runs": "list_runs", "get_groups": "enumerate_groups", "run_info": "inspect_run",
+    "run_status": "status_run", "group_info": "configuration_group", "group_status": "group_status",
+    "reuse_status": "reuse_status", "build_run": "launch_run", "build_group": "build_group",
+    "build_bitstream": "write_bitstream", "stop_run": "terminate_run", "stop_group": "halt_group",
+    "reset_run": "reset_run", "reset_group": "clear_group_results",
+    "set_run_property": "edit_run_property", "incremental_on": "enable_incremental",
+    "incremental_off": "disable_incremental", "clear_refresh": "clear_refresh",
+    "enable_run": "activate_run", "enable_group": "permit_group",
+    "disable_run": "block_run", "disable_group": "suspend_group",
+    "help": "commands", "install-json": "install-json", "print-json": "print-json",
+}
+
 
 def shortcut_path(name: str) -> str:
-    """Return the public shortcut location for a native console command."""
-    management_names = {"name": "project_info", "list": "list_consoles", "capture": "console_output"}
-    if name in management_names:
-        return "management." + management_names[name]
-    if name in {"restart", "close", "status", "list", "name", "capture", "clean", "install-json", "update-json", "print-hdlforge-json-commends"}:
-        return "management." + name
-    if name in {"build_run", "build_group", "reset_run", "reset_group", "get_build_options", "clean_logs"}:
-        return "build." + name
-    if name in {"get_runs", "get_groups", "enable_run", "enable_group", "disable_run", "disable_group"}:
-        return "runs." + name
-    if name == "runs":
-        return "runs.list"
+    for group, (_, actions) in GROUPS.items():
+        if name in actions.split():
+            return group + "." + DISPLAY_NAMES[name]
     return name
 
 
 def hdlforge_commands() -> dict:
-    """Return console keys without imposing the caller's parent JSON path."""
-    root = {
-        "#management": "Manage console sessions, clean the generated project, and print, install, or update JSON shortcuts.",
-        "management": {},
-        "#build": "Inspect build options, launch or reset builds, monitor workers, and clean logs.",
-        "build": {},
-        "#runs": "List live runs and synthesis groups and control their availability.",
-        "runs": {},
-    }
+    """One console namespace, with no separate build manager or batch interface."""
+    root = {}
+    for group, (description, _) in GROUPS.items():
+        root["#" + group] = description
+        root[group] = {}
     for name, (action, description) in COMMANDS.items():
         path = shortcut_path(name).split(".")
-        target = root[path[0]] if len(path) == 2 else root
-        name = path[-1]
-        target["#" + name] = description
-        target[name] = 'hdlforge --project "$HDLFORGE_PROJECT_FILE" --tool vivado --project_mng ' + ("help" if action == "--help" else action)
-    return {
-        "#project_console": "Manage the persistent Vivado project console. Pass extra options with --append; --timeout sets the wait limit and --raw removes table formatting.",
-        "project_console": root,
-    }
+        target = root
+        for part in path[:-1]:
+            if part not in target:
+                target["#" + part] = part.capitalize() + " a run or group." if part != "incremental" else "Enable or disable automatic incremental compilation."
+                target[part] = {}
+            target = target[part]
+        leaf = path[-1]
+        target["#" + leaf] = description
+        target[leaf] = 'hdlforge --project "$HDLFORGE_PROJECT_FILE" --tool vivado --project_console ' + action
+    return {"#project_console": "Persistent Vivado Tcl console; full command transcripts and live summaries.",
+            "project_console": root}
 
 
 def install_commands(filename: Path, key: str, overwrite: bool = False) -> None:
@@ -88,7 +112,7 @@ def locate_own_key(filename: Path, invoked_key: str | None = None) -> str:
         if not isinstance(value, dict):
             return
         management = value.get("management", {})
-        own = management.get("update-json") if isinstance(management, dict) else None
+        own = value.get("update-json") or (management.get("update-json") if isinstance(management, dict) else None)
         own = own or value.get("update-json")
         if path and path[-1] == "project_console" and isinstance(own, str) and any(flag + " update-json" in own for flag in ("--project_console", "--project_mng")):
             matches.append(".".join(path[:-1]))

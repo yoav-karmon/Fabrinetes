@@ -46,7 +46,8 @@ proc _lvp_reference_run {run_name type_property} {
 
 proc lvp_open_project {xpr_path} {
     if {[llength [get_projects -quiet]] != 0} {
-        error "a project is already open: [current_project]"
+        if {[_lvp_project_path] eq [file normalize $xpr_path]} {return}
+        error "a different project is already open: [current_project]"
     }
 
     set normalized_path [file normalize $xpr_path]

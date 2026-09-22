@@ -11,9 +11,6 @@ from typing import List
 from enum import Enum
 import re
 import invoke
-import threading
-import time
-from tabulate import tabulate
 
 from project_file import ProjectFile
 from project_tcl_editor import edit_project_tcl, load_edit_json
@@ -89,7 +86,6 @@ def _clean_logs_from_current_dir(verbose: bool = False, force: bool = False):
 
 class VivadoStep(str, Enum):
     """Enum for Vivado step names"""
-    LIST_RUNS = "list_runs"
     LINT = "lint"
     GENERATE_PRJ_WITH_EXTERNAL_TCL = "generate_prj_with_external_tcl"
     WRITE_TCL = "write_tcl"
@@ -196,127 +192,6 @@ def vivado(
     for s in step:
         step_enum = to_vivado_step(s)
         match (step_enum):
-            case VivadoStep.LIST_RUNS:
-                # Check if build directory exists
-                if not project_file.vivado_build_dir.exists():
-                    print(f"[!x!] Vivado build directory not found: {project_file.vivado_build_dir}")
-                    print(f"[i] Please create the project first using: hdlforge vivado --step gen")
-                    exit(1)
-                
-                # Check if project file exists
-                if not project_file.vivado_project_xpr_path.exists():
-                    print(f"[!x!] Vivado project file not found: {project_file.vivado_project_xpr_path}")
-                    print(f"[i] Expected location: {project_file.vivado_project_xpr_path}")
-                    print(f"[i] Please create the project first using: hdlforge vivado --step gen")
-                    exit(1)
-                
-                # Print progress messages
-                print(f"[i] Listing Vivado runs for project: {project_file.vivado_project_name}")
-                print(f"[i] Opening Vivado...")
-                
-                # Build the command
-                cmd = f"vivado -mode batch -source {SCRIPT_DIR}/project_tool.tcl -notrace -tclargs  list_all_runs  {project_file.vivado_project_xpr_relative}"
-                print(f"[i] Running command: vivado -mode batch -source project_tool.tcl -notrace -tclargs list_all_runs {project_file.vivado_project_xpr_relative}")
-                print(f"[i] Please wait", end='', flush=True)
-                
-                # Simple spinner function
-                spinner_active = threading.Event()
-                spinner_active.set()
-                
-                def spinner():
-                    chars = ['|', '/', '-', '\\']
-                    i = 0
-                    while spinner_active.is_set():
-                        print(f'\r[i] Please wait {chars[i % len(chars)]}', end='', flush=True)
-                        i += 1
-                        time.sleep(0.2)
-                
-                # Start spinner in background thread
-                spinner_thread = threading.Thread(target=spinner, daemon=True)
-                spinner_thread.start()
-                
-                # Run list_all_runs command and capture output silently (no live streaming)
-                try:
-                    with c.cd(str(project_file.vivado_build_dir)):
-                        result = c.run(cmd, pty=False, echo=False, warn=True, hide='stdout')
-                    
-                    # Stop spinner
-                    spinner_active.clear()
-                    spinner_thread.join(timeout=0.5)
-                    print('\r[i] Done!                    \n', flush=True)  # Clear spinner line
-                    
-                    # Check if command failed
-                    if result.exited != 0:
-                        print(f"[!x!] Vivado command failed with exit code: {result.exited}")
-                        if hasattr(result, 'stderr') and result.stderr:
-                            print(f"[!x!] Error output: {result.stderr}")
-                        exit(1)
-                except invoke.exceptions.UnexpectedExit as e:
-                    print(f"[!x!] Failed to execute Vivado command")
-                    print(f"[!x!] Error: {e}")
-                    print(f"[i] Make sure Vivado is installed and in your PATH")
-                    exit(1)
-                except Exception as e:
-                    print(f"[!x!] Unexpected error while executing Vivado command: {e}")
-                    print(f"[i] Make sure Vivado is installed and in your PATH")
-                    exit(1)
-                
-                # Parse output - simplified to show run names with type and parent
-                output_lines = result.stdout.split('\n') if hasattr(result, 'stdout') else []
-                runs = []
-                
-                # Parse all runs
-                for line in output_lines:
-                    line_stripped = line.strip()
-                    if line_stripped and '\t' in line_stripped:
-                        # Parse format: run_name\tSynth=1 Impl=0 Status=... Parent=...
-                        parts = line_stripped.split('\t')
-                        if len(parts) >= 2:
-                            run_name = parts[0].strip()
-                            # Parse properties: "Synth=1 Impl=0 Status=... Parent=..."
-                            props_str = parts[1].strip()
-                            props = {}
-                            # Simple parsing - just get Synth, Impl, Status, Parent
-                            prop_pattern = r'(\w+)=([^\s]+(?:\s+[^\s=]+)*?)(?=\s+\w+=|$)'
-                            for match in re.finditer(prop_pattern, props_str):
-                                key = match.group(1)
-                                value = match.group(2).strip()
-                                # Only keep Synth, Impl, Status, Parent
-                                if key in ['Synth', 'Impl', 'Status', 'Parent']:
-                                    props[key] = value
-                            
-                            run_type = "Unknown"
-                            synth_val = props.get('Synth', '').strip()
-                            impl_val = props.get('Impl', '').strip()
-                            parent = props.get('Parent', '').strip()
-                            status = props.get('Status', 'Unknown')
-                            
-                            # Handle both numeric (1/0) and boolean (true/false) values
-                            if synth_val in ('1', 'true', 'True'):
-                                run_type = "synth"
-                            elif impl_val in ('1', 'true', 'True'):
-                                run_type = "impl"
-                            
-                            runs.append({
-                                'name': run_name,
-                                'type': run_type,
-                                'status': status,
-                                'parent': parent if parent else "(none)"
-                            })
-                
-                # Display runs in a simple table
-                if runs:
-                    print("\n" + "=" * 80)
-                    print("[i] Vivado Runs:")
-                    print("=" * 80)
-                    table = [["Run Name", "Type", "Parent", "Status"]]
-                    for run in runs:
-                        table.append([run['name'], run['type'], run['parent'], run['status']])
-                    print(tabulate(table, headers="firstrow", tablefmt="fancy_grid"))
-                    print("=" * 80 + "\n")
-                else:
-                    print("\n[i] No runs found in the output.\n")
-                
             case VivadoStep.LINT:
                 print(f"[i] Running Vivado lint for project: {project_file.vivado_project_name}", flush=True)
                 # Parameters and defines are now in TCL file, not JSON

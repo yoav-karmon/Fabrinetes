@@ -457,10 +457,9 @@ def parse_classic_state(tokens: list[str], cwd: Path) -> ParsedState:
             state.chain_mode = True
         elif token in {
             "--lint",
-            "--list_runs",
             "--get_xpr_path",
             "--project_console",
-            "--project_mng",
+
             "--monitor",
             "--generate_prj_with_external_tcl",
             "--write_tcl",
@@ -538,7 +537,6 @@ VALUE_HANDLER_TREE: dict[str, dict[str, Handler]] = {
         "--kind": complete_static_words(['all', 'completed', 'intermediate']),
         "--file": lambda cur, state: complete_path(cur, state.cwd, suffixes=(".json",)),
         "--project_console": complete_project_management,
-        "--project_mng": complete_project_management,
 
         "--group": lambda _cur, _state: CompletionResult([]),
         "--run": lambda _cur, _state: CompletionResult([]),
@@ -634,10 +632,9 @@ def filter_single_use(flags: list[str], state: ParsedState, *, repeatable: set[s
 def suggest_vivado_flags(state: ParsedState) -> list[str]:
     actions = [
         "--lint",
-        "--list_runs",
         "--get_xpr_path",
         "--project_console",
-        "--project_mng",
+
         "--monitor",
         "--generate_prj_with_external_tcl",
         "--write_tcl",
@@ -676,17 +673,9 @@ def suggest_vivado_flags(state: ParsedState) -> list[str]:
                      'tail': ['--run', '--lines', '--no-follow'],
                      'collect': ['--run'],
                      'install-json': ['--json-file', '--key', '--overwrite']}.get(operation, [])
-    elif selected in {"--project_console", "--project_mng"}:
-        modifiers = ["--cmd", "--output", "--raw", "--timeout", "--json-file", "--key", "--overwrite", "--run", "--property", "--summary", "--json", "--jobs", "--follow"]
-        operation = next((state.tokens[index + 1] for index in range(len(state.tokens) - 1) if state.tokens[index] == selected), "")
-        if operation == "build":
-            modifiers = ["--group", "--run", "--reset", "--jobs"]
-        elif operation in {"build_run", "build_group", "reset_run", "reset_group", "enable_run", "enable_group", "disable_run", "disable_group"}:
-            modifiers = ["--" + operation.rsplit("_", 1)[1]]
-            if operation.startswith("build_"):
-                modifiers += ["--reset", "--jobs", "--no-bitstream"]
-        elif operation in {"get_runs", "get_groups", "get_build_options"}:
-            modifiers = ["--json"]
+    elif selected in {"--project_console"}:
+        modifiers = ["--interval", "--once", "--property", "--value", "--cmd", "--file", "--output", "--raw", "--timeout", "--json-file", "--key", "--overwrite", "--run", "--group", "--json", "--jobs", "--verbose", "--force", "--reset", "--no-bitstream"]
+
     else:
         modifiers = []
 
@@ -981,7 +970,7 @@ def main() -> int:
         data = load_json(project_file) if project_file and project_file.suffix == ".json" else {}
         native = {name[1:]: value for group in (NATIVE_HELP["flags"], NATIVE_HELP["values"])
                   for name, value in group.items() if name.startswith("#")}
-        if "--project_console" in tokens_before_current or "--project_mng" in tokens_before_current:
+        if "--project_console" in tokens_before_current:
             native.update(CONSOLE_ACTIONS)
         if "--monitor" in tokens_before_current:
             native.update({name[1:]: value for name, value in NATIVE_HELP['monitor'].items() if name.startswith('#')})

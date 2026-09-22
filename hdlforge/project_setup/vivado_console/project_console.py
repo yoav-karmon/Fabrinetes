@@ -1,302 +1,227 @@
-#!/usr/bin/env python3
-"""Synchronous commands through the repository's persistent Vivado console."""
-
-from contextlib import contextmanager
-import fcntl
-import hashlib
+"""One client for persistent Vivado Tcl commands, native output and live summaries."""
+import argparse
 import json
 import os
 from pathlib import Path
-import shutil
-import shlex
 import subprocess
 import sys
-import tempfile
-import time
 
-if __package__:
-    from .run_enable import export_markers, tcl_word
-    from .project_console_commands import COMMANDS, hdlforge_commands, install_commands, locate_own_key
-    from .terminal_output import log as log_message
-    from .terminal_output import operation, TableArgumentParser, machine_output, show_console_status, show_text, table
-    from .get_runs_from_live_xpr import discover_project_json, ensure_xpr_is_available, find_vivado_owners, load_xpr_path
-else:
-    from run_enable import export_markers, tcl_word
-    from project_console_commands import COMMANDS, hdlforge_commands, install_commands, locate_own_key
-    from terminal_output import log as log_message
-    from terminal_output import operation, TableArgumentParser, machine_output, show_console_status, show_text, table
-    from get_runs_from_live_xpr import discover_project_json, ensure_xpr_is_available, find_vivado_owners, load_xpr_path
+from .console_transport import ConsoleUnavailable, ProjectConsole
+from .project_paths import discover_project_json, load_xpr_path
+from .project_console_commands import COMMANDS, shortcut_path, hdlforge_commands, install_commands, locate_own_key
+from .tcl_arguments import tcl_word
+from .terminal_output import table
+from .run_output import run_tables
+from .log_analysis import enrich
+from .follow import follow
 
 
-HELPER_TCL = Path(__file__).resolve().with_name("live_project_helpers.tcl")
-
-
-class ConsoleUnavailable(RuntimeError):
-    """The console transport failed, rather than the requested Tcl command."""
-
-
-class ProjectConsole:
-    def __init__(self, xpr: Path, timeout: float = 180, project_file: Path | None = None):
-        self.xpr = xpr.resolve()
-        self.project_file = project_file
-        self.logs_directory = self.xpr.parent.parent / "project_console" / self.xpr.stem
-        self.timeout = timeout
-        self.force_recovery = False
-        identity = hashlib.sha1(str(self.xpr).encode()).hexdigest()[:10]
-        self.session = f"agent_tmux_{os.environ.get('USER', '').replace('.', '_')}_vivado_xpr_{self.xpr.stem}_{identity}_1"
-        self.directory = Path(tempfile.gettempdir()) / f"vivado-project-console-{os.getuid()}-{identity}"
-        self.directory.mkdir(mode=0o700, exist_ok=True)
-
-    @contextmanager
-    def locked(self, filename: str = "command.lock"):
-        with (self.directory / filename).open("a") as lock:
-            deadline = time.monotonic() + self.timeout
-            while True:
-                try:
-                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    break
-                except BlockingIOError:
-                    if time.monotonic() >= deadline:
-                        raise RuntimeError("Timed out waiting for another console command")
-                    time.sleep(0.1)
-            yield
-
-    def exists(self) -> bool:
-        return subprocess.run(["tmux", "has-session", "-t", self.session], capture_output=True).returncode == 0
-
-    def helper(self, command: str) -> None:
-        if command == "open":
-            startup = self.directory / "startup.tcl"
-            startup.write_text(f"source {tcl_word(HELPER_TCL)}\nlvp_open_project {tcl_word(self.xpr)}\n")
-            logs = self.logs_directory
-            logs.mkdir(parents=True, exist_ok=True)
-            invocation = shlex.join(["vivado", "-mode", "tcl", "-log", str(logs / "vivado.log"),
-                                     "-journal", str(logs / "vivado.jou"), "-source", str(startup)])
-            subprocess.run(["tmux", "new-session", "-d", "-s", self.session,
-                            "-c", str(self.xpr.parent), "exec " + invocation], check=True, capture_output=True)
-            pid = subprocess.run(["tmux", "display-message", "-p", "-t", self.session, "#{pane_pid}"],
-                                 check=True, capture_output=True, text=True).stdout.strip()
-            log_message(f"Background console process started: {pid}\nLog: {logs / 'vivado.log'}\nTail: tail -f {shlex.quote(str(logs / 'vivado.log'))}", error=True)
-        elif command == "close":
-            self.request("close_project")
-            subprocess.run(["tmux", "kill-session", "-t", "=" + self.session], check=True, capture_output=True)
-        else:
-            raise ValueError(f"Unknown console lifecycle action: {command}")
-
-    def open(self) -> None:
-        try:
-            self._open()
-        except ConsoleUnavailable as error:
-            if self.exists() and not self.force_recovery:
-                raise ConsoleUnavailable(
-                    f"{error}\nRestarting may interrupt pending work. "
-                    "Confirm by retrying with --append '--force'.") from error
-            self.close(force=True)
-            self.force_recovery = False
-            self._open()
-
-    def _open(self) -> None:
-        with self.locked("lifecycle.lock"):
-            if not self.exists():
-                ensure_xpr_is_available(self.xpr)
-                self.helper("open")
-                # Requests from a previous console cannot complete in this one.
-                (self.directory / "pending").unlink(missing_ok=True)
-        self.request(
-            f"if {{[_lvp_project_path] eq {{}}}} {{lvp_open_project {tcl_word(self.xpr)}}}\n"
-            f"if {{[_lvp_project_path] ne {tcl_word(self.xpr)}}} {{error {{Wrong project open}}}}")
-
-    def pending_request(self) -> Path | None:
-        """Return the unfinished request without contacting Vivado."""
-        try:
-            previous = Path((self.directory / "pending").read_text())
-        except FileNotFoundError:
-            return None
-        return previous if not (previous / "done").exists() else None
-
-    def request(self, command: str) -> str:
-        """Wait for a unique response file; Tcl errors propagate to the CLI."""
-        if not self.exists():
-            raise ConsoleUnavailable("Console is not running")
-        pending = self.directory / "pending"
-        previous = self.pending_request()
-        if previous is not None:
-            raise ConsoleUnavailable(f"Previous Tcl command is still pending: {previous}")
-        request_dir = Path(tempfile.mkdtemp(prefix="request-", dir=self.directory))
-        pending.write_text(str(request_dir))
-        script, output, done = (request_dir / name for name in ("command.tcl", "output.log", "done"))
-        script.write_text(
-            "namespace eval ::project_console_request {\n"
-            f"set capture [open {tcl_word(output)} w]\n"
-            "rename ::puts ::project_console_request::original_puts\n"
-            "proc ::puts {args} {\n"
-            "set index [expr {[lindex $args 0] eq \"-nonewline\" ? 1 : 0}]\n"
-            "if {[llength $args] == $index + 1} {set args [linsert $args $index $::project_console_request::capture]}\n"
-            "if {[lindex $args $index] eq \"stdout\"} {lset args $index $::project_console_request::capture}\n"
-            "uplevel 1 [list ::project_console_request::original_puts {*}$args]\n}\n"
-            "set code [catch {\n"
-            f"set result [uplevel #0 {tcl_word(command)}]\n"
-            'if {$result ne ""} {puts $result}\n'
-            "} message]\n"
-            "rename ::puts {}; rename ::project_console_request::original_puts ::puts\n"
-            "close $capture\n"
-            f"set handle [open {tcl_word(done.with_suffix('.tmp'))} w]\n"
-            'puts $handle $code\nputs $handle $message\nclose $handle\n'
-            f"file rename -force {tcl_word(done.with_suffix('.tmp'))} {tcl_word(done)}\n}}\n"
-        )
-        subprocess.run(["tmux", "send-keys", "-t", self.session, "-l", f"source {tcl_word(script)}"], check=True, capture_output=True)
-        subprocess.run(["tmux", "send-keys", "-t", self.session, "Enter"], check=True, capture_output=True)
-        deadline = time.monotonic() + self.timeout
-        while not done.exists():
-            if not self.exists():
-                raise ConsoleUnavailable(f"Vivado console exited; request: {request_dir}")
-            if time.monotonic() >= deadline:
-                raise ConsoleUnavailable(f"Tcl command still pending; not cancelled. Request: {request_dir}")
-            time.sleep(0.1)
-        response = done.read_text().split("\n", 1)
-        captured = output.read_text() if output.exists() else ""
-        if response[0] != "0":
-            raise RuntimeError(captured + response[1])
-        return captured
-
-    def close(self, force: bool = False) -> None:
-        if force:
-            # Recovery must not call Tcl or wait for a blocked request's lock.
-            with self.locked("lifecycle.lock"):
-                if self.exists():
-                    subprocess.run(["tmux", "kill-session", "-t", "=" + self.session], check=True, capture_output=True)
-                (self.directory / "pending").unlink(missing_ok=True)
+def display_response(response: dict, raw: bool = False, machine: bool = False) -> None:
+    """Never omit native warnings/errors; summaries are outside the transcript."""
+    if machine:
+        print(json.dumps(response), flush=True)
+        return
+    state = "ERROR" if response["code"] else "OK"
+    print(f"=== VIVADO OUTPUT BEGIN | {response['request']} ===", flush=True)
+    print("Command: " + response["command"], flush=True)
+    print(response["output"], end="" if response["output"].endswith("\n") else "\n", flush=True)
+    if response["result"]:
+        print(response["result"], flush=True)
+    print(f"=== VIVADO OUTPUT END | {response['request']} | result={state} ===", flush=True)
+    if response.get('analysis_error'):
+        print('Log analysis unavailable: ' + response['analysis_error'])
+    records = response.get("records", [])
+    if records and not raw:
+        if run_tables(records):
             return
-        if self.exists():
-            self.request('foreach run [get_runs] {if {[regexp -nocase {running|queued} [get_property STATUS $run]]} {error "Run is active: $run"}}')
-            self.helper("close")
+        if len(records) == 1:
+            table(["Property", "Value"], list(records[0].items()))
+        else:
+            keys = list(dict.fromkeys(k for record in records for k in record))
+            labels = {"NAME": "Run", "PARENT": "Parent", "STATUS": "Status", "PROGRESS": "Progress", "CURRENT_STEP": "Step", "STATS.ELAPSED": "Elapsed", "NEEDS_REFRESH": "Refresh", "ENABLED": "Enabled"}
+            table([labels.get(k, k.removeprefix("STATS.")) for k in keys], [[record.get(k, "") for k in keys] for record in records])
+
+
+def run_command(args: argparse.Namespace) -> str:
+    """Map arguments to prefabricated procedures; all run semantics live in Tcl."""
+    action = args.action
+    target = args.group if "group" in action else args.run
+    if action in {"get_runs", "get_groups"}:
+        return "lvp_" + action
+    if not target:
+        return "lvp_get_groups" if "group" in action else "lvp_get_runs"
+    target = tcl_word(target)
+    if action == "set_run_property":
+        if not args.property:
+            return f"lvp_run_properties {target}"
+        if args.value is None:
+            raise ValueError("set_run_property requires --value (use an empty string to clear)")
+        return f"lvp_edit_run_property {target} {tcl_word(args.property)} {tcl_word(args.value)}"
+    if action in {"incremental_on", "incremental_off"}:
+        return f"lvp_incremental {target} {int(action == 'incremental_on')}"
+    if action.startswith(("enable_", "disable_")):
+        return f"lvp_set_enabled {target} {int(action.startswith('enable_'))} {int('group' in action)}"
+    command = f"lvp_{action} {target}"
+    if action in {"build_run", "build_group"}:
+        command += f" {args.jobs} {int(not args.no_bitstream)} {int(args.reset)}"
+    elif action == "build_bitstream":
+        command += f" {args.jobs}"
+    elif action in {"run_info", "group_info"}:
+        command += f" {int(args.verbose)}"
+    return command
+
+
+def confirm_close(console: ProjectConsole, args: argparse.Namespace, export_path: Path) -> None:
+    """A forced close skips export/confirmation, never implicitly stops active runs."""
+    console.request("lvp_status")
+    records = console.last_response.get("records", [])
+    if not records or not records[0].get("PROJECT"):
+        return
+    opened = records[0].get("XPR")
+    if not opened or Path(opened).resolve() != console.xpr.resolve():
+        raise RuntimeError(f"HDLForge JSON targets {console.xpr}, but the console has {opened or 'an unidentified project'} open. Nothing was closed.")
+    if not args.force:
+        if not sys.stdin.isatty():
+            raise RuntimeError("Project is open. Export/close it first, or pass --force to close without exporting Tcl; active runs are still protected.")
+        answer = input("Export current project to Tcl before closing? [y/N/cancel] ").strip().lower()
+        if answer in {"c", "cancel"}:
+            raise RuntimeError("Cancelled; project remains open")
+        if answer not in {"", "n", "no", "y", "yes"}:
+            raise ValueError("Enter yes, no, or cancel; project remains open")
+        if answer in {"y", "yes"}:
+            # Never overwrite the Tcl about to be sourced during regeneration.
+            destination = export_path.with_name(export_path.stem + ".before-close.tcl")
+            console.request(f"lvp_export {tcl_word(destination)}")
+    console.request("lvp_close_project")
+
+
+def parser() -> argparse.ArgumentParser:
+    result = argparse.ArgumentParser(description=__doc__)
+    result.add_argument("action", nargs="?", default="help", choices=sorted(COMMANDS))
+    result.add_argument("--project-json", type=Path)
+    selection = result.add_mutually_exclusive_group()
+    selection.add_argument("--run")
+    selection.add_argument("--group")
+    result.add_argument("--cmd")
+    result.add_argument("--property")
+    result.add_argument("--value")
+    result.add_argument("--file", type=Path)
+    result.add_argument("--output", type=Path)
+    result.add_argument("--jobs", type=int, default=1)
+    result.add_argument("--reset", action="store_true")
+    result.add_argument("--no-bitstream", action="store_true")
+    result.add_argument("--force", action="store_true")
+    result.add_argument("--raw", action="store_true")
+    result.add_argument("--json", action="store_true", help="JSON response envelopes include the full transcript, Tcl result and records")
+    result.add_argument("--verbose", action="store_true")
+    result.add_argument("--timeout", type=float, default=180)
+    result.add_argument("--interval", type=float, default=5)
+    result.add_argument("--once", action="store_true")
+    result.add_argument("--json-file", type=Path)
+    result.add_argument("--key")
+    result.add_argument("--overwrite", action="store_true")
+    return result
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = TableArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=sorted({action for action, _ in COMMANDS.values() if action != "--help"} | {"print-hdlforge-json-commands"}))
-    parser.add_argument("--cmd", help="Tcl command to execute with the send action")
-    parser.add_argument("--raw", action="store_true", help="Print Tcl output without table formatting")
-    parser.add_argument("--force", action="store_true", help="Confirm restarting an unavailable console; may interrupt pending work")
-    parser.add_argument("--output", type=Path, help="Override the write_tcl destination; default is the project's configured Tcl")
-    parser.add_argument("--timeout", type=float, default=180, help="Maximum seconds to wait for the console or command lock (default: 180)")
-    parser.add_argument("--json-file", type=Path, help="Existing JSON file for install-json; update-json detects its own selected file")
-    parser.add_argument("--key", help="Dotted parent key for installation, e.g. LLM_orch.vivado; replace its project_console group entirely")
-    parser.add_argument("--project-json", type=Path, help="HDLForge project selected by the native --project option")
-    parser.add_argument("--overwrite", action="store_true", help="Allow install-json to replace an existing project_console group; update-json always replaces it")
-    args = parser.parse_args(argv)
-    printing = args.action in {"print-hdlforge-json-commends", "print-hdlforge-json-commands"}
-    if (args.json_file is not None) != (args.key is not None):
-        parser.error("--json-file and --key must be supplied together")
-    if args.json_file is not None and not (printing or args.action == "install-json"):
-        parser.error("--json-file and --key require install-json")
-    if args.action == "install-json" and args.json_file is None:
-        parser.error("install-json requires --json-file FILE --key PARENT")
-    if printing or args.action in {"install-json", "update-json"}:
-        if printing and args.json_file is None:
-            machine_output(json.dumps(hdlforge_commands(), indent=2) + "\n")
-        else:
-            try:
-                if args.action == "update-json":
-                    args.json_file = args.project_json or discover_project_json(Path.cwd())
-                    args.key = locate_own_key(args.json_file, os.environ.get("HDLFORGE_JSON_COMMAND_PATH"))
-                install_commands(args.json_file, args.key, overwrite=args.overwrite or args.action == "update-json")
-            except (OSError, ValueError) as error:
-                show_text(str(error), "Error", error=True)
-                return 1
-            log_message(f"[Done] Installed {args.key}.project_console in {args.json_file.resolve()}; replaced any previous group")
-        return 0
-    if args.action == "list":
-        result = subprocess.run(["tmux", "list-sessions", "-F", "#{session_name}"], capture_output=True, text=True)
-        sessions = [name for name in result.stdout.splitlines() if name.startswith("agent_tmux_") and "_vivado_xpr_" in name]
-        table(["Console"], [[name] for name in sessions] or [["No managed consoles"]])
-        return 0
-    if args.action == "clean_logs":
-        return subprocess.run(["hdlforge", "--tool", "vivado", "--clean_logs", "-f"]).returncode
+    args = parser().parse_args(argv)
     try:
-        project_json = args.project_json.resolve() if args.project_json else discover_project_json(Path.cwd())
-        with operation("Reading project configuration JSON", str(project_json), machine=args.raw):
-            console = ProjectConsole(load_xpr_path(project_json), args.timeout, project_json)
-            console.force_recovery = args.force
-            if args.force and console.pending_request() is not None:
-                console.close(force=True)
-        if args.action == "name":
-            table(["Project", "Console"], [[str(console.xpr), console.session]])
+        if args.jobs < 1:
+            raise ValueError("jobs must be positive")
+        if args.action == "help":
+            table(["Command", "Description"], sorted([[shortcut_path(name), value[1]] for name, value in COMMANDS.items()]))
             return 0
-        action = {"clean": "Closing console and deleting project folder", "generate": "Closing console and generating project from Tcl", "write_tcl": "Accessing live console and exporting project Tcl", "status": "Checking background console; reading live status if open", "close": "Closing background console", "restart": "Restarting background console and reopening XPR"}.get(args.action, "Accessing live console")
-        if args.action in {"close", "restart"}:
-            with operation(action, str(console.xpr), machine=args.raw):
-                console.close(force=True)
-                if args.action == "restart":
-                    with console.locked():
-                        console.open()
-                    log_path = console.logs_directory / "vivado.log"
-                    show_text(f"Session: {console.session}; project: {console.xpr}\nLog: {log_path}\nTail: tail -f {shlex.quote(str(log_path))}", "Background console ready")
-                else:
-                    log_message("[Done] Console closed")
+        if args.action == "print-json":
+            print(json.dumps(hdlforge_commands(), indent=2))
             return 0
-        if args.action == "status" and console.exists() and console.pending_request() is not None:
-            table(["Field", "Value"], [["Console", "Open; Tcl request pending"], ["Project", str(console.xpr)], ["Session", console.session], ["Pending request", str(console.pending_request())], ["Recovery", "Use close or restart to interrupt the console"]])
+        if args.action == "install-json":
+            if not args.json_file or not args.key:
+                raise ValueError("install-json requires --json-file and --key")
+            install_commands(args.json_file, args.key, args.overwrite)
             return 0
-        with operation(action, str(console.xpr), machine=args.raw) as progress, console.locked():
-            if args.action == "capture":
-                if not console.exists():
-                    raise RuntimeError("Console is not running")
-                return subprocess.run(["tmux", "capture-pane", "-p", "-t", console.session, "-S", "-120"]).returncode
+        if args.action == "list_consoles":
+            result = subprocess.run(["tmux", "list-sessions", "-F", "#{session_name}"], capture_output=True, text=True)
+            table(["Console"], [[v] for v in result.stdout.splitlines() if "_vivado_xpr_" in v])
+            return 0
+        project = (args.project_json or discover_project_json(Path.cwd())).resolve()
+        if args.action == "update-json":
+            install_commands(project, locate_own_key(project, os.environ.get("HDLFORGE_JSON_COMMAND_PATH")), True)
+            return 0
+        config = json.loads(project.read_text())
+        export_path = (project.parent / config["vivado"]["external_config"]["filename"]).resolve()
+        console = ProjectConsole(load_xpr_path(project), args.timeout, project)
+        console.on_response = lambda response: display_response(enrich(response), args.raw, args.json)
+        if args.action == "follow":
+            if args.run:
+                raise ValueError('follow accepts --group SYNTH; omit it to follow all active groups')
+            return follow(console, args.group or '', args.interval, args.once, args.json,
+                          config.get('vivado', {}).get('monitor', {}).get('execution_targets', {}))
+        if args.action == "stop":
+            console.close(force=True)
+            print(f"Console terminated: {console.session}")
+            return 0
+        if args.action == "interactive":
+            with console.locked():
+                console.open()
+            return subprocess.run(["tmux", "attach-session", "-t", console.session]).returncode
+        with console.locked():
             if args.action == "status":
-                if not console.exists():
-                    table(["Console", "Project"], [["Closed", str(console.xpr)]])
+                if console.exists():
+                    if console.pending_request():
+                        display_response({"request": "transport", "command": "status", "output": "Console alive; Tcl request pending.\n", "result": str(console.pending_request()), "code": 0, "records": []}, args.raw, args.json)
+                    else:
+                        console.request("lvp_status")
                 else:
-                    show_console_status(console.request("lvp_info"))
+                    display_response({"request": "transport", "command": "status", "output": "Console stopped.\n", "result": "", "code": 0, "records": [{"CONSOLE": "stopped", "CONFIGURED_XPR": str(console.xpr)}]}, args.raw, args.json)
                 return 0
-            if args.action in {"clean", "generate"}:
-                console.close()
-            if args.action in {"clean", "generate"}:
-                if find_vivado_owners(console.xpr):
-                    raise RuntimeError("Another Vivado process owns this project")
-                if args.action == "clean":
-                    project_dir = console.xpr.parent
-                    source_dir = project_json.parent.resolve()
-                    if source_dir not in project_dir.parents:
-                        raise RuntimeError("Refusing to delete outside the project's generated subdirectories")
-                    if project_dir.exists():
-                        shutil.rmtree(project_dir)
-                    log_message(f"[Done] Cleaned generated project folder: {project_dir}")
-                    return 0
-                flags = ["--generate_prj_with_external_tcl", "--force"]
-                log_dir = console.xpr.parent.parent
-                log_dir.mkdir(parents=True, exist_ok=True)
-                with tempfile.NamedTemporaryFile(mode="w", prefix=f"{args.action}-", suffix=".log", dir=log_dir, delete=False) as log:
-                    log_message(f"[Running] {args.action}; log: {log.name}")
-                    result = subprocess.run(["hdlforge", "--project", str(project_json), "--tool", "vivado", *flags], cwd=project_json.parent, stdout=log, stderr=subprocess.STDOUT)
-                log_message(f"[{('Done' if result.returncode == 0 else 'Failed')}] {args.action}: exit code {result.returncode}; log: {log.name}", error=bool(result.returncode))
-                if result.returncode:
-                    show_text("\n".join(Path(log.name).read_text(errors="replace").splitlines()[-20:]), "Log excerpt", error=True)
-                if result.returncode:
-                    progress["status"] = "Failed"
-                return result.returncode
-            console.open()
-            if args.action == "send":
-                if not args.cmd:
-                    raise ValueError("send requires --cmd")
-                output = console.request(args.cmd)
-                if args.raw:
-                    machine_output(output)
+            if args.action == "restart":
+                if console.exists():
+                    confirm_close(console, args, export_path)
+                    console.close()
+                console.open()
+                if console.xpr.exists():
+                    console.request(f"lvp_open_project {tcl_word(console.xpr)}")
+                console.request("lvp_status")
+                return 0
+            if args.action == "console_output":
+                return subprocess.run(["tmux", "capture-pane", "-p", "-t", console.session, "-S", "-"]).returncode
+            if args.action == "close_project":
+                console.open()
+                confirm_close(console, args, export_path)
+                console.request("lvp_status")
+                return 0
+            if args.action in {"generate_project_from_tcl", "regenerate_project"}:
+                console.open()
+                confirm_close(console, args, export_path)
+                console.request(f"lvp_generate {tcl_word(export_path)} {tcl_word(console.xpr.parent)} {tcl_word(project.parent)}")
+                if args.action == "regenerate_project":
+                    console.request(f"lvp_open_project {tcl_word(console.xpr)}\nlvp_status")
+                return 0
+            if args.action in {"start", "send", "source"}:
+                console.open()
+                if args.action == "start":
+                    if console.xpr.exists():
+                        console.request(f"lvp_open_project {tcl_word(console.xpr)}")
+                    console.request("lvp_status")
+                elif args.action == "send":
+                    if not args.cmd:
+                        raise ValueError("send requires --cmd")
+                    console.request(args.cmd)
                 else:
-                    show_text(output, "Tcl result")
-            elif args.action == "runs":
-                table(["Run"], [[line] for line in console.request("lvp_runs").splitlines()] or [["No runs found"]])
-            elif args.action == "write_tcl":
-                config = json.loads(project_json.read_text())
-                output = args.output or project_json.parent / config["vivado"]["external_config"]["filename"]
-                console.request(f"write_project_tcl -force {tcl_word(output.resolve())}")
-                export_markers(console, output.resolve())
-                show_text(str(output.resolve()), "Exported project Tcl")
+                    if not args.file:
+                        raise ValueError("source requires --file")
+                    console.request(f"source {tcl_word(args.file.resolve())}")
+                return 0
+            console.open()
+            prefix = f"lvp_open_project {tcl_word(console.xpr)}\n"
+            if args.action == "export_open_project_to_tcl":
+                console.request(prefix + f"lvp_export {tcl_word((args.output or export_path).resolve())}")
+            else:
+                console.request(prefix + run_command(args))
         return 0
     except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
-        show_text(str(error), "Error", error=True)
+        if args.json:
+            print(json.dumps({"error": str(error), "code": 1}))
+        else:
+            print(f"Error: {error}", file=sys.stderr)
         return 1
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
