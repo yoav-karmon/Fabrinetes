@@ -1438,4 +1438,18 @@ if [ "$DRY_RUN" = true ]; then
 fi
 
 # Execute the command
+# Interactive follow must retain the terminal for redraw and clean Ctrl-C.
+# A tee pipe hides isatty() and can close before Python prints its stop message.
+hdlforge_follow_terminal=false
+hdlforge_previous_arg=""
+for hdlforge_follow_arg in "$@"; do
+    if [[ "$hdlforge_previous_arg" == "--project_console" && "$hdlforge_follow_arg" == "follow" ]]; then
+        hdlforge_follow_terminal=true
+    fi
+    hdlforge_previous_arg="$hdlforge_follow_arg"
+done
+if [[ "$hdlforge_follow_terminal" == true && -t 1 ]]; then
+    exec python3 "$TASKS_DIR/tasks.py" "$@"
+fi
+
 exec python3 "$TASKS_DIR/tasks.py" "$@" | tee -a "$log_file"
