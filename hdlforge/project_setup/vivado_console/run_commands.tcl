@@ -56,7 +56,13 @@ proc lvp_run_messages {run} {
 proc lvp_run_record {run mode} {
     set fields {NAME PARENT IS_SYNTHESIS STATUS PROGRESS CURRENT_STEP NEEDS_REFRESH}
     if {$mode in {list status}} {set fields {NAME PARENT STATUS PROGRESS CURRENT_STEP STATS.ELAPSED STATS.WNS STATS.TNS STATS.WHS STATS.THS STATS.TPWS STATS.FAILED_NETS NEEDS_REFRESH}}
-    if {$mode eq "info"} {set fields {NAME PARENT PART FLOW STRATEGY SRCSET CONSTRSET DIRECTORY DESCRIPTION}}
+    if {$mode eq "info"} {
+        set fields {NAME PARENT PART FLOW STRATEGY SRCSET CONSTRSET DIRECTORY DESCRIPTION}
+        # Read only properties this run exposes; stage flags differ by flow/version.
+        foreach property [lsort [list_property $run]] {
+            if {[string match STEPS.* $property]} {lappend fields $property}
+        }
+    }
     if {$mode eq "reuse"} {set fields {NAME STATUS NEEDS_REFRESH INCREMENTAL_CHECKPOINT AUTO_INCREMENTAL_CHECKPOINT}}
     if {$mode eq "verbose"} {set fields [lsort [list_property $run]]}
     set result [dict create]

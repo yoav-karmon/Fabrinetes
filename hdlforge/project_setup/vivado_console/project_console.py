@@ -12,6 +12,7 @@ from .project_console_commands import COMMANDS, shortcut_path, hdlforge_commands
 from .tcl_arguments import tcl_word
 from .terminal_output import table
 from .run_output import run_tables
+from .run_configuration import configuration_tables
 from .log_analysis import enrich
 from .follow import follow
 
@@ -32,6 +33,8 @@ def display_response(response: dict, raw: bool = False, machine: bool = False) -
         print('Log analysis unavailable: ' + response['analysis_error'])
     records = response.get("records", [])
     if records and not raw:
+        if configuration_tables(records):
+            return
         if run_tables(records):
             return
         if len(records) == 1:

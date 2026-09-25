@@ -62,7 +62,14 @@ Persistent Vivado project console:
   hdlforge vivado.project_console.management.inspect_console
   hdlforge vivado.project_console.runs.list_runs
   hdlforge vivado.project_console.runs.enumerate_groups
-  hdlforge vivado.project_console.runs.inspect_run --append '--run impl_1 --verbose'
+  hdlforge vivado.project_console.runs.inspect_run --append '--run impl_1'
+    Shows run metadata followed by stage settings in execution order: enable flags,
+    directives, arguments, Tcl pre/post hooks and report configurations. Values come
+    from the live run, including stage overrides of the named strategy. Only
+    properties exposed by Vivado are shown; (empty) means an exposed empty value.
+    --verbose adds all remaining run properties. --json retains the flat property
+    records, including every exposed STEPS.* setting. Group configuration uses the
+    same stage display separately for each run.
   hdlforge vivado.project_console.runs.status_run --append '--run impl_1'
   hdlforge vivado.project_console.runs.group_status --append '--group synth_1'
   hdlforge vivado.project_console.build.build_group --append '--group synth_1 --jobs 2'
