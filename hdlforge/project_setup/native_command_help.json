@@ -1,6 +1,20 @@
 {
   "#flags": "Descriptions for HDLForge native command options.",
   "flags": {
+    "--auto_impl": null,
+    "#--auto_impl": "After synthesis succeeds run this implementation with its exact timestamp; repeatable, deduplicated",
+    "--build_status": null,
+    "#--build_status": "Probe the output-root launch registry and report non-dead registered processes",
+    "--clean_ignore_artifacts": null,
+    "#--clean_ignore_artifacts": "Delete ignored artifacts for the selected run; no PID/status checks",
+    "--init_build_example": null,
+    "#--init_build_example": "Alias for creating all three build examples and their Tcl folders",
+    "--build_lint": null,
+    "#--build_lint": "Check build configuration and input paths without starting Vivado",
+    "--build": null,
+    "#--build": "Run a JSON synth, synth.impl, or IP selector; use --help for settings and artifact layout",
+    "--synth_timestamp": null,
+    "#--synth_timestamp": "Select synthesis artifacts; defaults to latest completed synthesis",
     "#--jobs": "Maximum parallel jobs passed to Vivado (default 1).",
     "--jobs": null,
     "#--follow": "Refresh process identity and log status every two seconds.",
@@ -212,7 +226,21 @@
     "--no-bitstream": null,
     "#--no-bitstream": "Stop implementation at route_design instead of write_bitstream.",
     "--monitor": null,
-    "#--monitor": "Monitor runs: status, timing-graph, tail, collection, and management. Use help for all actions."
+    "#--monitor": "Monitor runs: status, timing-graph, tail, collection, and management. Use help for all actions.",
+    "--save_this_run": null,
+    "#--save_this_run": "Save selected/newest run from cleanup; implementation also saves synthesis; no build",
+    "--refresh_impl_inputs": null,
+    "#--refresh_impl_inputs": "New implementation: snapshot current XDC/Tcl/supporting files while retaining synthesis DCP and frozen IPs",
+    "--build_stop_all": null,
+    "#--build_stop_all": "Stop registered launches and cancel pending implementations; report unregistered Vivado processes",
+    "--build_find_all_user_runs": null,
+    "#--build_find_all_user_runs": "Discover all visible current-user Vivado processes, including unregistered launches",
+    "--build_create": [
+      "syth_imp_example"
+    ],
+    "#--build_create": "Create synthesis, nested implementation, and IP regeneration JSON examples and run.tcl folders; no builds or overwrites",
+    "--build_clean_ignore_artifacts": null,
+    "#--build_clean_ignore_artifacts": "Delete ignored timestamp artifacts across all runs; preserve latest publications; no PID/status checks"
   },
   "#values": "Descriptions for native tool and command choices.",
   "values": {

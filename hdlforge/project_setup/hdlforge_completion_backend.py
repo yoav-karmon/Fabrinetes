@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Callable
 
 from table_formatter import create_matrix_table_from_data
+from vivado_build_selector import parse_selector, selector_choices
+from vivado_build_config import ARTIFACT_FLAGS, PROCESS_FLAGS, build_names, synthesis_timestamps
 
 NATIVE_HELP = json.loads(Path(__file__).with_name("native_command_help.json").read_text())
 CONSOLE_ACTIONS = {("help" if value == "--help" else value): NATIVE_HELP["project_console"]["#" + name]
@@ -456,6 +458,12 @@ def parse_classic_state(tokens: list[str], cwd: Path) -> ParsedState:
         elif token in {"-ic", "--interactive-chain"}:
             state.chain_mode = True
         elif token in {
+            "--build",
+            "--init_build_example",
+            "--init_build",
+            "--build_lint",
+        "--build_status",
+        "--build_stop_all", "--build_find_all_user_runs", "--build_clean_ignore_artifacts", "--build_create",
             "--lint",
             "--get_xpr_path",
             "--project_console",
@@ -522,6 +530,37 @@ def complete_sim_target_names(cur: str, state: ParsedState) -> CompletionResult:
     return complete_words(cur, get_sim_targets(state))
 
 
+def selected_build(state: ParsedState) -> str:
+    values = get_explicit_flag_values(state.tokens, "--build")
+    return values[-1] if values and not values[-1].startswith("--") else ""
+
+
+def complete_builds(cur: str, state: ParsedState) -> CompletionResult:
+    return complete_words(cur, (selector_choices(state.project_file, project_json_data(state) or {}, cur) if state.project_file else []))
+
+
+def complete_auto_impl(cur: str, state: ParsedState) -> CompletionResult:
+    synthesis = selected_build(state)
+    parsed = parse_selector(synthesis)
+    if parsed and not parsed["impl"]:
+        synthesis = parsed["run"]
+    if not synthesis or "." in synthesis:
+        return CompletionResult([])
+    used = get_explicit_flag_values(state.tokens, "--auto_impl")
+    prefix = synthesis + "."
+    children = [name[len(prefix):] for name in build_names(project_json_data(state) or {})
+                if name.startswith(prefix) and name[len(prefix):] not in used]
+    return complete_words(cur, children)
+
+
+def complete_synth_timestamps(cur: str, state: ParsedState) -> CompletionResult:
+    artifact_action = any(flag in state.tokens for flag in ARTIFACT_FLAGS)
+    if not state.project_file or ("." not in selected_build(state) and not artifact_action):
+        return CompletionResult([])
+    values = synthesis_timestamps(state.project_file, project_json_data(state) or {}, selected_build(state))
+    return complete_words(cur, values)
+
+
 VALUE_HANDLER_TREE: dict[str, dict[str, Handler]] = {
     "root": {
         "--project": complete_project_files,
@@ -531,6 +570,11 @@ VALUE_HANDLER_TREE: dict[str, dict[str, Handler]] = {
         "--env-var": lambda _cur, _state: CompletionResult([]),
     },
     "tool:vivado": {
+        "--build": complete_builds,
+        "--init_build": lambda cur, state: complete_words(cur, ["all"] + build_names(project_json_data(state) or {})),
+        "--create": complete_static_words(["syth_imp_example"]),
+        "--auto_impl": complete_auto_impl,
+        "--synth_timestamp": complete_synth_timestamps,
         "--monitor": complete_static_words([name for name in NATIVE_HELP['monitor'] if not name.startswith('#')]),
         "--metric": lambda cur, state: complete_static_words(['elapsed_seconds', 'cpu_seconds', 'peak_memory_mb', 'wns_ns', 'tns_ns', 'whs_ns', 'ths_ns'] if 'performance' in state.tokens else ['all', 'wns', 'tns', 'whs', 'ths'])(cur, state),
         "--files": lambda cur, state: complete_path(cur, state.cwd, suffixes=(".json",)),
@@ -631,6 +675,12 @@ def filter_single_use(flags: list[str], state: ParsedState, *, repeatable: set[s
 
 def suggest_vivado_flags(state: ParsedState) -> list[str]:
     actions = [
+        "--build",
+        "--init_build_example",
+            "--init_build",
+        "--build_lint",
+        "--build_status",
+        "--build_stop_all", "--build_find_all_user_runs", "--build_clean_ignore_artifacts", "--build_create",
         "--lint",
         "--get_xpr_path",
         "--project_console",
@@ -652,7 +702,21 @@ def suggest_vivado_flags(state: ParsedState) -> list[str]:
         return filter_single_use(actions + ["--project", *GLOBAL_FLAGS, "--verbose", "--help", "-h"], state)
 
     modifiers: list[str]
-    if selected == "--lint":
+    if selected == "--build":
+        build = selected_build(state)
+        parsed = parse_selector(build)
+        valid = bool(parsed) or build in build_names(project_json_data(state) or {})
+        artifact_action = any(flag in state.tokens for flag in ARTIFACT_FLAGS)
+        modifiers = []
+        if valid and not artifact_action:
+            if parsed and parsed["impl"] and parsed["attempt"] == "new":
+                modifiers.append("--refresh_impl_inputs")
+            modifiers += ARTIFACT_FLAGS + ["--remove_lock", "--stop_run", "--force_run"]
+            if (parsed and not parsed["impl"] or "." not in build) and (project_json_data(state) or {}).get("vivado", {}).get("non_project", {}).get("runs", {}).get(parsed["run"] if parsed else build, {}).get("stage") == "synth":
+                modifiers.append("--auto_impl")
+        if not build and "--create" not in state.tokens and not any(flag in state.tokens for flag in PROCESS_FLAGS):
+            modifiers = []
+    elif selected == "--lint":
         modifiers = ["--clean"]
     elif selected == "--generate_prj_with_external_tcl":
         modifiers = ["--clean", "--force"]
@@ -681,7 +745,7 @@ def suggest_vivado_flags(state: ParsedState) -> list[str]:
 
     return filter_single_use(
         modifiers + ["--project", *GLOBAL_FLAGS, "--verbose", "--help", "-h"],
-        state,
+        state, repeatable={"--auto_impl"} if selected == "--build" else set(),
     )
 
 

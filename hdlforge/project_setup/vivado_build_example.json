@@ -1,0 +1,168 @@
+{
+  "vivado_version": "2025.1",
+  "output_root": "compilation/non_project_mode",
+  "runs": {
+    "synth_example": {
+      "stage": "synth",
+      "script": "compilation/non_project_mode/synth_example/run.tcl",
+      "part": "xcvu9p-fsgd2104-3-e",
+      "top": "top",
+      "sources": [
+        "sources/RTL/top.sv",
+        {
+          "path": "sources/RTL/helper.vhd",
+          "language": "vhdl2008",
+          "library": "xil_defaultlib",
+          "properties": {
+            "used_in_simulation": false
+          }
+        }
+      ],
+      "ips": [
+        {
+          "path": "compilation/non_project_mode/ip_example/artifacts/latest/work/ip_sources/0/example.xcix",
+          "properties": {},
+          "file_properties": {
+            "example_ooc.xdc": {
+              "used_in_implementation": false
+            }
+          }
+        }
+      ],
+      "constraints": [
+        {
+          "path": "sources/XDC/synthesis.xdc",
+          "properties": {
+            "used_in_synthesis": true,
+            "used_in_implementation": false
+          }
+        },
+        "compilation/non_project_mode/synth_example/ip_keep_hierarchy.xdc"
+      ],
+      "defines": [
+        "BUILD_RUN_TYPE=0"
+      ],
+      "impl_runs": {
+        "impl_example": {
+          "stage": "impl",
+          "script": "compilation/non_project_mode/synth_example/impl_example/run.tcl",
+          "part": "xcvu9p-fsgd2104-3-e",
+          "top": "top",
+          "constraints": [
+            {
+              "path": "sources/XDC/implementation.xdc",
+              "properties": {
+                "processing_order": "LATE"
+              }
+            }
+          ],
+          "parameters": {
+            "general.usePosixSpawnForFork": 1,
+            "project.singleFileAddWarning.threshold": 0,
+            "chipscope.maxJobs": 1,
+            "runs.launchOptions": [
+              "-jobs",
+              1
+            ],
+            "general.maxThreads": 8
+          },
+          "project_properties": {
+            "XPM_LIBRARIES": [
+              "XPM_CDC",
+              "XPM_FIFO",
+              "XPM_MEMORY"
+            ],
+            "default_lib": "xil_defaultlib",
+            "target_language": "Verilog",
+            "ip_output_repo": "ip_cache",
+            "ip_cache_permissions": [
+              "read",
+              "write"
+            ]
+          },
+          "fileset_properties": {
+            "design_mode": "GateLvl"
+          },
+          "publish_latest": true,
+          "input_files": [],
+          "enabled_on_all": true
+        }
+      },
+      "parameters": {
+        "general.usePosixSpawnForFork": 1,
+        "project.singleFileAddWarning.threshold": 0,
+        "project.compositeFile.enableAutoGeneration": 0,
+        "synth.vivado.isSynthRun": true,
+        "general.maxThreads": 8
+      },
+      "project_properties": {
+        "XPM_LIBRARIES": [
+          "XPM_CDC",
+          "XPM_FIFO",
+          "XPM_MEMORY"
+        ],
+        "default_lib": "xil_defaultlib",
+        "target_language": "Verilog",
+        "ip_output_repo": "ip_cache",
+        "ip_cache_permissions": [
+          "read",
+          "write"
+        ]
+      },
+      "fileset_properties": {
+        "verilog_define": "SYNTHESIS"
+      },
+      "post_load_parameters": {
+        "ips.enableIPCacheLiteLoad": 1
+      },
+      "checkpoint_properties": {
+        "used_in_implementation": false
+      },
+      "constraint_properties": {
+        "used_in_implementation": false
+      },
+      "publish_latest": true,
+      "input_files": [
+        "sources/RTL/build_defines.svh",
+        "sources/data/init.mem"
+      ],
+      "enabled_on_all": true
+    },
+    "ip_example": {
+      "stage": "ip",
+      "script": "compilation/non_project_mode/ip_example/run.tcl",
+      "part": "xcvu9p-fsgd2104-3-e",
+      "ips": [
+        {
+          "path": "sources/ip/example.xcix",
+          "properties": {
+            "generate_synth_checkpoint": true,
+            "synth_checkpoint_mode": "Singular"
+          },
+          "file_properties": {}
+        }
+      ],
+      "constraints": [],
+      "parameters": {
+        "general.usePosixSpawnForFork": 1,
+        "general.maxThreads": 8
+      },
+      "project_properties": {
+        "default_lib": "xil_defaultlib",
+        "target_language": "Verilog",
+        "ip_output_repo": "ip_cache",
+        "ip_cache_permissions": [
+          "read",
+          "write"
+        ]
+      },
+      "fileset_properties": {},
+      "post_load_parameters": {},
+      "checkpoint_properties": {},
+      "constraint_properties": {},
+      "publish_latest": true,
+      "input_files": [],
+      "enabled_on_all": true
+    }
+  }
+}

@@ -32,6 +32,8 @@ from hw_server_tasks import hw_server, help_hw_server
 # Import project loader (single source of truth for project data)
 from project_file import ProjectFile
 from vivado_console import project_console
+import vivado_build
+import vivado_build_tools
 
 
 def normalize_cli_args(argv: List[str]) -> List[str]:
@@ -286,6 +288,21 @@ def help_vivado():
     print()
     print("AVAILABLE STEPS:")
     print()
+    print("  JSON Non-Project Builds:")
+    print(vivado_build.BUILD_HELP)
+    print("    --build SYNTH[.IMPL]                Run the selected vivado.non_project JSON configuration")
+    print("    --synth_timestamp TIMESTAMP         Implementation input; default is latest completed synthesis")
+    print("    --auto_impl IMPL                    After synthesis succeeds, run IMPL with its exact timestamp; repeatable")
+    print("    --build_status                    Report non-dead registered launchers and Vivado processes")
+    print("    --build_stop_all                   Stop registered launches and cancel their continuations")
+    print("    --build_find_all_user_runs        Discover current-user Vivado processes, including unregistered ones")
+    print("    --build_create syth_imp_example  Create JSON and Tcl examples for synthesis, implementation and IP")
+    print("    --init_build_example               Create all three JSON/Tcl examples (alias)")
+    print("    --build_lint                       Check build configuration and input paths without Vivado")
+    print("    --build SYNTH[.IMPL] --save_this_run          Save selected/newest artifacts and parent synthesis; no build")
+    print("    --build SYNTH[.IMPL] --clean_ignore_artifacts    Delete explicitly ignored inactive artifacts; no build")
+    print("      Artifact actions cover all timestamps; --synth_timestamp selects one.")
+    print()
     print("  Project Management:")
     print("    --generate_prj_with_external_tcl    Generate Vivado project using external TCL script")
     print("    --write_tcl                         Export Vivado project to TCL")
@@ -513,13 +530,75 @@ if __name__ == "__main__":
     ORIGINAL_CWD = os.environ.get('HDLFORGE_ORIG_DIR', os.getcwd())
 
     # Console arguments belong to its own parser; keep --cmd and --help intact.
-    console_parser = argparse.ArgumentParser(add_help=False)
+    console_parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
     console_parser.add_argument('--tool')
     console_parser.add_argument('--project')
     console_parser.add_argument('--get_xpr_path', action='store_true')
     console_parser.add_argument('--project_console')
     console_parser.add_argument('--monitor', nargs='?', const='help')
+    console_parser.add_argument('--build', nargs='?', const='')
+    console_parser.add_argument('--create')
+    console_parser.add_argument('--init_build_example', action='store_true')
+    console_parser.add_argument('--init_build')
+    console_parser.add_argument('--build_status', action='store_true')
+    console_parser.add_argument('--build_stop_all', action='store_true')
+    console_parser.add_argument('--build_find_all_user_runs', action='store_true')
+    console_parser.add_argument('--build_clean_ignore_artifacts', action='store_true')
+    console_parser.add_argument('--build_create')
+    console_parser.add_argument('--build_lint', action='store_true')
     console_args, console_tail = console_parser.parse_known_args(sys.argv[1:])
+    management = [flag for flag in ('build_stop_all', 'build_find_all_user_runs', 'build_clean_ignore_artifacts', 'build_create') if getattr(console_args, flag)]
+    if console_args.tool == 'vivado' and management:
+        os.chdir(ORIGINAL_CWD)
+        if len(management) != 1 or console_args.build is not None or console_args.build_status or console_args.create or console_args.monitor or console_args.project_console or console_args.get_xpr_path or console_args.init_build or console_args.init_build_example or console_args.build_lint:
+            console_parser.error('Choose one build management action without --build')
+        action = management[0]
+        mapped = {'build_stop_all': '--stopall', 'build_find_all_user_runs': '--find_all_user_runs', 'build_clean_ignore_artifacts': '--clean_ignore_artifacts'}
+        action_argv = ['--create', console_args.build_create] if action == 'build_create' else [mapped[action]]
+        if console_args.project:
+            action_argv.extend(['--project', console_args.project])
+        runner = vivado_build_tools if action == 'build_create' else vivado_build
+        sys.exit(runner.main(action_argv + console_tail))
+    if console_args.tool == 'vivado' and console_args.build_status:
+        os.chdir(ORIGINAL_CWD)
+        if console_args.build is not None or console_args.create or console_args.monitor or console_args.project_console or console_args.get_xpr_path or console_args.init_build_example or console_args.init_build or console_args.build_lint:
+            console_parser.error('--build_status cannot be combined with other Vivado actions')
+        status_argv = ['--build_status']
+        if console_args.project:
+            status_argv.extend(['--project', console_args.project])
+        sys.exit(vivado_build.main(status_argv + console_tail))
+    if console_args.tool == 'vivado' and console_args.create is not None:
+        os.chdir(ORIGINAL_CWD)
+        if console_args.build != '' or console_args.monitor or console_args.project_console or console_args.get_xpr_path or console_args.init_build_example or console_args.build_lint:
+            console_parser.error('--create requires --build without a run selector or other action')
+        config_argv = ['--create', console_args.create]
+        if console_args.project:
+            config_argv.extend(['--project', console_args.project])
+        sys.exit(vivado_build_tools.main(config_argv + console_tail))
+    if console_args.tool == 'vivado' and (console_args.init_build_example or console_args.init_build or console_args.build_lint):
+        os.chdir(ORIGINAL_CWD)
+        if console_args.build is not None or console_args.monitor or console_args.project_console or console_args.get_xpr_path:
+            console_parser.error('Build configuration actions cannot be combined with other Vivado actions')
+        config_argv = []
+        if console_args.init_build:
+            config_argv.extend(['--init_build', console_args.init_build])
+        if console_args.init_build_example:
+            config_argv.append('--init_build_example')
+        if console_args.build_lint:
+            config_argv.append('--build_lint')
+        if console_args.project:
+            config_argv.extend(['--project', console_args.project])
+        sys.exit(vivado_build_tools.main(config_argv + console_tail))
+    if console_args.tool == 'vivado' and console_args.build is not None:
+        os.chdir(ORIGINAL_CWD)
+        if console_args.monitor or console_args.project_console or console_args.get_xpr_path:
+            console_parser.error('--build cannot be combined with other Vivado actions')
+        build_argv = ['--build']
+        if console_args.build:
+            build_argv.append(console_args.build)
+        if console_args.project:
+            build_argv.extend(['--project', console_args.project])
+        sys.exit(vivado_build.main(build_argv + console_tail))
     if console_args.tool == 'vivado' and console_args.monitor:
         os.chdir(ORIGINAL_CWD)
         if console_args.project_console or console_args.get_xpr_path:
