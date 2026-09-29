@@ -145,6 +145,28 @@ class BuildRegistry:
                 if not active and row["pid_state"] != "unavailable" and row["status"] not in {"complete", "failed", "stopped"}:
                     row["status"] = "dead"
                 row["probed_at"] = utc_now()
+            # Keep launch chains while workers can still update their registry rows.
+            retained = {row['launch_id'] for row in rows if row['active'] or alive(row['engine_state'])}
+            for launch_id in list(retained):
+                parent = data['runs'][launch_id].get('parent_launch_id')
+                while parent and parent not in retained and parent in data['runs']:
+                    retained.add(parent)
+                    parent = data['runs'][parent].get('parent_launch_id')
+            local = local_identity()
+            for row in rows:
+                host = row['host']
+                previous_boot = host.get('host') == local['host'] and host.get('boot_id') and host['boot_id'] != local['boot_id']
+                known_inactive = previous_boot or (host == local and all(row[key] != 'unavailable' for key in ('pid_state', 'launcher_state', 'engine_state')))
+                output = Path(row['output'])
+                if row['launch_id'] in retained or not known_inactive or not output.is_relative_to(self.root):
+                    continue
+                try:
+                    output.stat()
+                except FileNotFoundError:
+                    del data['runs'][row['launch_id']]
+                except OSError:
+                    pass  # Inaccessible storage is not evidence of deletion.
+            rows = list(data['runs'].values())
         return rows
 
     def watch_status(self, *, all_runs: bool = False) -> None:
