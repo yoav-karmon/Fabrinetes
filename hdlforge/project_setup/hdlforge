@@ -960,6 +960,7 @@ hdlforge_inject_default_eval_json() {
     local has_eval_json=false
     local has_raw_cmd=false
     local expect_value=""
+    local optional_build_value=false
     local seen_dd=false
     local non_flag_count=0
     local non_flag_value=""
@@ -972,6 +973,14 @@ hdlforge_inject_default_eval_json() {
     for arg in "$@"; do
         if [ "$seen_dd" = true ]; then
             continue
+        fi
+
+        # --build optionally consumes a selector; a following flag is not its value.
+        if [ "$optional_build_value" = true ]; then
+            optional_build_value=false
+            if [[ "$arg" != -* ]]; then
+                continue
+            fi
         fi
 
         if [ -n "$expect_value" ]; then
@@ -994,6 +1003,9 @@ hdlforge_inject_default_eval_json() {
             --cmd)
                 has_raw_cmd=true
                 expect_value="$arg"
+                ;;
+            --build)
+                optional_build_value=true
                 ;;
             --project|--env-python|--env-path|--env-var|--append|--eval_json_append)
                 expect_value="$arg"

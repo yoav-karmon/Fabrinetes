@@ -10,6 +10,28 @@ import unittest
 
 
 class LauncherEnvironmentTest(unittest.TestCase):
+    def test_build_selector_is_not_a_shortcut(self):
+        for arguments in (
+            ["--tool", "vivado", "--build", "synth_production.new"],
+            ["--tool", "vivado", "--build=synth_production.new"],
+            ["--build", "synth_production.new", "--tool", "vivado"],
+            ["--tool", "vivado", "--build"],
+            ["--build", "--tool", "vivado"],
+        ):
+            with self.subTest(arguments=arguments):
+                result = subprocess.run([str(self.wrapper), "--dry-run", *arguments],
+                                        cwd=self.project, env=self.env, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("--tool execution skipped", result.stdout)
+                self.assertNotIn("--eval_json", result.stdout)
+
+    def test_build_does_not_hide_a_conflicting_shortcut(self):
+        result = subprocess.run([str(self.wrapper), "--dry-run", "--tool", "vivado",
+                                 "--build", "synth_production.new", "other.shortcut"],
+                                cwd=self.project, env=self.env, capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("--tool cannot be combined with shorthand", result.stdout)
+
     def setUp(self):
         # Snap-installed jq has a private /tmp but can read user-owned home files.
         self.temporary = tempfile.TemporaryDirectory(dir=Path.home())
