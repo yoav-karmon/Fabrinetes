@@ -138,3 +138,14 @@ Useful checks:
   jq '.LLM_orch | keys' <project>.hdlforge.json
   hdlforge --tool Verilator --help
   hdlforge --tool vivado --help
+# Host environment variables
+
+Under `settings.env.<host>.<user>`, an optional `variables` object exports
+literal string values after tool setup. Project-layer values override repository
+defaults and nested HDLForge commands inherit them. For example:
+
+```json
+"variables": {
+  "XILINXD_LICENSE_FILE": "/absolute/path/to/Xilinx.lic"
+}
+```

@@ -51,7 +51,7 @@ hdlforge_read_json_environment() {
 hdlforge_apply_json_environment() {
     local env_json="$1"
     local jq_bin="$2"
-    local path_entry pythonpath_entry vivado_settings
+    local path_entry pythonpath_entry vivado_settings variable_name variable_value
 
     [ -n "$env_json" ] || return 0
 
@@ -73,6 +73,18 @@ hdlforge_apply_json_environment() {
         [ -x "$VERILATOR_BIN" ] || { echo "error: Verilator is unavailable at $VERILATOR_BIN" >&2; return 1; }
         add_to_path "$(dirname "$VERILATOR_BIN")"
     fi
+    # Literal exported values; project-layer variables override repo defaults.
+    if ! printf '%s' "$env_json" | "$jq_bin" -e '
+        (.variables // {}) | type == "object" and
+        all(to_entries[]; (.key | test("^[A-Za-z_][A-Za-z0-9_]*$")) and (.value | type == "string"))
+    ' >/dev/null; then
+        echo "error: environment variables must be an object of valid names and string values" >&2
+        return 1
+    fi
+    while IFS= read -r variable_name; do
+        variable_value="$(printf '%s' "$env_json" | "$jq_bin" -r --arg key "$variable_name" '.variables[$key]')"
+        export "$variable_name=$variable_value"
+    done < <(printf '%s' "$env_json" | "$jq_bin" -r '.variables // {} | keys[]')
     clean_path
     clean_pythonpath
 }

@@ -10,6 +10,22 @@ import unittest
 
 
 class LauncherEnvironmentTest(unittest.TestCase):
+    def test_json_license_environment(self):
+        project_file = self.project / "sample.hdlforge.json"
+        data = json.loads(project_file.read_text())
+        license_path = str(self.root / "license folder" / "Xilinx.lic")
+        data["settings"]["env"]["test-host"]["test-user"]["variables"] = {
+            "XILINXD_LICENSE_FILE": license_path,
+        }
+        project_file.write_text(json.dumps(data))
+        for command in ('printenv XILINXD_LICENSE_FILE',
+                        "hdlforge --no-print --cmd 'printenv XILINXD_LICENSE_FILE'"):
+            with self.subTest(command=command):
+                result = subprocess.run([str(self.wrapper), "--no-print", "--cmd", command],
+                                        cwd=self.project, env=self.env, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(result.stdout.strip(), license_path)
+
     def test_build_selector_is_not_a_shortcut(self):
         for arguments in (
             ["--tool", "vivado", "--build", "synth_production.new"],
