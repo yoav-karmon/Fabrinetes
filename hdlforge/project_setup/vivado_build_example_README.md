@@ -1,5 +1,28 @@
 # HDLForge {{STAGE}} build example
 
+For implementation builds, the shared runtime sets `BITSTREAM.CONFIG.USERID`
+before `write_bitstream` from the current launch's UTC Unix timestamp. The value
+is logged and saved in `info/bitstream_timestamp.json`. Each new launch or rerun
+gets a new value; do not put a fixed timestamp in source XDC or run scripts.
+
+To regenerate only the bitstream from a completed implementation:
+
+```bash
+hdlforge --project {{PROJECT_ARG}} --tool vivado --build synth_example.latest.impl_example.bitstream.<impl_timestamp>
+```
+
+Use a synthesis timestamp instead of `latest` to select a dated parent. Tab
+completion lists completed implementation folders after `.bitstream.`; `latest`
+is offered only when that implementation folder exists and is complete.
+This opens the final routed checkpoint and writes a new bitstream, preserving
+the selected implementation's USERID timestamp and original paired LTX files.
+It does not rerun implementation or read current RTL, IP or XDC. Results go under
+the selected implementation's `bitstream_runs/<new_timestamp>/`, with frozen
+inputs, `bitstream/`, `runme.log` and `info/`. Normal background logging, Ctrl-C
+detach, `--build_status` and `--build_stop_all` apply. Original outputs remain intact.
+New implementations record `info/last_routed_checkpoint.txt`; older examples use
+`<top>_postroute_physopt.dcp`, falling back to `<top>_routed.dcp`.
+
 Generated for `{{PROJECT}}`. Run the commands below from the project JSON's
 directory. Example creation writes configuration and scripts only; it does not
 start Vivado. Replace placeholder sources, constraints, IP and supporting files,
@@ -128,6 +151,7 @@ preserving current values; a run selector limits the update to one definition.
 hdlforge --project {{PROJECT_ARG}} --tool vivado --build --help
 hdlforge --project {{PROJECT_ARG}} --tool vivado --build_lint
 hdlforge --project {{PROJECT_ARG}} --tool vivado --build_status
+hdlforge --project {{PROJECT_ARG}} --tool vivado --build_status_all
 ```
 
 Help describes every field and parameter/property map, process discovery and
@@ -235,6 +259,8 @@ implementation run definitions use `<synth>/<impl>/artifacts/latest/`).
 The selector `.latest` resolves to a successful timestamp; it does not execute
 inside the mutable published copy. Timestamp cleanup excludes the latest directory.
 
-`--build_status` refreshes in place in the controlling terminal, without
+`--build_status` shows active/unavailable registered builds; `--build_status_all`
+also shows completed, failed, stopped, and dead runs, as a table without tail
+commands or per-run log messages. Both refresh in place in the controlling terminal, without
 scrolling repeated tables. Ctrl-C exits the viewer and leaves builds running.
 Without a controlling terminal it prints one status snapshot.

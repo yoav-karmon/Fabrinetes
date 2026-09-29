@@ -161,6 +161,17 @@ def implementation_inputs(config: dict) -> dict:
     cache = shared / 'input_config.json'
     with (shared / '.inputs.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
+        if cache.is_file():
+            cached = json.loads(cache.read_text())
+            checkpoint = Path(cached['input_dcp'])
+            # A synthesis rerun may replace the parent DCP. Preserve the shared
+            # snapshot used by old attempts; give this attempt private inputs.
+            # Published copies can also contain paths into the original tree.
+            if (not checkpoint.is_relative_to(shared / 'inputs') or
+                    not checkpoint.is_file() or
+                    hash_source(checkpoint) != hash_source(Path(config['input_dcp']))):
+                print('Parent checkpoint changed or shared inputs were relocated; copying private inputs for this implementation.', flush=True)
+                return snapshot_inputs(config)
         if not cache.exists():
             inputs = shared / 'inputs'
             # A missing completion marker means a prior snapshot was interrupted.

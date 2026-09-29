@@ -21,9 +21,10 @@ from vivado_build_artifacts import initialize_visibility, manage_artifacts
 from vivado_build_registry import BuildRegistry, BuildStopped, utc_now
 from vivado_build_publish import clear_latest, publish_latest
 from vivado_build_follow import background_follow
-from vivado_build_selector import parse_selector, resolve_rerun
+from vivado_build_selector import parse_selector, resolve_rerun, relocate_snapshot
 from vivado_build_snapshot import implementation_inputs, snapshot_inputs
 from vivado_build_hash import record_source_hashes
+from vivado_build_bitstream import select_bitstream, lock_implementation, snapshot_bitstream
 from vivado_build_processes import group_members, local_identity, process_info, signal_process
 
 
@@ -118,6 +119,10 @@ def select_run(project: Path, selector: str, timestamp: str | None = None) -> di
     project = project.resolve()
     selector = resolve_rerun(project, selector)
     parsed = parse_selector(selector)
+    if parsed and parsed.get('bitstream'):
+        if timestamp is not None:
+            raise ValueError('Use the timestamps in the bitstream selector, not --synth_timestamp')
+        return select_bitstream(project, parsed)
     if parsed:
         if timestamp is not None:
             raise ValueError('Use the timestamp in the build selector, not --synth_timestamp')
@@ -126,6 +131,11 @@ def select_run(project: Path, selector: str, timestamp: str | None = None) -> di
             config = select_run(project, canonical, parsed['synth'])
             if parsed['attempt'] != 'new':
                 output = Path(config['output']).parent / parsed['attempt']
+                config = json.loads((output / 'info/resolved.json').read_text())
+                original = config['output']
+                config = relocate_snapshot(config, original, str(output))
+                config['_rerun_original_output'] = original
+                config['timestamp'] = parsed['synth']
                 config.update(output=str(output), rerun=True)
         elif parsed['synth'] == 'new':
             config = select_run(project, canonical)
@@ -133,6 +143,10 @@ def select_run(project: Path, selector: str, timestamp: str | None = None) -> di
             data = json.loads(project.read_text())
             root = project.parent / data['vivado']['non_project']['output_root'] / canonical / 'artifacts' / parsed['synth']
             config = json.loads((root / 'info/resolved.json').read_text())
+            original = config['output']
+            config = relocate_snapshot(config, original, str(root))
+            config['_rerun_original_output'] = original
+            config['timestamp'] = parsed['synth']
             config.update(output=str(root), rerun=True)
         if config.get('rerun'):
             output = Path(config['output'])
@@ -202,6 +216,13 @@ def select_run(project: Path, selector: str, timestamp: str | None = None) -> di
 
 
 def execute(project: Path, config: dict, executable: str = "vivado") -> int:
+    if config['stage'] == 'bitstream':
+        with lock_implementation(config):
+            return execute_attempt(project, config, executable)
+    return execute_attempt(project, config, executable)
+
+
+def execute_attempt(project: Path, config: dict, executable: str = "vivado") -> int:
     """Lock an attempt before clearing only its generated outputs."""
     output = Path(config['output'])
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -258,15 +279,23 @@ def execute(project: Path, config: dict, executable: str = "vivado") -> int:
                 raise ValueError(f'Vivado executable not found: {executable}')
             if output.is_symlink():
                 raise ValueError(f'Refusing symlink run: {output}')
-            config['_rerun_runtime'] = json.loads((output / 'info/runtime.json').read_text())
+            original = config.pop('_rerun_original_output', str(output))
+            config['_rerun_runtime'] = relocate_snapshot(
+                json.loads((output / 'info/runtime.json').read_text()), original, str(output))
+            if original != str(output):
+                for name in ('implementations.json', 'input_manifest.json', 'input_hashes.json'):
+                    metadata = output / 'info' / name
+                    if metadata.is_file():
+                        value = relocate_snapshot(json.loads(metadata.read_text()), original, str(output))
+                        metadata.write_text(json.dumps(value, indent=2) + '\n')
             for child in output.iterdir():
-                if child.name in {'inputs', 'info', 'impl_runs'}:
+                if child.name in {'inputs', 'info', 'impl_runs', 'bitstream_runs'}:
                     continue
                 if child.is_dir() and not child.is_symlink():
                     shutil.rmtree(child)
                 else:
                     child.unlink()
-            for name in ('status', 'exit_code', 'stages.tsv', 'publication_error.txt'):
+            for name in ('status', 'exit_code', 'stages.tsv', 'publication_error.txt', 'last_routed_checkpoint.txt'):
                 (output / 'info' / name).unlink(missing_ok=True)
         return execute_locked(project, config, executable)
 
@@ -302,6 +331,8 @@ def execute_locked(project: Path, config: dict, executable: str = "vivado") -> i
         for folder in ("work", "checkpoints", "reports", "bitstream"):
             (output / folder).mkdir(exist_ok=True)
         saved_project = Path(config["input_dcp"]).parent.parent / "info/project.json" if config["stage"] == "impl" else project
+        if config['stage'] == 'bitstream':
+            saved_project = Path(config['bitstream_source']) / 'info/project.json'
         if not config.get("rerun"):
             shutil.copyfile(saved_project, info / "project.json")
         if config.get("refresh_impl_inputs"):
@@ -313,6 +344,8 @@ def execute_locked(project: Path, config: dict, executable: str = "vivado") -> i
             for key in ('output', 'launch_id', 'launch_timestamp', 'launch_epoch', 'timestamp'):
                 if key in config:
                     runtime_config[key] = config[key]
+        elif config['stage'] == 'bitstream':
+            runtime_config = snapshot_bitstream(config)
         else:
             runtime_config = implementation_inputs(config) if config["stage"] == "impl" else snapshot_inputs(config)
         if config["stage"] == "ip":
@@ -332,7 +365,9 @@ def execute_locked(project: Path, config: dict, executable: str = "vivado") -> i
                 entry["path"] = str(destination / source.name)
         scripts = info / "scripts"
         scripts.mkdir(exist_ok=True)
-        for sibling in Path(runtime_config["script"]).parent.glob("*.tcl"):
+        run_script = Path(runtime_config['script'])
+        script_files = [run_script] if config['stage'] == 'bitstream' else run_script.parent.glob('*.tcl')
+        for sibling in script_files:
             if sibling.resolve() != (scripts / sibling.name).resolve():
                 shutil.copyfile(sibling, scripts / sibling.name)
         runtime_config["script"] = str(scripts / Path(config["script"]).name)
@@ -347,6 +382,8 @@ def execute_locked(project: Path, config: dict, executable: str = "vivado") -> i
         (info / "invocation.txt").write_text(shlex.join(command) + "\n")
         print(f"Build: {config['selector']}\nSynthesis timestamp: {config['timestamp']}\nArtifacts: {output}", flush=True)
         snapshot_root = Path(runtime_config["project_root"]).parent
+        if config['stage'] == 'bitstream':
+            snapshot_root = Path(runtime_config['project_root'])
         source_metadata = (
             f"Source mode: frozen input snapshot (not live project sources)\n"
             f"Input snapshot: {snapshot_root}\n"
@@ -355,6 +392,10 @@ def execute_locked(project: Path, config: dict, executable: str = "vivado") -> i
         )
         if config["stage"] == "impl":
             source_metadata += f"Synthesis checkpoint input: {runtime_config['input_dcp']}\n"
+        elif config['stage'] == 'bitstream':
+            source_metadata += (f"Bitstream selection: {config['build_selection']}\n"
+                                f"Routed implementation checkpoint input: {runtime_config['input_dcp']}\n"
+                                f"Original implementation timestamp (USERID epoch): {config['bitstream_epoch']}\n")
         elif config["stage"] == "ip":
             source_metadata += f"IP regeneration work copies (from snapshot): {output / 'work' / 'ip_sources'}\n"
         with (output / "runme.log").open("w") as log:
@@ -459,6 +500,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--auto_impl", action="append", default=[], help="After successful synthesis run this implementation; repeat for multiple runs")
     artifacts = parser.add_mutually_exclusive_group()
     artifacts.add_argument("--build_status", action="store_true", help="Probe the launch registry and report all non-dead registered processes")
+    artifacts.add_argument("--build_status_all", action="store_true", help="Show all registered builds, including completed, failed, stopped, and dead runs")
     artifacts.add_argument("--stopall", action="store_true", help="Stop all registered live launches and their pending continuations")
     artifacts.add_argument("--find_all_user_runs", action="store_true", help="Discover current-user Vivado processes, including unregistered processes")
     artifacts.add_argument("--save_this_run", action="store_true", help="Save the selected timestamp (newest by default); implementation also saves synthesis; do not build")
@@ -477,13 +519,13 @@ def main(argv: list[str] | None = None) -> int:
             if len(candidates) != 1:
                 raise ValueError("Select a project with --project <file.hdlforge.json>")
             project = candidates[0].resolve()
-        if args.build_status or args.stopall or args.find_all_user_runs:
+        if args.build_status or args.build_status_all or args.stopall or args.find_all_user_runs:
             if args.build or args.auto_impl or args.synth_timestamp:
                 raise ValueError("Process actions use --build without a run name or continuation options")
             data = json.loads(project.read_text())
             registry = BuildRegistry(project.parent / data["vivado"]["non_project"]["output_root"])
-            if args.build_status:
-                registry.watch_status()
+            if args.build_status or args.build_status_all:
+                registry.watch_status(all_runs=args.build_status_all)
             elif args.stopall:
                 registry.stop_all()
             else:
@@ -501,6 +543,9 @@ def main(argv: list[str] | None = None) -> int:
             raise ValueError("--build requires a run name or --stopall/--find_all_user_runs; use --build_status for status")
         for flag in ARTIFACT_FLAGS:
             if getattr(args, flag.removeprefix("--")):
+                selected = parse_selector(args.build)
+                if selected and selected.get('bitstream'):
+                    raise ValueError('Artifact actions require the parent implementation selector, without .bitstream')
                 if args.auto_impl:
                     raise ValueError("Artifact actions cannot be combined with --auto_impl")
                 return manage_artifacts(project, args.build, flag, args.synth_timestamp)
@@ -529,10 +574,15 @@ def main(argv: list[str] | None = None) -> int:
         try:
             publication_lock = None
             selection = parse_selector(args.build)
-            if selection and selection.get('impl') and selection['synth'] == 'latest':
+            latest_rerun = selection and not selection.get('impl') and selection['synth'] == 'latest' and '.rerun.' in args.build
+            if selection and selection['synth'] == 'latest' and (selection.get('impl') or latest_rerun):
                 settings = json.loads(project.read_text())['vivado']['non_project']
                 publication_lock = (project.parent / settings['output_root'] / selection['run'] / '.publish.lock').open('a')
-                fcntl.flock(publication_lock, fcntl.LOCK_SH)
+                mode = fcntl.LOCK_EX if latest_rerun else fcntl.LOCK_SH
+                try:
+                    fcntl.flock(publication_lock, mode | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    raise ValueError('Latest publication is in use; wait for its build/implementation or select a dated attempt') from None
             config = select_run(project, args.build, args.synth_timestamp)
             if args.refresh_impl_inputs:
                 if config['stage'] != 'impl' or config.get('rerun'):

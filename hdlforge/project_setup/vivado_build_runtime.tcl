@@ -2,6 +2,7 @@
 namespace eval ::hdlforge {
     variable copied [dict create]
     variable ran 0
+    variable routed 0
 }
 
 proc ::hdlforge::status {value} {
@@ -26,7 +27,18 @@ proc ::hdlforge::collect {} {
 }
 
 proc ::hdlforge::artifact_written {command code result operation} {
-    if {$code == 0} {collect}
+    variable routed
+    if {$code != 0} {return}
+    collect
+    if {$routed && [namespace tail [lindex $command 0]] eq "write_checkpoint"} {
+        set name [file tail [lindex $command end]]
+        set output [dict get $::hdlforge_config output]
+        if {[file isfile [file join $output checkpoints $name]]} {
+            set handle [open [file join $output info last_routed_checkpoint.txt] w]
+            puts $handle $name
+            close $handle
+        }
+    }
 }
 
 proc ::hdlforge::properties {settings objects} {
@@ -138,13 +150,31 @@ proc ::hdlforge::event {event stage elapsed command} {
     puts "HDLFORGE_STAGE_$event $stage: $command"
 }
 
-# Observe native Vivado commands without changing their arguments or results.
+# Stamp bitstreams with this implementation launch's identity before writing.
+proc ::hdlforge::stamp_bitstream {} {
+    set config $::hdlforge_config
+    if {[dict get $config stage] ni {impl bitstream}} {return}
+    set epoch [dict get $config launch_epoch]
+    if {[dict get $config stage] eq "bitstream"} {set epoch [dict get $config bitstream_epoch]}
+    if {![string is wideinteger -strict $epoch] || $epoch < 0 || $epoch > 0xffffffff} {
+        error "Implementation launch_epoch must fit the 32-bit bitstream USERID"
+    }
+    set userid [format "0x%08X" $epoch]
+    set_property BITSTREAM.CONFIG.USERID $userid [current_design]
+    set handle [open [file join [dict get $config output] info bitstream_timestamp.json] w]
+    puts $handle [format {{"launch_epoch": %s, "userid": "%s"}} $epoch $userid]
+    close $handle
+    puts "Bitstream USERID timestamp: $userid"
+}
+
+# Observe native Vivado commands; stamp USERID before write_bitstream.
 proc ::hdlforge::command_enter {command operation} {
     variable ran
     variable started
     variable observed_stage
     set ran 1
     set observed_stage [lindex $command 0]
+    if {[namespace tail $observed_stage] eq "write_bitstream"} {stamp_bitstream}
     if {[info exists ::ACTIVE_STEP]} {set observed_stage $::ACTIVE_STEP}
     set started [clock milliseconds]
     status running:$observed_stage
@@ -152,11 +182,13 @@ proc ::hdlforge::command_enter {command operation} {
 }
 
 proc ::hdlforge::command_leave {command code result operation} {
+    variable routed
     variable started
     variable observed_stage
     set elapsed [expr {([clock milliseconds] - $started) / 1000.0}]
     set outcome [expr {$code == 0 ? "done" : "failed"}]
     event $outcome $observed_stage $elapsed $command
+    if {$code == 0 && [namespace tail [lindex $command 0]] eq "route_design"} {set routed 1}
 }
 
 ##############################################################################

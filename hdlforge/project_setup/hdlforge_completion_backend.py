@@ -462,7 +462,7 @@ def parse_classic_state(tokens: list[str], cwd: Path) -> ParsedState:
             "--init_build_example",
             "--init_build",
             "--build_lint",
-        "--build_status",
+        "--build_status", "--build_status_all",
         "--build_stop_all", "--build_find_all_user_runs", "--build_clean_ignore_artifacts", "--build_create",
             "--lint",
             "--get_xpr_path",
@@ -679,7 +679,7 @@ def suggest_vivado_flags(state: ParsedState) -> list[str]:
         "--init_build_example",
             "--init_build",
         "--build_lint",
-        "--build_status",
+        "--build_status", "--build_status_all",
         "--build_stop_all", "--build_find_all_user_runs", "--build_clean_ignore_artifacts", "--build_create",
         "--lint",
         "--get_xpr_path",
@@ -708,7 +708,7 @@ def suggest_vivado_flags(state: ParsedState) -> list[str]:
         valid = bool(parsed) or build in build_names(project_json_data(state) or {})
         artifact_action = any(flag in state.tokens for flag in ARTIFACT_FLAGS)
         modifiers = []
-        if valid and not artifact_action:
+        if valid and not artifact_action and not (parsed and parsed.get('bitstream')):
             if parsed and parsed["impl"] and parsed["attempt"] == "new":
                 modifiers.append("--refresh_impl_inputs")
             modifiers += ARTIFACT_FLAGS + ["--remove_lock", "--stop_run", "--force_run"]

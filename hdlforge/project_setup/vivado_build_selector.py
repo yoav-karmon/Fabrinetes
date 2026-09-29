@@ -4,13 +4,33 @@ import json
 import re
 from pathlib import Path
 
-from vivado_build_config import synthesis_timestamps, timestamp_key, TIMESTAMP
+from vivado_build_config import synthesis_timestamps, TIMESTAMP
 
 STAMP = r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{6}(?:\.[0-9]{6})?Z"
 PATTERN = re.compile(rf"(?P<run>[A-Za-z0-9_-]+)\.(?P<synth>new|latest|{STAMP})(?:\.(?P<impl>[A-Za-z0-9_-]+)\.(?P<attempt>new|{STAMP}))?")
 
 
+def bitstream_ready(folder: Path) -> bool:
+    """Keep incomplete or concurrently changing attempts out of completion."""
+    try:
+        if ((folder / 'info/status').read_text().strip() != 'complete'
+                or (folder / 'info/exit_code').read_text().strip() != '0'):
+            return False
+        config = json.loads((folder / 'info/resolved.json').read_text())
+        marker = folder / 'info/last_routed_checkpoint.txt'
+        names = ([marker.read_text().strip()] if marker.is_file() else
+                 [f"{config['top']}_postroute_physopt.dcp", f"{config['top']}_routed.dcp"])
+        return config['stage'] == 'impl' and any(
+            Path(name).name == name and (folder / 'checkpoints' / name).is_file()
+            for name in names)
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+
+
 def parse_selector(value: str) -> dict | None:
+    bitstream = re.fullmatch(rf"([A-Za-z0-9_-]+)\.(latest|{STAMP})\.([A-Za-z0-9_-]+)\.bitstream\.(latest|{STAMP})", value)
+    if bitstream:
+        return dict(run=bitstream[1], synth=bitstream[2], impl=bitstream[3], attempt=bitstream[4], bitstream=True)
     synthesis_rerun = re.fullmatch(rf"([A-Za-z0-9_-]+)\.rerun\.(latest|{STAMP})", value)
     if synthesis_rerun:
         return dict(run=synthesis_rerun[1], synth=synthesis_rerun[2], impl=None, attempt=None)
@@ -33,11 +53,17 @@ def selector_choices(project: Path, data: dict, prefix: str) -> list[str]:
     choices = []
     for name, run in settings.get('runs', {}).items():
         choices.append(name + '.new')
+        root = settings.get('output_root')
+        if not isinstance(root, str) or not root:
+            continue
+        artifacts = project.parent / root / name / 'artifacts'
         stamps = synthesis_timestamps(project, data, name)
-        choices.append(name + '.rerun.')
-        if prefix.startswith(name + '.rerun.'):
-            choices.extend(name + '.rerun.' + stamp for stamp in ['latest', *stamps])
-        for stamp in ['latest', *stamps]:
+        parents = (['latest'] if (artifacts / 'latest').is_dir() else []) + stamps
+        if parents:
+            choices.append(name + '.rerun.')
+        if parents and prefix.startswith(name + '.rerun.'):
+            choices.extend(name + '.rerun.' + stamp for stamp in parents)
+        for stamp in parents:
             base = name + '.' + stamp + '.'
             if not prefix.startswith(base):
                 if run.get('impl_runs'):
@@ -45,19 +71,29 @@ def selector_choices(project: Path, data: dict, prefix: str) -> list[str]:
                 continue
             for impl in run.get('impl_runs', {}):
                 stem = base + impl + '.'
-                choices.extend([stem + 'new', stem + 'rerun.'])
-                selected = stamp
-                folder = project.parent / settings['output_root'] / name / 'artifacts' / selected / 'impl_runs' / impl
-                if folder.is_dir():
+                choices.append(stem + 'new')
+                folder = artifacts / stamp / 'impl_runs' / impl
+                try:
+                    attempts = sorted(path.name for path in folder.iterdir()
+                                      if path.is_dir() and TIMESTAMP.fullmatch(path.name))
+                except OSError:
+                    attempts = []
+                if (folder / 'latest').is_dir():
+                    attempts.insert(0, 'latest')
+                if attempts:
+                    choices.append(stem + 'rerun.')
                     if prefix.startswith(stem + 'rerun.'):
-                        choices.append(stem + 'rerun.latest')
-                        choices.extend(stem + 'rerun.' + path.name for path in folder.iterdir()
-                                       if path.is_dir() and TIMESTAMP.fullmatch(path.name))
+                        choices.extend(stem + 'rerun.' + attempt for attempt in attempts)
+                    completed = [attempt for attempt in attempts if bitstream_ready(folder / attempt)]
+                    if completed:
+                        choices.append(stem + 'bitstream.')
+                        if prefix.startswith(stem + 'bitstream.'):
+                            choices.extend(stem + 'bitstream.' + attempt for attempt in completed)
     return sorted(set(choices))
 
 
 def resolve_rerun(project: Path, selector: str) -> str:
-    """Convert explicit rerun syntax to an exact internal timestamp selector."""
+    """Validate the explicit attempt folder without replacing latest by a date."""
     if '.rerun.' not in selector:
         return selector
     parsed = parse_selector(selector)
@@ -66,13 +102,23 @@ def resolve_rerun(project: Path, selector: str) -> str:
     data = json.loads(project.read_text())
     run = parsed['run']
     synth = parsed['synth']
+    folder = project.parent / data['vivado']['non_project']['output_root'] / run / 'artifacts' / synth
     if not parsed['impl']:
-        impl = parsed['impl']
-    attempt = parsed['attempt']
-    if attempt == 'latest':
-        folder = project.parent / data['vivado']['non_project']['output_root'] / run / 'artifacts' / synth / 'impl_runs' / impl
-        stamps = sorted((p.name for p in folder.iterdir() if p.is_dir() and TIMESTAMP.fullmatch(p.name)), key=timestamp_key) if folder.is_dir() else []
-        if not stamps:
-            raise ValueError(f'No dated implementation attempts in {folder}')
-        attempt = stamps[-1]
-    return f'{run}.{synth}.{impl}.{attempt}'
+        if not folder.is_dir():
+            raise ValueError(f'No synthesis/IP attempt to rerun: {folder}')
+        return selector
+    folder = folder / 'impl_runs' / parsed['impl'] / parsed['attempt']
+    if not folder.is_dir():
+        raise ValueError(f'No implementation attempt to rerun: {folder}')
+    return selector
+
+
+def relocate_snapshot(value: object, original: str, output: str) -> object:
+    """Rebase frozen paths when rerunning a copied publication in place."""
+    if isinstance(value, dict):
+        return {key: relocate_snapshot(item, original, output) for key, item in value.items()}
+    if isinstance(value, list):
+        return [relocate_snapshot(item, original, output) for item in value]
+    if isinstance(value, str) and (value == original or value.startswith(original + '/')):
+        return output + value[len(original):]
+    return value

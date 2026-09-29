@@ -17,7 +17,7 @@ from uuid import uuid4
 from table_formatter import create_matrix_table_from_data
 from vivado_console.log_analysis import enrich
 from vivado_build_config import TIMESTAMP
-from vivado_build_processes import alive, find_user_vivado, group_members, local_identity, probe_process, process_info, signal_process, vivado_engine
+from vivado_build_processes import alive, find_user_vivado, group_members, local_identity, probe_process, process_info, signal_process, thread_activity, vivado_engine
 
 
 class BuildStopped(Exception):
@@ -26,6 +26,36 @@ class BuildStopped(Exception):
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def launch_elapsed(row: dict) -> str:
+    """Show wall time since registration, independent of process/log timers."""
+    if not row.get('active') and not row.get('finished_at'):
+        return '-'  # An unobserved exit has no reliable end time.
+    try:
+        started = datetime.fromisoformat(row['started_at'])
+        finished = datetime.fromisoformat(row['finished_at']) if row.get('finished_at') else datetime.now(timezone.utc)
+        seconds = max(0, int((finished - started).total_seconds()))
+    except (KeyError, TypeError, ValueError):
+        return '-'
+    hours, seconds = divmod(seconds, 3600)
+    minutes, seconds = divmod(seconds, 60)
+    return f'{hours:02d}:{minutes:02d}:{seconds:02d}'
+
+
+def run_selection(row: dict) -> str:
+    """Identify both selected attempts, retaining literal latest selections."""
+    if row.get('build_selection'):
+        return row['build_selection']
+    synthesis, _, implementation = row['selector'].partition('.')
+    stamp = row.get('synth_timestamp') or '-'
+    selection = f'{synthesis}.{stamp}'
+    if row.get('stage') == 'impl':
+        attempt = Path(row['output']).name
+        if attempt != 'latest' and not TIMESTAMP.fullmatch(attempt):
+            attempt = '-'  # Legacy implementation folders had no attempt date.
+        selection += f'.{implementation}.{attempt}'
+    return selection
 
 
 class BuildRegistry:
@@ -66,6 +96,7 @@ class BuildRegistry:
             data["runs"][launch_id] = {
                 "launch_id": launch_id, "project": str(project.resolve()), "selector": config["selector"],
                 "stage": config["stage"], "synth_timestamp": config["timestamp"],
+                "build_selection": config.get('build_selection'),
                 "output": str(output), "run_log": str(output / "runme.log"),
                 "vivado_log": str(output / "vivado.log"), "status_file": str(output / "info/status"),
                 "host": local_identity(), "launcher": process_info(os.getpid()), "process": None,
@@ -103,7 +134,8 @@ class BuildRegistry:
                 row['engine_pid'] = engine.get('pid') if engine else None
                 row['engine_state'] = probe_process(engine, row['host'])
                 row["launcher_state"] = probe_process(row.get("launcher"), row["host"])
-                if row["host"] == local_identity():
+                if row["host"] == local_identity() and not row.get('finished_at'):
+                    # A rerun can replace this path; retain completed launch history.
                     status = Path(row["status_file"])
                     if status.is_file():
                         row["status"] = status.read_text().strip()
@@ -115,14 +147,14 @@ class BuildRegistry:
                 row["probed_at"] = utc_now()
         return rows
 
-    def watch_status(self) -> None:
+    def watch_status(self, *, all_runs: bool = False) -> None:
         """Refresh one terminal viewport; detaching never signals build workers."""
         # The HDLForge wrapper may pipe stdout even in an interactive terminal.
         # Use the controlling terminal directly so redraw sequences reach it.
         try:
             terminal = open('/dev/tty', 'w', buffering=1)
         except OSError:
-            self.status()
+            self.status(all_runs=all_runs)
             return
         with terminal:
             terminal.write('\x1b[?1049h\x1b[?25l')
@@ -130,7 +162,7 @@ class BuildRegistry:
                 while True:
                     buffer = io.StringIO()
                     with redirect_stdout(buffer):
-                        self.status()
+                        self.status(all_runs=all_runs)
                     terminal.write('\x1b[H\x1b[2J' + buffer.getvalue()
                                    + '\nUpdates every 2 seconds after collection. Ctrl-C exits; builds continue.\n')
                     terminal.flush()
@@ -141,57 +173,62 @@ class BuildRegistry:
                 terminal.write('\x1b[?25h\x1b[?1049l')
                 terminal.flush()
 
-    def status(self) -> None:
+    def status(self, *, all_runs: bool = False) -> None:
         rows = self.refresh()
-        active = [row for row in rows if row["active"] or row["pid_state"] == "unavailable"]
-        if not active:
-            print("No active builds")
+        if not all_runs:
+            rows = [row for row in rows if row['active'] or row['pid_state'] == 'unavailable']
+        if not rows:
+            print("No registered builds" if all_runs else "No active builds")
             return
+        rows.sort(key=lambda row: (not row['active'], row.get('started_at', '')))
         analysis = enrich({'records': [
+            # Running enables log enrichment; the registry status stays authoritative.
             {'STATUS': 'Running', 'DIRECTORY': row['output'], 'WORKER_RECORD': {
                 'pid': row.get('engine_pid'), 'origin': {
                     'host': row['host'].get('host'), 'boot': row['host'].get('boot_id'),
                     'pidns': str(row['host'].get('pid_namespace', '')),
                     'start': (row.get('engine') or {}).get('start_ticks'),
                 },
-            }} for row in active
+            }} for row in rows
         ]})
         details = analysis.get('records', [])
         table = []
-        for index, row in enumerate(active):
+        for index, row in enumerate(rows):
             detail = details[index] if index < len(details) else {}
             worker = detail.get('WORKER_STATS', {})
-            output = Path(row['output'])
             table.append([
-                row['selector'], output.name if TIMESTAMP.fullmatch(output.name) else row.get('synth_timestamp', '-'),
-                (row.get('launcher') or {}).get('pid', '-'), row.get('pid') or '-', row.get('engine_pid') or '-',
+                run_selection(row),
+                row.get('engine_pid') or '-',
                 row.get('stage', '-'), row.get('status', '-'),
-                {'S': 'Sleeping', 'R': 'Running', 'D': 'I/O wait', 'T': 'Stopped',
-                 't': 'Tracing stop', 'Z': 'Zombie', 'I': 'Idle', 'X': 'Dead'}.get(
-                     row.get('engine_state'), row.get('engine_state', '-')),
+                thread_activity(row.get('engine'), row['host']) if row['active'] or row['pid_state'] == 'unavailable' else 'Exited',
                 '/'.join(str(detail.get(key, '-')) for key in ('WARNINGS', 'CRITICAL_WARNINGS', 'ERRORS')),
                 *[detail.get('LOG_' + key, '-') for key in ('WNS', 'TNS', 'WHS', 'THS')],
                 detail.get('LOG_PHASE', '-') or '-',
-                *[worker.get(key, '-') for key in ('elapsed', 'cpu', 'rss', 'peak', 'threads', 'source')],
-                detail.get('LOG_AGE_SECONDS', '-'),
+                launch_elapsed(row),
+                *[worker.get(key, '-') for key in ('rss', 'peak', 'threads')],
+                detail.get('LOG_AGE_SECONDS', '-') if row['active'] else '-',
             ])
         print(f"Build status | {utc_now()}")
         print(create_matrix_table_from_data(
-            ['Run', 'Timestamp', 'Launcher PID', 'Wrapper PID', 'Vivado PID', 'Stage', 'Status', 'Vivado state', 'W/CW/E', 'WNS(ns)', 'TNS(ns)', 'WHS(ns)', 'THS(ns)', 'Log phase', 'Elapsed', 'CPU time', 'RSS(MB)', 'Peak(MB)', 'Threads', 'Stats source', 'Log idle(s)'],
+            ['Run', 'Vivado PID', 'Stage', 'Status', 'Vivado state', 'W/CW/E', 'WNS(ns)', 'TNS(ns)', 'WHS(ns)', 'THS(ns)', 'Log phase', 'Elapsed', 'RAM used(MB)', 'Peak RAM(MB)', 'Threads', 'Log idle(s)'],
             table,
         ))
+        if all_runs:
+            return
         print("W/CW/E = warnings / critical warnings / errors. Timing = latest log estimates, not timing closure.")
-        print("Log idle = seconds without a log update, not CPU inactivity. Log-timer fallback is command-scoped.")
+        print("Elapsed = wall time since launch. RAM used = Vivado resident memory (RSS).")
+        print("Vivado state samples all engine threads; Waiting means none was runnable at that instant.")
+        print("Log idle = seconds without a log update, not CPU inactivity.")
         if analysis.get('analysis_error'):
             print(f"Log analysis unavailable: {analysis['analysis_error']}")
         for detail in details:
             if str(detail.get('LOG_STAGE', '')).startswith('Log unavailable:'):
                 print(f"{detail.get('LOG_PATH', '-')}: {detail['LOG_STAGE']}")
         print(f"Follow logs (paths relative to {Path.cwd()}):")
-        for row in active:
+        for row in rows:
             log = Path(row.get('run_log', str(Path(row['output']) / 'runme.log')))
             command = shlex.join(['tail', '-n', '50', '-f', '--', os.path.relpath(log, Path.cwd())])
-            print(f"  {row['selector']}:\n    {command}")
+            print(f"  {run_selection(row)}:\n    {command}")
 
 
     def discover(self) -> None:

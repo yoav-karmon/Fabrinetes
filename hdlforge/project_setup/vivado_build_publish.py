@@ -31,6 +31,11 @@ def _replace_latest(config: dict, *, empty: bool) -> None:
     run_folder = Path(config["output_root"]).joinpath(*config["selector"].split("."))
     run_folder.mkdir(parents=True, exist_ok=True)
     latest = run_folder / "artifacts" / "latest"
+    # An explicit rerun of the publication already writes here. Clearing it
+    # would destroy its frozen inputs; copying onto itself would also deadlock
+    # on the publication lock held across this rerun and its continuations.
+    if output.resolve() == latest.resolve():
+        return
     latest.parent.mkdir(parents=True, exist_ok=True)
     with (run_folder / ".publish.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)

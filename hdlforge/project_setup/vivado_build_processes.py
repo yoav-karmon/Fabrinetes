@@ -45,6 +45,35 @@ def alive(state: str) -> bool:
     return state not in {"not_started", "dead", "pid_reused", "unavailable"}
 
 
+def thread_activity(identity: dict | None, host: dict) -> str:
+    """Sample all engine threads; a waiting main thread does not imply idle work."""
+    state = probe_process(identity, host)
+    if not alive(state):
+        return {'not_started': 'Starting', 'dead': 'Exited',
+                'pid_reused': 'PID changed', 'unavailable': 'Unavailable'}.get(state, state)
+    states = set()
+    try:
+        for task in (Path('/proc') / str(identity['pid']) / 'task').iterdir():
+            try:
+                text = (task / 'stat').read_text()
+                states.add(text[text.rfind(')') + 2:].split()[0])
+            except FileNotFoundError:
+                continue  # Threads may exit during the sample.
+    except (OSError, IndexError):
+        return 'Unavailable'
+    if not alive(probe_process(identity, host)):
+        return 'Unavailable'
+    if 'R' in states:
+        return 'Running'
+    if 'D' in states:
+        return 'I/O wait'
+    if states and states <= {'T', 't'}:
+        return 'Stopped'
+    if states and states <= {'S', 'I'}:
+        return 'Waiting'
+    return 'Unknown'
+
+
 def group_members(identity: dict | None, host: dict) -> list[dict]:
     """Capture identities of current group members before stopping the leader."""
     if not identity or not alive(probe_process(identity, host)):

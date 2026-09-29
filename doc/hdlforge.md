@@ -1,5 +1,31 @@
 HDLForge
 
+Bitstream-only regeneration uses the normal Vivado build selector:
+
+```bash
+hdlforge --tool vivado --build synth_production.latest.impl_production.bitstream.<impl_timestamp>
+```
+
+Select a dated synthesis in place of `latest` when needed. Completion lists
+existing completed implementation attempts after `.bitstream.`; a literal
+`latest` implementation folder must exist and be complete to select it.
+HDLForge snapshots the final routed checkpoint and original paired LTX files,
+then writes a new bitstream in the implementation's `bitstream_runs/<timestamp>/`.
+The original implementation's USERID timestamp is retained. No synthesis,
+placement, routing, physical optimization or current-source/XDC reload occurs.
+Original implementation outputs remain intact. Regeneration uses the normal
+background launcher, `runme.log`, `--build_status`, Ctrl-C detach and
+`--build_stop_all`. No extra JSON setting or project Tcl helper is required.
+New runs record the final checkpoint in `info/last_routed_checkpoint.txt`.
+Legacy examples use `<top>_postroute_physopt.dcp` or `<top>_routed.dcp`.
+
+Non-project implementation bitstream identity:
+  The shared runtime sets BITSTREAM.CONFIG.USERID immediately before write_bitstream
+  from launch_epoch (UTC Unix seconds), fixed for that implementation launch.
+  New launches and reruns get new values. The run log and info/bitstream_timestamp.json
+  record the value. Source XDC files are not rewritten; USR_ACCESS/version remains
+  design-controlled. Existing bitstreams and saved runtime snapshots are unchanged.
+
 Project file:
   <project>.hdlforge.json
 
@@ -74,7 +100,8 @@ Vivado:
     atomic replacement. Rows include project, selector, synthesis timestamp,
     launcher/Vivado PID identities, process state, run status, exit code, timestamps,
     output folder, runme.log/vivado.log locations and parent/continuation links.
-    --build_status probes registered processes and prints active/unavailable rows as a compact table.
+    --build_status shows active/unavailable registered builds.
+    --build_status_all also includes completed, failed, stopped, and dead runs.
     Stage status comes from each run's info/status. Dead history stays in the registry.
     --stopall cancels queued continuation and sends TERM to registered local-user
     launchers and Vivado process groups, escalating after ten seconds. PID start time,
@@ -379,10 +406,27 @@ idle metadata without building; `--stop_run` stops only that attempt; `--force_r
 stops it before rerunning. A held lock is never bypassed or unlinked. The empty
 lock file remains to avoid races between processes locking different file inodes.
 
-Completion groups retries under `rerun.`. Use `SYNTH.rerun.latest` for the newest
-existing synthesis attempt, even if failed; use `SYNTH.latest.IMPL.rerun.latest`
-for the newest implementation attempt under the latest successful synthesis.
+Completion groups retries under `rerun.`. `SYNTH.rerun.latest` reruns the actual
+`artifacts/latest` snapshot in place, even if failed; it never scans for a newer
+dated folder. Frozen paths are rebased to that copy. The publication is locked
+across the rerun and automatic implementations and is not cleared or copied onto
+itself. `SYNTH.latest.IMPL.rerun.latest` requires an actual `latest` attempt folder
+under that implementation, not just dated attempts.
 `new` remains a separate choice. Explicit dates follow `rerun.` as well.
+Completion discovers dates from existing artifact directories. It offers `.latest.`
+only when `artifacts/latest/` exists. It offers `rerun.` when a `latest` folder
+or dated attempts exist at that level; `rerun.latest` requires the `latest` folder.
+An empty implementation container
+does not offer reruns. Folder discovery does not certify a successful build;
+launch-time validation still checks the selected inputs.
+
+`--auto_impl IMPL` works with `SYNTH.new`, `SYNTH.rerun.TIMESTAMP`, and
+`SYNTH.rerun.latest`. After synthesis succeeds it creates new implementation
+attempts through their configured bitstream stage. Dated reruns retain the exact
+parent timestamp; latest reruns use the locked physical publication throughout
+the chain. A changed parent checkpoint is copied into private implementation
+inputs instead of reusing a stale shared checkpoint. Existing attempts keep
+their frozen inputs. These paths have not been build-tested during this change.
 
 Builds always launch a detached worker and follow its persistent
 `output_root/launch_logs/` log. Ctrl-C detaches the viewer without stopping the
@@ -402,6 +446,27 @@ implementation run definitions use `<synth>/<impl>/artifacts/latest/`).
 The selector `.latest` resolves to a successful timestamp; it does not execute
 inside the mutable published copy. Timestamp cleanup excludes the latest directory.
 
-`--build_status` refreshes in place in the controlling terminal, without
+`--build_status` and `--build_status_all` refresh in place in the controlling terminal, without
 scrolling repeated tables. Ctrl-C exits the viewer and leaves builds running.
 Without a controlling terminal it prints one status snapshot.
+`--build_status` shows active/unavailable builds only. `--build_status_all` includes
+all registered launches, with active builds first. Completed runs
+retain their final status and elapsed duration; runs with an unknown exit time
+show `-` for elapsed time. Log idle is shown only for active runs.
+The `Run` column identifies the selected synthesis and implementation attempts:
+`<synth>.<synth timestamp or latest>[.<impl>.<impl timestamp or latest>]`.
+For `.new`, it shows the allocated timestamp; a literal `.latest` selection
+stays `latest`. In `--build_status`, the same label identifies each tail command
+below the table. `--build_status_all` displays the table without tail commands
+or per-run log messages.
+There is no separate, ambiguous timestamp column. Legacy implementation folders
+without an attempt timestamp show `-` for that part.
+The table shows only the actual Vivado engine PID, omitting launcher/wrapper PIDs,
+CPU time, and the statistics source. `Elapsed` is wall time since the recorded
+launch (stopping at completion), independent of log command timers. `RAM used(MB)`
+is resident memory (RSS); `Peak RAM(MB)` is the peak memory measurement.
+`Vivado state` samples all engine threads: `Running` if any is runnable,
+`I/O wait` if a thread is in uninterruptible wait and none is runnable, or
+`Waiting` when all sampled threads are waiting. A waiting main thread alone
+does not imply idle workers; even `Waiting` is an instantaneous observation,
+not evidence of a stalled build. `Log idle(s)` measures time without log updates.

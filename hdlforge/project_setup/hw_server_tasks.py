@@ -2829,7 +2829,7 @@ def _read_userid_value(bitfile: str) -> Optional[int]:
         
         # Search for UserID=XXXXXXXX pattern in header
         import re
-        match = re.search(b'UserID=([0-9A-Fa-f]{8})', header)
+        match = re.search(rb'UserID=(?:0[xX])?([0-9A-Fa-f]{8})(?![0-9A-Za-z])', header)
         if match:
             userid_hex = match.group(1).decode('ascii')
             candidate = int(userid_hex, 16)
@@ -2855,7 +2855,7 @@ def _read_userid_raw(bitfile: str) -> Optional[int]:
         
         # Search for UserID=XXXXXXXX pattern in header
         import re
-        match = re.search(b'UserID=([0-9A-Fa-f]{8})', header)
+        match = re.search(rb'UserID=(?:0[xX])?([0-9A-Fa-f]{8})(?![0-9A-Za-z])', header)
         if match:
             userid_hex = match.group(1).decode('ascii')
             return int(userid_hex, 16)

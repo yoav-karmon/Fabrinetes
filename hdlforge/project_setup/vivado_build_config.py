@@ -11,6 +11,14 @@ ARTIFACT_FLAGS = ["--save_this_run", "--clean_ignore_artifacts"]
 PROCESS_FLAGS = ["--stopall", "--find_all_user_runs"]
 
 BUILD_HELP = """
+Bitstream regeneration from a completed implementation (no synthesis/place/route):
+  --build SYNTH.<timestamp|latest>.IMPL.bitstream.<impl_timestamp|latest>
+  Copies the final routed checkpoint and original paired LTX into a new
+  implementation/bitstream_runs/TIMESTAMP/inputs/ snapshot. Outputs, logs and status
+  are separate from the original implementation; its USERID launch timestamp is
+  retained. Uses normal background execution, --build_status and --build_stop_all.
+  Completion offers existing completed implementation folders. No JSON field needed.
+  Refreshing XDC requires a new implementation, not bitstream regeneration.
 Non-project JSON: vivado.non_project
   vivado_version: optional exact Vivado version; output_root: artifact/script root.
   runs: named independent synthesis or IP builds; impl_runs: nested implementations.
@@ -121,6 +129,7 @@ Management (does not launch builds):
        across all configured runs, regardless of enabled_on_all. Never deletes
        live latest publications (outside timestamp selection). No status, PID, or tracked-file checks.
   --build_status: registered non-dead/unavailable processes.
+  --build_status_all: all registered runs, including completed, failed, stopped, and dead runs.
   --build_stop_all: stop verified registered launches and cancel continuations.
   --build_find_all_user_runs: report visible current-user Vivado processes,
        including unregistered processes; does not stop unregistered processes.
