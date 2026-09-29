@@ -44,7 +44,7 @@ def launch_elapsed(row: dict) -> str:
 
 
 def run_selection(row: dict) -> str:
-    """Identify both selected attempts, retaining literal latest selections."""
+    """Identify both selected attempts using the resolved timestamps."""
     if row.get('build_selection'):
         return row['build_selection']
     synthesis, _, implementation = row['selector'].partition('.')

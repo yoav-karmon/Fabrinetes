@@ -8,7 +8,7 @@ hdlforge --tool vivado --build synth_production.latest.impl_production.bitstream
 
 Select a dated synthesis in place of `latest` when needed. Completion lists
 existing completed implementation attempts after `.bitstream.`; a literal
-`latest` implementation folder must exist and be complete to select it.
+newest timestamped implementation must be complete to select `latest`.
 HDLForge snapshots the final routed checkpoint and original paired LTX files,
 then writes a new bitstream in the implementation's `bitstream_runs/<timestamp>/`.
 The original implementation's USERID timestamp is retained. No synthesis,
@@ -65,7 +65,7 @@ Vivado:
     Implementation definitions live under the synthesis run's impl_runs object.
     All paths are relative to the JSON directory, except IP file_properties member
     names, which are relative to the imported IP root. Stages share one process.
-    Without --synth_timestamp, implementation uses the latest completed synthesis
+    Without --synth_timestamp, implementation uses the newest synthesis timestamp (which must be complete)
     with its checkpoint present. Explicit timestamps must also be complete.
     Output: <output_root>/<synth>/artifacts/<UTC timestamp>/impl_runs/<impl>.
     Implementation attempts create new timestamped output folders; new synthesis/IP folders must be unique. Logs, checkpoints, reports and bitstreams
@@ -118,12 +118,10 @@ Vivado:
     Parameters and project/fileset properties are JSON maps. Set general.maxThreads
     in parameters per run. enabled_on_all defaults true for batch selection; false
     does not prevent explicitly selecting the run. Batch shortcuts are project-defined.
-    publish_latest defaults false. When true, startup clears and recreates the run's
-    latest/ folder. Completion copies the entire artifact tree on success or failure;
-    cancelled runs leave it empty. Publication is locked and newer launches take
-    precedence. Copies are regular files, not links. Consumers snapshot only successful
-    publications (complete status and zero exit code). A failed latest retains logs
-    for diagnosis but cannot supply a consumer build.
+    Outputs remain in timestamped folders. The logical latest selector resolves
+    to the newest dated attempt, never a physical latest directory. Consumer inputs
+    require successful completion (complete status and zero exit code). Failure
+    remains visible in its dated run; no older successful run is silently chosen.
   hdlforge --project example.hdlforge.json --tool vivado --build_create syth_imp_example
   hdlforge --project example.hdlforge.json --tool vivado --init_build_example
     Inject synth_example, nested impl_example and ip_example JSON entries, their
@@ -141,14 +139,17 @@ Vivado:
     and input paths must already be supplied; initialization does not launch builds.
   hdlforge --project example.hdlforge.json --tool vivado --build synth_example.impl_example --save_this_run
   hdlforge --project example.hdlforge.json --tool vivado --build_clean_ignore_artifacts
+  hdlforge --project example.hdlforge.json --tool vivado --build_clean_ignore_artifacts --dry-run
+    Preview cleanup across all runs: print Would delete for eligible folders and
+    Skipped with the reason for protected folders. No artifacts are deleted.
+    Also supported with --build SYNTH[.IMPL] --clean_ignore_artifacts --dry-run.
     Management replaces building. A selected run covers all matching timestamps;
     --synth_timestamp narrows selection. Cleanup without a selector covers all runs.
     One .gitignore at each synthesis/IP run root controls all timestamps and nested
     implementations. Artifact files are ignored by default; directories remain
     traversable for exceptions. --save_this_run adds a saved-path exception;
     so saving synthesis does not automatically save its implementations.
-    /latest/ and /*/latest/ are ignored by default. Live publication folders are
-    outside cleanup's timestamp selection. A snapshot directory named latest inside
+    Cleanup selects timestamped runs. A historical snapshot directory named latest inside
     an artifact tree has no special protection.
     Cleanup asks Git to evaluate actual file ignore rules with check-ignore --no-index.
     A folder containing any nonignored file is skipped. Empty folders are eligible.
@@ -344,12 +345,12 @@ but not sibling implementations. This management action does not start a build.
 Edit `.gitignore` manually to change or remove saved exceptions.
 
 IP runs record SHA-256 hashes of frozen source inputs in `info/source_hashes.json`.
-Full publication copies this metadata into `latest/info/`. Before copying a published
+This metadata stays in the dated producer folder. Before copying its
 XCI/XCIX, consumers compare the recorded producer JSON run and source hashes with
 the current producer files. Changed or missing inputs, or missing hash metadata,
 produce warnings while allowing the consumer to continue. Warnings are printed
 and saved in the consumer artifact `info/warnings.log`. Regenerating older IP
-publications creates the metadata. No automatic regeneration is performed. Implementation
+runs creates the metadata. No automatic regeneration is performed. Implementation
 continues to use its parent synthesis snapshot.
 
 
@@ -357,7 +358,7 @@ continues to use its parent synthesis snapshot.
 Before implementation starts, HDLForge copies the selected synthesis DCP into
 `inputs/synthesis_checkpoint/` and copies its frozen IP, XDC, Tcl and supporting
 inputs into the implementation input tree. Runtime paths use these local copies,
-not current sources or live latest publications. `info/input_manifest.json` maps
+not current sources or newly generated IP outputs. `info/input_manifest.json` maps
 parent paths to copies; `info/input_hashes.json` records their SHA-256 hashes.
 Later attempts reuse the shared input snapshot without clearing it.
 
@@ -395,7 +396,7 @@ hdlforge --tool vivado --build synth_production.<synth_timestamp>.impl_productio
 
 `new` creates an attempt. An explicit attempt timestamp reruns its frozen inputs,
 clearing generated outputs while preserving inputs, snapshot metadata, and child
-implementations. `latest` selects successful synthesis. Timestamp fractions are
+implementations. `latest` selects the newest timestamp; using it as an input requires success. Timestamp fractions are
 part of the timestamp, not selector separators. Completion discovers timestamps
 and implementation names from JSON and artifact directories. No separate timestamp
 flag is needed. Existing shorthand and --synth_timestamp remain compatible.
@@ -406,24 +407,18 @@ idle metadata without building; `--stop_run` stops only that attempt; `--force_r
 stops it before rerunning. A held lock is never bypassed or unlinked. The empty
 lock file remains to avoid races between processes locking different file inodes.
 
-Completion groups retries under `rerun.`. `SYNTH.rerun.latest` reruns the actual
-`artifacts/latest` snapshot in place, even if failed; it never scans for a newer
-dated folder. Frozen paths are rebased to that copy. The publication is locked
-across the rerun and automatic implementations and is not cleared or copied onto
-itself. `SYNTH.latest.IMPL.rerun.latest` requires an actual `latest` attempt folder
-under that implementation, not just dated attempts.
-`new` remains a separate choice. Explicit dates follow `rerun.` as well.
-Completion discovers dates from existing artifact directories. It offers `.latest.`
-only when `artifacts/latest/` exists. It offers `rerun.` when a `latest` folder
-or dated attempts exist at that level; `rerun.latest` requires the `latest` folder.
-An empty implementation container
-does not offer reruns. Folder discovery does not certify a successful build;
-launch-time validation still checks the selected inputs.
+Completion groups retries under `rerun.`. `SYNTH.rerun.latest` resolves to
+and reruns the newest dated synthesis attempt, even if failed. Likewise,
+`SYNTH.latest.IMPL.rerun.latest` selects the newest implementation attempt beneath
+the newest synthesis. No physical latest folder is used. The resolved attempt
+keeps its own lock and frozen inputs. `new` remains a separate choice.
+Completion offers `latest` and `rerun.` only when timestamped folders exist at that
+level. Bitstream completion requires the selected implementation to be complete.
 
 `--auto_impl IMPL` works with `SYNTH.new`, `SYNTH.rerun.TIMESTAMP`, and
 `SYNTH.rerun.latest`. After synthesis succeeds it creates new implementation
 attempts through their configured bitstream stage. Dated reruns retain the exact
-parent timestamp; latest reruns use the locked physical publication throughout
+parent timestamp; logical latest reruns also pin that date throughout
 the chain. A changed parent checkpoint is copied into private implementation
 inputs instead of reusing a stale shared checkpoint. Existing attempts keep
 their frozen inputs. These paths have not been build-tested during this change.
@@ -441,10 +436,12 @@ Changes are logged in info/refreshed_inputs.log and refreshed_inputs.json.
 The flag is rejected for synthesis and reruns. Synthesis-affecting changes require
 new synthesis. Other implementation settings remain from the synthesis snapshot.
 
-Published output lives at `<output_root>/<run>/artifacts/latest/` (nested
-implementation run definitions use `<synth>/<impl>/artifacts/latest/`).
-The selector `.latest` resolves to a successful timestamp; it does not execute
-inside the mutable published copy. Timestamp cleanup excludes the latest directory.
+Outputs exist only in dated run folders. `latest` is resolved by HDLForge to
+the newest timestamp at the selected level; no latest folder, symlink, publication
+copy, or publication lock is created. Existing historical copies are not consulted
+or modified. Input readiness checks apply to the selected date without fallback.
+IP paths containing `artifacts/latest/` are logical references: HDLForge replaces
+that component with a date before copying inputs into the consumer snapshot.
 
 `--build_status` and `--build_status_all` refresh in place in the controlling terminal, without
 scrolling repeated tables. Ctrl-C exits the viewer and leaves builds running.
@@ -455,8 +452,8 @@ retain their final status and elapsed duration; runs with an unknown exit time
 show `-` for elapsed time. Log idle is shown only for active runs.
 The `Run` column identifies the selected synthesis and implementation attempts:
 `<synth>.<synth timestamp or latest>[.<impl>.<impl timestamp or latest>]`.
-For `.new`, it shows the allocated timestamp; a literal `.latest` selection
-stays `latest`. In `--build_status`, the same label identifies each tail command
+For `.new`, it shows the allocated timestamp; a logical `.latest` selection
+shows its resolved timestamp. In `--build_status`, the same label identifies each tail command
 below the table. `--build_status_all` displays the table without tail commands
 or per-run log messages.
 There is no separate, ambiguous timestamp column. Legacy implementation folders

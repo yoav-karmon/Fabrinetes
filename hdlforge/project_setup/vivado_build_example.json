@@ -83,7 +83,6 @@
           "fileset_properties": {
             "design_mode": "GateLvl"
           },
-          "publish_latest": true,
           "input_files": [],
           "enabled_on_all": true
         }
@@ -121,7 +120,6 @@
       "constraint_properties": {
         "used_in_implementation": false
       },
-      "publish_latest": true,
       "input_files": [
         "sources/RTL/build_defines.svh",
         "sources/data/init.mem"
@@ -160,7 +158,6 @@
       "post_load_parameters": {},
       "checkpoint_properties": {},
       "constraint_properties": {},
-      "publish_latest": true,
       "input_files": [],
       "enabled_on_all": true
     }

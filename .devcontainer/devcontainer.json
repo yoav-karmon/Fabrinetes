@@ -38,7 +38,6 @@
     "source=/tmp,target=/tmp,type=bind",
     "source=${localEnv:HOME}/.ssh,target=/home/${localEnv:DEVCONTAINER_USER}/.ssh,type=bind",
     "source=${localEnv:REPO_MOUNT_SOURCE},target=${localEnv:REPO_MOUNT_TARGET},type=bind",
-    "source=${localWorkspaceFolder}/bashrc-func,target=/etc/bashrc-func,type=bind,readonly",
     "source=${localWorkspaceFolder}/bashrc-root,target=/home/${localEnv:DEVCONTAINER_USER}/.bashrc,type=bind,readonly",
     "source=${localWorkspaceFolder}/init_env.sh,target=/etc/profile.d/init_env.sh,type=bind,readonly"
   ],

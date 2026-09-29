@@ -11,7 +11,10 @@ unset _HDLFORGE_COMPLETION_SOURCE
 
 _hdlforge_completions() {
     local cur prev words cword
-    _init_completion || return
+    words=("${COMP_WORDS[@]}")
+    cword="$COMP_CWORD"
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD - 1]:-}"
 
     local runtime
     runtime="$_HDLFORGE_COMPLETION_DIR/hdlforge_completion_runtime.bash"

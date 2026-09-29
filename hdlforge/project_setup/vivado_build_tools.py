@@ -10,7 +10,7 @@ import tempfile
 import sys
 import zipfile
 
-from vivado_build import normalize_run
+from vivado_build import file_path, normalize_run
 from vivado_build_artifacts import DEFAULT_IGNORE
 from vivado_build_config import BUILD_HELP, RUN_NAME
 
@@ -51,8 +51,11 @@ def lint_run(project: Path, selector: str, run: dict, stage: str) -> list[str]:
     for location, value in paths:
         if not isinstance(value, str) or not value:
             errors.append(f"{selector}: {location}: expected a file path")
-        elif not (project.parent / value).is_file():
-            errors.append(f"{selector}: {location}: missing file: {(project.parent / value).resolve()}")
+        else:
+            try:
+                file_path(project.parent, value)
+            except (OSError, ValueError) as error:
+                errors.append(f"{selector}: {location}: {error}")
     if errors:
         return errors
     try:
@@ -283,7 +286,7 @@ def main(argv: list[str]) -> int:
             initialize_example(project)
             print(f"Added synth_example, nested impl_example, and ip_example to {project}")
             print("Created all three run.tcl examples under output_root, including private-copy IP regeneration.")
-            print("Each example folder includes a README.md with commands, settings and snapshot/publication behavior.")
+            print("Each example folder includes a README.md with commands, settings and snapshots and logical latest selection.")
             print("Replace example input paths and select your FPGA part before building; no Vivado execution.")
             print("Then build ip_example first, synth_example second, and synth_example.impl_example last.")
             print("Synthesis snapshots inputs and implementation settings; implementation reuses that snapshot.")

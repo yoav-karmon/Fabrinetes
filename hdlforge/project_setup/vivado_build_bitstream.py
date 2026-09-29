@@ -47,7 +47,7 @@ def select_bitstream(project: Path, parsed: dict) -> dict:
                   bitstream_source_launch_id=config.get('launch_id'),
                   bitstream_epoch=epoch, build_selection=selection,
                   script=str(Path(__file__).with_name('vivado_build_bitstream.tcl')),
-                  publish_latest=False, auto_impl=[], sources=[], ips=[], constraints=[],
+                  auto_impl=[], sources=[], ips=[], constraints=[],
                   input_files=[], rerun=False)
     for key in ('refresh_impl_inputs', '_rerun_runtime', '_rerun_original_output', 'parent_launch_id'):
         config.pop(key, None)
@@ -59,8 +59,6 @@ def lock_implementation(config: dict):
     """Block source reruns/publication while copying and using the selected DCP."""
     source = Path(config['bitstream_source'])
     paths = [source.parent / f'.{source.name}.run.lock']
-    if source.name == 'latest':
-        paths.insert(0, Path(config['output_root']).joinpath(*config['selector'].split('.')) / '.publish.lock')
     with ExitStack() as stack:
         for path in paths:
             handle = stack.enter_context(path.open('a'))

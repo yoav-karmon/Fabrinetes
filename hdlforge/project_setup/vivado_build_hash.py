@@ -40,18 +40,20 @@ def record_source_hashes(project: Path, config: dict) -> None:
     (info / "source_hashes.json").write_text(json.dumps(record, indent=2) + "\n")
 
 
-def verify_source_hashes(latest: Path) -> None:
-    """Reject publications with missing metadata or changed producer inputs."""
-    manifest = latest / "info/source_hashes.json"
+def verify_source_hashes(producer: Path) -> None:
+    """Reject producer runs with missing metadata or changed producer inputs."""
+    manifest = producer / "info/source_hashes.json"
     if not manifest.is_file():
-        raise ValueError(f"Missing source hashes in {latest}; regenerate the producer IP")
+        raise ValueError(f"Missing source hashes in {producer}; regenerate the producer IP")
     record = json.loads(manifest.read_text())
     if record.get("version") != 1 or not record.get("sources"):
         raise ValueError(f"Invalid source hashes: {manifest}; regenerate the producer IP")
     project = Path(record["project"])
     current = json.loads(project.read_text())["vivado"]["non_project"]["runs"].get(record["run"])
-    if current != record["definition"]:
+    previous = dict(record["definition"])
+    previous.pop("publish_latest", None)  # Ignore the retired copying switch in historical metadata.
+    if current != previous:
         raise ValueError(f"Producer JSON run changed: {project}: {record['run']}; regenerate the IP")
     for source, expected in record["sources"].items():
         if hash_source(Path(source)) != expected:
-            raise ValueError(f"Stale IP publication {latest}: source changed: {source}; regenerate the IP")
+            raise ValueError(f"Stale IP run {producer}: source changed: {source}; regenerate the IP")

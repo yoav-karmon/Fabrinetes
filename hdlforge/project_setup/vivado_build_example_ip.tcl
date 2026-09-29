@@ -1,7 +1,7 @@
 ##############################################################################
 ## See the injected README.md beside this script for setup and build commands.
 ## HDLForge snapshots the source IP and regenerates a private working copy.
-## publish_latest copies the whole completed artifact tree after Vivado exits.
+## Outputs remain in this timestamped run. HDLForge resolves latest logically.
 ##############################################################################
 
 ##############################################################################

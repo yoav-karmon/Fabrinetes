@@ -292,7 +292,7 @@ def help_vivado():
     print(vivado_build.BUILD_HELP)
     print("    --build SYNTH[.IMPL]                Run the selected vivado.non_project JSON configuration")
     print("    --build SYNTH.latest.IMPL.bitstream.TIMESTAMP  Regenerate bitstream from completed routed implementation")
-    print("    --synth_timestamp TIMESTAMP         Implementation input; default is latest completed synthesis")
+    print("    --synth_timestamp TIMESTAMP         Implementation input; default is newest synthesis timestamp (must be complete)")
     print("    --auto_impl IMPL                    After synthesis succeeds, run IMPL with its exact timestamp; repeatable")
     print("    --build_status                    Show active/unavailable registered builds")
     print("    --build_status_all                Show all registered builds, including completed, failed, stopped, and dead runs")
@@ -547,9 +547,20 @@ if __name__ == "__main__":
     console_parser.add_argument('--build_stop_all', action='store_true')
     console_parser.add_argument('--build_find_all_user_runs', action='store_true')
     console_parser.add_argument('--build_clean_ignore_artifacts', action='store_true')
+    console_parser.add_argument('--dry-run', action='store_true')
     console_parser.add_argument('--build_create')
     console_parser.add_argument('--build_lint', action='store_true')
     console_args, console_tail = console_parser.parse_known_args(sys.argv[1:])
+    if console_args.dry_run:
+        cleanup = console_args.build_clean_ignore_artifacts or (
+            console_args.build is not None and '--clean_ignore_artifacts' in console_tail)
+        other_actions = any(getattr(console_args, flag) for flag in (
+            'build_stop_all', 'build_find_all_user_runs', 'build_create',
+            'build_status', 'build_status_all', 'create', 'monitor',
+            'project_console', 'get_xpr_path', 'init_build', 'init_build_example', 'build_lint'))
+        if console_args.tool != 'vivado' or not cleanup or other_actions:
+            console_parser.error('Native --dry-run supports artifact cleanup only; no action was executed')
+        console_tail.append('--dry-run')
     management = [flag for flag in ('build_stop_all', 'build_find_all_user_runs', 'build_clean_ignore_artifacts', 'build_create') if getattr(console_args, flag)]
     if console_args.tool == 'vivado' and management:
         os.chdir(ORIGINAL_CWD)

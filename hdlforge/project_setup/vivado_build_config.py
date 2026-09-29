@@ -28,24 +28,20 @@ Run fields:
        from the project's build-all and continue-all shortcuts. Explicit --build
        selection and explicit --auto_impl selection remain allowed.
   script: run.tcl; part: FPGA part; top: required for synth/impl, unnecessary for ip.
-  publish_latest: optional boolean, default false; supported for all run types.
-       IP publications include info/source_hashes.json. Consumers warn about changed
-       producer sources/settings or missing hashes and continue; info/warnings.log records warnings.
-       At run startup, remove the previous latest contents and recreate it empty.
-       Successful and failed runs publish artifacts with their status and exit code; cancelled runs leave latest empty.
-       After success or failure, copy the entire artifact tree to output_root/RUN/latest/.
-       For implementation use output_root/SYNTH/IMPL/latest/. Relative paths
-       inside the artifact tree are preserved, including work/, info/ and logs.
-       Atomic directory replacement and locking prevent older launches replacing
-       newer ones. Real copies, no links; timestamped originals remain intact.
+  latest is a logical selector, never a published folder or symlink.
+       Select the newest timestamp directory by its name (not mtime), once per
+       launch. A failed/incomplete newest run is not replaced by an older success.
+       Consumers require the selected producer to complete successfully.
+       IP hashes remain in that producer's info/source_hashes.json; changed or
+       missing source hashes warn and continue, recorded in info/warnings.log.
   sources: RTL paths or {path, language, library, properties}; language: vhdl2008.
   ips: XCI/XCIX paths or {path, properties, file_properties}.
        Implementation inherits its synthesis list when ips is omitted.
        An explicit implementation ips list overrides it; [] selects none.
        file_properties maps IP-relative member paths to property overrides.
-       Consumer example: OUTPUT_ROOT/ip_example/latest/work/ip_sources/**/example.xcix
+       Consumer example: OUTPUT_ROOT/ip_example/artifacts/latest/work/ip_sources/0/example.xcix
        The producer uses sources/ip/example.xcix. Build the producer first;
-       no published file means an error, not fallback to checked-in IP products.
+       latest is expanded to a timestamp before snapshotting; a missing file is an error, not fallback to checked-in IP products.
        Injection rebases this example path when output_root is customized.
   constraints: XDC paths or {path, properties}; defines: synthesis macro list.
        Injection creates synth_example/ip_keep_hierarchy.xdc and lists it in
@@ -90,7 +86,7 @@ Create all examples without running Vivado:
   --init_build_example is an alias. Creates synth_example/run.tcl,
   synth_example/impl_example/run.tcl and ip_example/run.tcl under output_root,
   plus a README.md in each folder with project-specific commands, input snapshots,
-  latest publication and settings. Injects matching JSON. Refuses existing
+  logical latest selection and settings. Injects matching JSON. Refuses existing
   entries/folders. Replace placeholder
   inputs and choose the correct part before building. --build_lint checks offline.
 Build examples:
@@ -101,7 +97,7 @@ Build examples:
   --build synth_example --auto_impl impl_example
   Repeat --auto_impl for distinct implementations; duplicates are removed.
   Continuations require success and carry the exact synthesis timestamp.
-  Implementation defaults to the latest completed synthesis with a checkpoint.
+  Implementation defaults to the newest synthesis timestamp; success and a checkpoint are required.
   IP builds use private copies, generate_target and synth_ip; no top-level bitstream,
   parent synthesis timestamp or auto_impl. Checked-in IP sources are not overwritten.
 Selectors:
@@ -126,8 +122,8 @@ Folders:
   under output_root records launch identities, PID state, status and log paths.
 Management (does not launch builds):
   --build_clean_ignore_artifacts: clean eligible explicitly ignored artifacts
-       across all configured runs, regardless of enabled_on_all. Never deletes
-       live latest publications (outside timestamp selection). No status, PID, or tracked-file checks.
+       across all configured runs, regardless of enabled_on_all.
+       No status, PID, or tracked-file checks.
   --build_status: registered non-dead/unavailable processes.
   --build_status_all: all registered runs, including completed, failed, stopped, and dead runs.
   --build_stop_all: stop verified registered launches and cancel continuations.
@@ -138,8 +134,7 @@ Management (does not launch builds):
        Cleanup covers all matching timestamps unless narrowed by --synth_timestamp.
        Cleanup evaluates actual file ignore rules using Git check-ignore --no-index.
        Any nonignored file protects its run folder; empty folders are eligible.
-       No status, PID or tracked-file checks. Snapshot folders named latest have
-       no special protection; live publications are outside timestamp selection.
+       No status, PID or tracked-file checks. Only timestamped attempts are selected.
 Optional create_msg_db/close_msg_db pairs retain structured GUI messages;
 text logs remain available without them. Templates explain these commands.
 """
@@ -181,7 +176,7 @@ def synthesis_timestamps(project_file: Path, data: dict, selector: str,
         candidates = sorted(artifacts.iterdir(), key=lambda path: path.name)
         result = []
         for path in candidates:
-            if not TIMESTAMP.fullmatch(path.name) or not path.is_dir():
+            if not TIMESTAMP.fullmatch(path.name) or not path.is_dir() or path.is_symlink():
                 continue
             if completed_only:
                 status = path / "info" / "status"

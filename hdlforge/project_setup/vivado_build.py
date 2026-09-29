@@ -19,7 +19,7 @@ import time
 from vivado_build_config import BUILD_HELP, ARTIFACT_FLAGS, build_names, synthesis_timestamps, TIMESTAMP
 from vivado_build_artifacts import initialize_visibility, manage_artifacts
 from vivado_build_registry import BuildRegistry, BuildStopped, utc_now
-from vivado_build_publish import clear_latest, publish_latest
+from vivado_build_paths import latest_run, require_complete, resolve_latest_path
 from vivado_build_follow import background_follow
 from vivado_build_selector import parse_selector, resolve_rerun, relocate_snapshot
 from vivado_build_snapshot import implementation_inputs, snapshot_inputs
@@ -43,33 +43,33 @@ def tcl_value(value: object) -> str:
     return '"' + text + '"'
 
 
-def file_path(root: Path, value: str) -> str:
+def file_path(root: Path, value: str, selections: dict | None = None) -> str:
+    resolved = resolve_latest_path(root / value, selections)
     if glob.has_magic(value):
-        matches = [Path(path) for path in glob.glob(str(root / value), recursive=True) if Path(path).is_file()]
+        matches = [Path(path) for path in glob.glob(str(resolved), recursive=True) if Path(path).is_file()]
         if len(matches) != 1:
             raise ValueError(f"Expected exactly one input matching {value}; found {len(matches)}. Build the producer first if its latest output is missing.")
         return str(matches[0].resolve())
-    path = (root / value).resolve()
+    path = resolved.resolve()
     if not path.is_file():
         raise ValueError(f"Missing input file: {path}")
     return str(path)
 
 
-def normalize_run(project: Path, run: dict, stage: str) -> dict:
+def normalize_run(project: Path, run: dict, stage: str, selections: dict | None = None) -> dict:
     ###########################################################################
     # Resolve input file paths before claiming the output directory.           #
     ###########################################################################
     config = copy.deepcopy(run)
+    selections = selections if selections is not None else {}
     unknown = set(config) - {"stage", "script", "part", "top", "sources", "ips", "constraints",
-                             "defines", "impl_runs", "parameters", "post_load_parameters", "publish_latest", "input_files", "enabled_on_all",
+                             "defines", "impl_runs", "parameters", "post_load_parameters", "input_files", "enabled_on_all",
                              "project_properties", "fileset_properties", "checkpoint_properties", "constraint_properties"}
     if unknown:
         raise ValueError(f"Unknown run settings: {sorted(unknown)}")
     config.pop("impl_runs", None)
     if not isinstance(config.get("enabled_on_all", True), bool):
         raise ValueError("enabled_on_all must be a boolean")
-    if not isinstance(config.get("publish_latest", False), bool):
-        raise ValueError("publish_latest must be a boolean")
     for field in ("parameters", "post_load_parameters", "project_properties", "fileset_properties",
                   "checkpoint_properties", "constraint_properties"):
         settings = config.setdefault(field, {})
@@ -89,8 +89,8 @@ def normalize_run(project: Path, run: dict, stage: str) -> dict:
     for field in (("part",) if stage == "ip" else ("part", "top")):
         if not isinstance(config.get(field), str) or not re.fullmatch(r"[A-Za-z0-9_-]+", config[field]):
             raise ValueError(f"Missing or invalid {field}")
-    config["script"] = file_path(root, config["script"])
-    config["input_files"] = [file_path(root, path) for path in config.get("input_files", [])]
+    config["script"] = file_path(root, config["script"], selections)
+    config["input_files"] = [file_path(root, path, selections) for path in config.get("input_files", [])]
     for field in ("sources", "ips", "constraints"):
         entries = []
         for entry in config.get(field, []):
@@ -102,7 +102,7 @@ def normalize_run(project: Path, run: dict, stage: str) -> dict:
                 allowed.add("file_properties")
             if set(item) - allowed:
                 raise ValueError(f"Unknown {field} settings: {sorted(set(item) - allowed)}")
-            item["path"] = file_path(root, item["path"])
+            item["path"] = file_path(root, item["path"], selections)
             extensions = {"sources": {".sv", ".v", ".vhd", ".vhdl"}, "ips": {".xci", ".xcix"}, "constraints": {".xdc"}}
             if Path(item["path"]).suffix.lower() not in extensions[field]:
                 raise ValueError(f"Unsupported {field} file: {item['path']}")
@@ -165,16 +165,12 @@ def select_run(project: Path, selector: str, timestamp: str | None = None) -> di
     input_dcp = ""
     if impl_name:
         available = synthesis_timestamps(project, data, selector, completed_only=True)
-        if timestamp is None:
-            if not available:
-                raise ValueError(f"No completed synthesis artifacts in {artifacts}")
-            timestamp = available[-1]
-        if timestamp != 'latest' and (not TIMESTAMP.fullmatch(timestamp) or timestamp not in available):
+        if timestamp is None or timestamp == 'latest':
+            timestamp = latest_run(artifacts).name
+        if not TIMESTAMP.fullmatch(timestamp) or timestamp not in available:
             raise ValueError(f"Synthesis timestamp is missing, incomplete, or has no checkpoint: {timestamp}")
         parent = artifacts / timestamp
-        if timestamp == 'latest':
-            if not (parent / 'info/status').is_file() or (parent / 'info/status').read_text().strip() != 'complete' or (parent / 'info/exit_code').read_text().strip() != '0':
-                raise ValueError(f'Published synthesis is missing or unsuccessful: {parent}')
+        require_complete(parent)
         saved = parent / "info/implementations.json"
         if not saved.is_file():
             raise ValueError(f"Synthesis has no frozen implementation inputs: {parent}; create a new synthesis run")
@@ -182,26 +178,14 @@ def select_run(project: Path, selector: str, timestamp: str | None = None) -> di
         if impl_name not in frozen_runs:
             raise ValueError(f"Implementation {impl_name} was not captured by this synthesis")
         config = frozen_runs[impl_name]
-        if timestamp == 'latest':
-            published = json.loads((parent / 'info/resolved.json').read_text())
-            original = published['output']
-            def relocate(value):
-                if isinstance(value, dict):
-                    return {key: relocate(item) for key, item in value.items()}
-                if isinstance(value, list):
-                    return [relocate(item) for item in value]
-                if isinstance(value, str) and value.startswith(original + '/'):
-                    return str(parent) + value[len(original):]
-                return value
-            config = relocate(config)
-            config['publication_origin_timestamp'] = published['timestamp']
         input_dcp = str((parent / "checkpoints" / f"{config['top']}.dcp").resolve())
         output = parent / "impl_runs" / impl_name / datetime.now(timezone.utc).strftime("%Y-%m-%dT%H%M%S.%fZ")
     else:
-        config = normalize_run(project, synthesis, stage)
+        selections = {}
+        config = normalize_run(project, synthesis, stage, selections)
         if stage == "synth":
             config["implementation_configs"] = {
-                name: normalize_run(project, {"ips": synthesis.get("ips", []), **child}, "impl")
+                name: normalize_run(project, {"ips": synthesis.get("ips", []), **child}, "impl", selections)
                 for name, child in synthesis.get("impl_runs", {}).items()
             }
         if timestamp is not None:
@@ -218,6 +202,13 @@ def select_run(project: Path, selector: str, timestamp: str | None = None) -> di
 def execute(project: Path, config: dict, executable: str = "vivado") -> int:
     if config['stage'] == 'bitstream':
         with lock_implementation(config):
+            return execute_attempt(project, config, executable)
+    if config['stage'] == 'impl':
+        parent = Path(config['input_dcp']).parent.parent
+        with (parent.parent / f'.{parent.name}.run.lock').open('a') as lock:
+            # The chosen date stays fixed; block parent reruns while using it.
+            fcntl.flock(lock, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            require_complete(parent)
             return execute_attempt(project, config, executable)
     return execute_attempt(project, config, executable)
 
@@ -325,8 +316,6 @@ def execute_locked(project: Path, config: dict, executable: str = "vivado") -> i
         config["launch_timestamp"] = launch_time.isoformat()
         config["launch_epoch"] = int(launch_time.timestamp())
         launch_id = registry.register(project, config)
-        if config.get("publish_latest"):
-            clear_latest(config)
         config["launch_id"] = launch_id
         for folder in ("work", "checkpoints", "reports", "bitstream"):
             (output / folder).mkdir(exist_ok=True)
@@ -451,15 +440,6 @@ def execute_locked(project: Path, config: dict, executable: str = "vivado") -> i
         if exit_code != 0:
             status.write_text("stopped\n" if stopped else "failed\n")
         (info / "exit_code").write_text(f"{exit_code}\n")
-        if launch_id and config.get("publish_latest") and not stopped:
-            try:
-                publish_latest(config)
-            except (OSError, ValueError, AttributeError) as error:
-                print(f"Latest publication failed: {error}", file=sys.stderr)
-                (info / "publication_error.txt").write_text(str(error) + "\n")
-                exit_code = exit_code or 1
-                status.write_text("failed\n")
-                (info / "exit_code").write_text(f"{exit_code}\n")
         if launch_id:
             registry.update(launch_id, status=status.read_text().strip(), exit_code=exit_code,
                             finished_at=utc_now(), continuation_pending=exit_code == 0 and bool(config.get("auto_impl")))
@@ -495,7 +475,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, epilog=BUILD_HELP, formatter_class=argparse.RawDescriptionHelpFormatter, allow_abbrev=False)
     parser.add_argument("--project")
     parser.add_argument("--build", nargs="?", const="", help="synthesis or synthesis.implementation; omit for process actions")
-    parser.add_argument("--synth_timestamp", help="default: latest successfully completed synthesis")
+    parser.add_argument("--synth_timestamp", help="default: newest synthesis timestamp; must be complete")
     parser.add_argument("--refresh_impl_inputs", action="store_true", help="New implementation only: snapshot current XDC/Tcl/supporting files; retain synthesis DCP and frozen IPs")
     parser.add_argument("--auto_impl", action="append", default=[], help="After successful synthesis run this implementation; repeat for multiple runs")
     artifacts = parser.add_mutually_exclusive_group()
@@ -504,7 +484,8 @@ def main(argv: list[str] | None = None) -> int:
     artifacts.add_argument("--stopall", action="store_true", help="Stop all registered live launches and their pending continuations")
     artifacts.add_argument("--find_all_user_runs", action="store_true", help="Discover current-user Vivado processes, including unregistered processes")
     artifacts.add_argument("--save_this_run", action="store_true", help="Save the selected timestamp (newest by default); implementation also saves synthesis; do not build")
-    artifacts.add_argument("--clean_ignore_artifacts", action="store_true", help="Delete explicitly ignored inactive artifact folders; do not build")
+    artifacts.add_argument("--clean_ignore_artifacts", action="store_true", help="Delete explicitly ignored artifact folders; add --dry-run to preview")
+    parser.add_argument('--dry-run', action='store_true', help='List cleanup candidates and skip reasons without deleting artifacts')
     locks = parser.add_mutually_exclusive_group()
     locks.add_argument('--remove_lock', action='store_true', help='Clear idle lock metadata only; never unlink a held lock')
     locks.add_argument('--stop_run', action='store_true', help='Stop only this timestamped run; do not rebuild')
@@ -512,6 +493,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--background_worker", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     try:
+        if args.dry_run:
+            if (not args.clean_ignore_artifacts or args.auto_impl or args.refresh_impl_inputs
+                    or args.remove_lock or args.stop_run or args.force_run or args.background_worker):
+                raise ValueError('--dry-run requires artifact cleanup without build or lock actions')
+            print('Artifact cleanup dry-run: no files or folders will be deleted')
         if args.project:
             project = Path(args.project).resolve()
         else:
@@ -537,7 +523,7 @@ def main(argv: list[str] | None = None) -> int:
             data = json.loads(project.read_text())
             selectors = sorted(build_names(data), key=lambda name: (-name.count("."), name))
             for selector in selectors:
-                manage_artifacts(project, selector, "--clean_ignore_artifacts", args.synth_timestamp)
+                manage_artifacts(project, selector, "--clean_ignore_artifacts", args.synth_timestamp, dry_run=args.dry_run)
             return 0
         if not args.build:
             raise ValueError("--build requires a run name or --stopall/--find_all_user_runs; use --build_status for status")
@@ -548,7 +534,7 @@ def main(argv: list[str] | None = None) -> int:
                     raise ValueError('Artifact actions require the parent implementation selector, without .bitstream')
                 if args.auto_impl:
                     raise ValueError("Artifact actions cannot be combined with --auto_impl")
-                return manage_artifacts(project, args.build, flag, args.synth_timestamp)
+                return manage_artifacts(project, args.build, flag, args.synth_timestamp, dry_run=args.dry_run)
         parsed_build = parse_selector(args.build)
         base_build = parsed_build["run"] if parsed_build else args.build
         if (not args.background_worker
@@ -570,19 +556,7 @@ def main(argv: list[str] | None = None) -> int:
                     raise ValueError(f"Unknown automatic implementation: {selector}")
         previous = {sig: signal.signal(sig, stop_signal) for sig in (signal.SIGTERM, signal.SIGINT)}
         config = None
-        publication_lock = None
         try:
-            publication_lock = None
-            selection = parse_selector(args.build)
-            latest_rerun = selection and not selection.get('impl') and selection['synth'] == 'latest' and '.rerun.' in args.build
-            if selection and selection['synth'] == 'latest' and (selection.get('impl') or latest_rerun):
-                settings = json.loads(project.read_text())['vivado']['non_project']
-                publication_lock = (project.parent / settings['output_root'] / selection['run'] / '.publish.lock').open('a')
-                mode = fcntl.LOCK_EX if latest_rerun else fcntl.LOCK_SH
-                try:
-                    fcntl.flock(publication_lock, mode | fcntl.LOCK_NB)
-                except BlockingIOError:
-                    raise ValueError('Latest publication is in use; wait for its build/implementation or select a dated attempt') from None
             config = select_run(project, args.build, args.synth_timestamp)
             if args.refresh_impl_inputs:
                 if config['stage'] != 'impl' or config.get('rerun'):
@@ -624,8 +598,6 @@ def main(argv: list[str] | None = None) -> int:
                     return result
             return 0
         finally:
-            if publication_lock is not None:
-                publication_lock.close()
             if config and config.get("launch_id"):
                 BuildRegistry(Path(config["output_root"])).update(config["launch_id"], continuation_pending=False)
             for sig, handler in previous.items():

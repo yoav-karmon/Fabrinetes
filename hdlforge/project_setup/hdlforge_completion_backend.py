@@ -23,7 +23,7 @@ NETWORK_COMMANDS = ["send_raw", "send_arp", "send_icmp", "send_udp"]
 HW_SERVER_COMMANDS = ["program", "scan_ila", "scan_jtag", "read_dna"]
 VERILATOR_STEPS = ["build", "sim", "lint"]
 GLOBAL_ENV_FLAGS = ["--env-python", "--env-path", "--env-var"]
-GLOBAL_FLAGS = [*GLOBAL_ENV_FLAGS, "--dry-run", "--no-print"]
+GLOBAL_FLAGS = [*GLOBAL_ENV_FLAGS, "--dry-run", "--no-print", "--print-env", "--print-env-all-host_and_user", "--add-to-bashrc-path", "--init-base-path", "--init-base-pythonpath"]
 GLOBAL_VALUE_FLAGS = {"--project", "--tool", "--cmd", "--env-python", "--env-path", "--env-var"}
 REPEATABLE_GLOBAL_ENV_FLAGS = {"--env-python", "--env-path", "--env-var"}
 

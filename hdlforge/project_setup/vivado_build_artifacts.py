@@ -77,7 +77,6 @@ def _replace_block(path: Path, begin: str, end: str, replacement: str) -> None:
 ROOT_BEGIN = "# BEGIN HDLForge artifact defaults\n"
 ROOT_END = "# END HDLForge artifact defaults\n"
 ROOT_RULES = (
-    "# Ignore published latest copies at this run root and implementation roots.\n/artifacts/latest/\n/*/artifacts/latest/\n"
     "# Git reads top to bottom; ! means do not ignore. These rules do not untrack files.\n"
     "# Allow Git to enter the artifacts directory.\n!/artifacts/\n"
     "# Ignore every artifact file by default.\n/artifacts/**\n"
@@ -176,22 +175,18 @@ def cleanable(folder: Path) -> tuple[bool, str]:
     return True, "ignored by Git rules"
 
 
-def manage_artifacts(project: Path, selector: str, action: str, timestamp: str | None = None) -> int:
+def manage_artifacts(project: Path, selector: str, action: str, timestamp: str | None = None, *, dry_run: bool = False) -> int:
     ###########################################################################
     # These actions manage existing outputs only; they never start a build.    #
     ###########################################################################
+    if dry_run and action != '--clean_ignore_artifacts':
+        raise ValueError('Artifact dry-run supports cleanup only')
     selector = resolve_rerun(project, selector)
     parsed = parse_selector(selector)
     attempt = None
     if parsed:
         data = json.loads(project.read_text())
         timestamp = parsed['synth']
-        if timestamp == 'latest':
-            from vivado_build_config import synthesis_timestamps
-            timestamps = synthesis_timestamps(project, data, parsed['run'], completed_only=True)
-            if not timestamps:
-                raise ValueError('No successful synthesis')
-            timestamp = timestamps[-1]
         if timestamp == 'new' or parsed['attempt'] == 'new':
             raise ValueError('Artifact management requires an existing timestamp')
         attempt = parsed['attempt']
@@ -218,8 +213,11 @@ def manage_artifacts(project: Path, selector: str, action: str, timestamp: str |
             if not allowed:
                 print(f"Skipped: {folder}: {reason}")
                 continue
-            shutil.rmtree(folder)
-            print(f"Deleted ignored artifacts: {folder}")
+            if dry_run:
+                print(f"Would delete: {folder}: {reason}")
+            else:
+                shutil.rmtree(folder)
+                print(f"Deleted ignored artifacts: {folder}")
         else:
             raise ValueError(f"Unknown artifact action: {action}")
     return 0

@@ -52,36 +52,178 @@ hdlforge_shell_quote_args() {
 }
 
 hdlforge_print_usage() {
-    echo "Usage: hdlforge [--project <project_file>] [--env-python <array-leaf-or-json> | --env-path <array-leaf-or-json> | --env-var <array-leaf-or-json>] [--dry-run] [--no-print] --tool <tool_name> [--arg value --arg value...]"
-    echo "   or: hdlforge [--project <project_file>] [--env-python <array-leaf-or-json> | --env-path <array-leaf-or-json> | --env-var <array-leaf-or-json>] [--dry-run] [--no-print] <llm_orch.dotted.path> [--append <fragment>]"
-    echo "   or: hdlforge [--project <project_file>] [--env-python <array-leaf-or-json> | --env-path <array-leaf-or-json> | --env-var <array-leaf-or-json>] [--dry-run] [--no-print] --cmd <shell-command> [--append <fragment>]"
+    echo "NAME"
+    echo "       hdlforge - run FPGA tools and project commands"
     echo ""
-    echo "Examples:"
-    echo "  hdlforge testing.integration_test.sim.trigger_test.run_all"
-    echo "  hdlforge --eval_json LLM_orch.testing.integration_test.sim.trigger_test.run_all"
-    echo "  hdlforge --cmd 'python3 -c \"print(42)\"'"
-    echo "  hdlforge --no-print --cmd 'python3 -c \"print(42)\"'"
+    echo "SYNOPSIS"
+    echo "       hdlforge --tool <tool> [options]"
+    echo "       hdlforge --eval_json <path> [environment options] [--append <fragment>]"
+    echo "       hdlforge --cmd <command> [environment options] [--append <fragment>]"
+    echo "       hdlforge <shortcut.path> [environment options] [--append <fragment>]"
     echo ""
-    echo "Global Options:"
-    echo "  --project <file>       Select a .hdlforge.json or .hdlforge.toml project file"
-    echo "  --tool <name>          Run a direct HDLForge tool"
-    echo "  --eval_json <path>     Run an exact dotted project command path"
-    echo "  --cmd <command>        Run one shell command in the prepared HDLForge environment"
-    echo "  --env-python <value>   Add PYTHONPATH entries from an array leaf or raw JSON array"
-    echo "  --env-path <value>     Add PATH entries from an array leaf or raw JSON array"
-    echo "  --env-var <value>      Export variables from an array leaf or raw JSON array"
-    echo "  --append <fragment>    Append one shell fragment to a shortcut or --cmd command"
-    echo "  --dry-run              Resolve setup and command without executing the final command"
-    echo "  --no-print             Suppress HDLForge wrapper status output"
-    echo "  -h, --help             Show this help"
+    echo "COMMAND MODES"
+    echo "       --cmd <command>"
+    echo "              Run one quoted shell command in the prepared HDLForge environment."
     echo ""
-    echo "Environment Inspection:"
-    echo "  hdlforge --no-print --cmd 'env'"
-    echo "      Print the complete prepared environment (may include sensitive values)"
-    echo "  hdlforge --no-print --cmd 'printenv REPO_TOP PATH PYTHONPATH ROOT_FOLDER'"
-    echo "      Print selected prepared environment variables"
-    echo "  hdlforge --cmd 'compare_env_changes'"
-    echo "      Print changes from the shell's original environment snapshot"
+    echo "       --eval_json <path>"
+    echo "              Run the exact dotted command path from the selected project JSON."
+    echo ""
+    echo "ENVIRONMENT OPTIONS"
+    echo "       These options apply to --cmd, --eval_json, shortcut, and --tool modes."
+    echo ""
+    echo "       --env-python <array-leaf-or-json>"
+    echo "              Add PYTHONPATH entries before executing the selected command."
+    echo ""
+    echo "       --env-path <array-leaf-or-json>"
+    echo "              Add PATH entries before executing the selected command."
+    echo ""
+    echo "       --env-var <array-leaf-or-json>"
+    echo "              Export environment variables before executing the selected command."
+    echo ""
+    echo "OPTIONS"
+    echo "       --project <file>       Select a .hdlforge.json or .hdlforge.toml project file."
+    echo "       --append <fragment>    Append one shell fragment to --cmd or a shortcut."
+    echo "       --dry-run              Resolve without executing the final command."
+    echo "       --no-print             Suppress HDLForge wrapper status output."
+    echo "       --print-env            Show PATH/PYTHONPATH entries and their source layer."
+    echo "       --print-env-all-host_and_user  Show a complete environment report for every configured host/user."
+    echo "       --update-repo-json     Add the current host/user environment if missing."
+    echo "       --init-base-path       Print an export that captures the current PATH as the HDLForge base."
+    echo "       --init-base-pythonpath Print an export that captures the current PYTHONPATH as the HDLForge base."
+    echo "       --add-to-bashrc-path   Add or repair this HDLForge installation in ~/.bashrc PATH."
+    echo "       -h, --help             Show this help."
+    echo ""
+    echo "EXAMPLES"
+    echo "       hdlforge --env-python '[\"sources/tests\"]' --cmd 'python3 -m integration_test.some_tool'"
+    echo "       hdlforge --env-path '[\"tools\"]' --eval_json LLM_orch.testing.run"
+    echo "       hdlforge --print-env"
+}
+
+hdlforge_update_repo_json() {
+    local project_json="$1" host_name user_name tmp_json
+    host_name="${HOST_MACHINE:-$(hostname -s)}"
+    user_name="$(id -un)"
+    tmp_json="$(mktemp "${project_json}.XXXXXX")" || return 1
+    jq --arg host "$host_name" --arg user "$user_name" '
+      .settings //= {} | .settings.env //= {} | .settings.env[$host] //= {} |
+      .settings.env[$host][$user] //= {} |
+      .settings.env[$host][$user].path //= [] |
+      .settings.env[$host][$user].pythonpath //= [] |
+      .settings.env[$host][$user].tools //= {} |
+      .settings.env[$host][$user].tools.vivado //= "" |
+      .settings.env[$host][$user].tools.verilator //= ""
+    ' "$project_json" > "$tmp_json" || { rm -f "$tmp_json"; return 1; }
+    if cmp -s "$project_json" "$tmp_json"; then
+        rm -f "$tmp_json"
+        printf 'HDLForge JSON environment is complete: %s:%s\n' "$host_name" "$user_name"
+    else
+        mv "$tmp_json" "$project_json"
+        printf 'Added missing HDLForge JSON environment values: %s:%s\n' "$host_name" "$user_name"
+    fi
+}
+
+hdlforge_add_to_bashrc_path() {
+    local bashrc_file="${HOME:?HDLForge requires HOME}/.bashrc"
+    local managed_tag="# hdlforge-path"
+    local desired_line="export PATH=\"${HDLFORGE_INSTALL_DIR}:\$PATH\" ${managed_tag}"
+    local marker_count
+    local matching_count
+    local legacy_count
+    local unsupported_count
+    local temporary_file
+    local original_mode
+
+    if [ -e "$bashrc_file" ] && [ ! -f "$bashrc_file" ]; then
+        echo "[!x!] Error: ~/.bashrc is not a regular file: $bashrc_file" >&2
+        return 1
+    fi
+
+    if [ -f "$bashrc_file" ]; then
+        marker_count="$(grep -F -c "$managed_tag" "$bashrc_file" || true)"
+        matching_count="$(grep -F -x -c "$desired_line" "$bashrc_file" || true)"
+        unsupported_count="$(awk -v managed_tag="$managed_tag" '
+            index($0, managed_tag) || index($0, "# hdlforge-completion") { next }
+            /hdlforge\/project_setup/ && !/^[[:space:]]*(export[[:space:]]+)?PATH=["\047]?[^:"\047]*\/hdlforge\/project_setup:\$PATH["\047]?[[:space:]]*(#.*)?$/ { count++ }
+            END { print count + 0 }
+        ' "$bashrc_file")"
+        legacy_count="$(awk -v managed_tag="$managed_tag" '
+            index($0, managed_tag) { next }
+            /^[[:space:]]*(export[[:space:]]+)?PATH=["\047]?[^:"\047]*\/hdlforge\/project_setup:\$PATH["\047]?[[:space:]]*(#.*)?$/ { count++ }
+            END { print count + 0 }
+        ' "$bashrc_file")"
+        if [ "$unsupported_count" -ne 0 ]; then
+            echo "[!x!] Error: found an unsupported HDLForge PATH expression in $bashrc_file" >&2
+            echo "[i] Simplify or remove it, then rerun --add-to-bashrc-path." >&2
+            return 1
+        fi
+        if [ "$marker_count" -eq 1 ] && [ "$matching_count" -eq 1 ] \
+            && [ "$legacy_count" -eq 0 ]; then
+            echo "[i] HDLForge PATH entry already correct: $bashrc_file"
+            return 0
+        fi
+    else
+        marker_count=0
+    fi
+
+    temporary_file="$(mktemp "${bashrc_file}.hdlforge.XXXXXX")" || return 1
+    if [ "$marker_count" -eq 0 ]; then
+        {
+            [ ! -f "$bashrc_file" ] || cat "$bashrc_file"
+            printf '\n%s\n' "$desired_line"
+        } > "$temporary_file" || {
+            rm -f "$temporary_file"
+            return 1
+        }
+    else
+        original_mode="$(stat -c '%a' "$bashrc_file")" || {
+            rm -f "$temporary_file"
+            return 1
+        }
+        awk -v desired_line="$desired_line" -v managed_tag="$managed_tag" '
+            index($0, managed_tag) { next }
+            /^[[:space:]]*(export[[:space:]]+)?PATH=["\047]?[^:"\047]*\/hdlforge\/project_setup:\$PATH["\047]?[[:space:]]*(#.*)?$/ { next }
+            { print }
+            END { print desired_line }
+        ' "$bashrc_file" > "$temporary_file" || {
+            rm -f "$temporary_file"
+            return 1
+        }
+        chmod "$original_mode" "$temporary_file" || {
+            rm -f "$temporary_file"
+            return 1
+        }
+    fi
+    mv "$temporary_file" "$bashrc_file" || {
+        rm -f "$temporary_file"
+        return 1
+    }
+    if [ "$marker_count" -eq 0 ]; then
+        echo "[i] Added HDLForge PATH entry to $bashrc_file"
+    else
+        echo "[i] Repaired HDLForge PATH entry in $bashrc_file"
+    fi
+}
+
+hdlforge_add_to_bashrc_completion() {
+    local bashrc_file="${HOME:?HDLForge requires HOME}/.bashrc"
+    local managed_tag="# hdlforge-completion"
+    local desired_line="[ -r \"${HDLFORGE_INSTALL_DIR}/hdlforge_completion.bash\" ] && source \"${HDLFORGE_INSTALL_DIR}/hdlforge_completion.bash\" ${managed_tag}"
+    local temporary_file
+    local original_mode
+
+    if [ -f "$bashrc_file" ] && grep -F -x -q "$desired_line" "$bashrc_file"; then
+        echo "[i] HDLForge completion already correct: $bashrc_file"
+        return 0
+    fi
+    temporary_file="$(mktemp "${bashrc_file}.hdlforge.XXXXXX")" || return 1
+    [ ! -f "$bashrc_file" ] || original_mode="$(stat -c '%a' "$bashrc_file")" || return 1
+    {
+        [ ! -f "$bashrc_file" ] || awk -v managed_tag="$managed_tag" 'index($0, managed_tag) { next } { print }' "$bashrc_file"
+        printf '%s\n' "$desired_line"
+    } > "$temporary_file" || return 1
+    [ -z "${original_mode:-}" ] || chmod "$original_mode" "$temporary_file" || return 1
+    mv "$temporary_file" "$bashrc_file" || return 1
+    echo "[i] Added HDLForge completion to $bashrc_file"
 }
 
 hdlforge_append_unique() {
@@ -299,6 +441,141 @@ hdlforge_path_contains() {
     done
     IFS="$old_ifs"
     return 1
+}
+
+hdlforge_print_environment_list() {
+    local name="$1"
+    local value="$2"
+    local inherited="$3"
+    local bootstrap="$4"
+    local injected="$5"
+    local entry
+    local index=0
+    local source
+
+    printf '%s (lookup order):\n' "$name"
+    if [ -z "$value" ]; then
+        printf '  (empty)\n'
+        return 0
+    fi
+    local IFS=':'
+    for entry in $value; do
+        [ -n "$entry" ] || continue
+        index=$((index + 1))
+        source="repository initializer"
+        if hdlforge_path_contains "$injected" "$entry"; then
+            if [ "$name" = PATH ]; then
+                source="HDLForge --env-path"
+            else
+                source="HDLForge --env-python"
+            fi
+        elif [ "$entry" = "$HDLFORGE_INSTALL_DIR" ]; then
+            source="HDLForge launcher"
+        elif [ -n "${REPO_TOP:-}" ] && [ "$entry" = "$REPO_TOP/tools/tool_box" ]; then
+            source="repository tools"
+        elif [[ "$entry" == /DATA/amd/*/Vivado/* || "$entry" == /DATA/amd/*/Vitis/* ]]; then
+            source="project JSON: tools.vivado"
+        elif hdlforge_path_contains "$inherited" "$entry"; then
+            source="HDLForge base environment"
+        elif hdlforge_path_contains "$bootstrap" "$entry"; then
+            source="HDLForge bootstrap"
+        fi
+        printf '  %2d. %-70s [%s]\n' "$index" "$entry" "$source"
+    done
+}
+
+hdlforge_print_tool_location() {
+    local tool_name="$1"
+    local tool_path tool_source
+
+    tool_path="$(command -v "$tool_name" 2>/dev/null || true)"
+    if [ -z "$tool_path" ]; then
+        printf '  %-10s unavailable\n' "$tool_name"
+        return 0
+    fi
+
+    tool_source="PATH"
+    case "$tool_path" in
+        /usr/bin/verilator)
+            if [ "${VERILATOR_BIN:-}" = "$tool_path" ]; then
+                tool_source="project JSON: tools.verilator"
+            else
+                tool_source="HDLForge base environment"
+            fi
+            ;;
+        /DATA/amd/*/Vivado/*)
+            tool_source="project JSON: tools.vivado"
+            ;;
+    esac
+    printf '  --tool %-9s uses %-62s [%s]\n' "$tool_name" "$tool_path" "$tool_source"
+}
+
+hdlforge_print_environment() {
+    printf 'HDLForge selected environment\n'
+    printf '  Repository top: %s\n' "${REPO_TOP:-n/a}"
+    printf '  Project folder: %s\n' "${ROOT_FOLDER:-n/a}"
+    printf '  Repository JSON: %s\n' "${HDLFORGE_ENV_REPO_JSON:-n/a}"
+    printf '  Project JSON: %s\n' "${HDLFORGE_ENV_PROJECT_JSON:-n/a}"
+    printf '  Active host/user: %s\n\n' "${HDLFORGE_SELECTED_HOST_AND_USER:-unknown}"
+    if [ "${HDLFORGE_NESTED_CALL:-0}" = "1" ]; then
+        printf '  WARNING: nested HDLForge call; this report reuses the parent environment.\n\n'
+    fi
+    printf 'Tool commands:\n'
+    hdlforge_print_tool_location vivado
+    hdlforge_print_tool_location verilator
+    printf '\n'
+    hdlforge_print_environment_list PATH "$PATH" "${HDLFORGE_INHERITED_PATH:-}" \
+        "${HDLFORGE_BOOTSTRAP_PATH:-}" "${HDLFORGE_ADD_PATH:-}"
+    printf '\n'
+    hdlforge_print_environment_list PYTHONPATH "${PYTHONPATH:-}" "${HDLFORGE_INHERITED_PYTHONPATH:-}" \
+        "${HDLFORGE_BOOTSTRAP_PYTHONPATH:-}" "${HDLFORGE_ADD_PYTHONPATH:-}"
+}
+
+hdlforge_print_all_host_and_user_environments() {
+    local host_and_user host_name user_name index
+    local -a host_and_users
+
+    if [ -z "${HDLFORGE_ENV_PROJECT_JSON:-}" ]; then
+        echo "error: select a project .hdlforge.json to list host/user environments" >&2
+        return 1
+    fi
+
+    mapfile -t host_and_users < <({
+        hdlforge_list_host_and_users "$HDLFORGE_ENV_REPO_JSON"
+        if [ "$HDLFORGE_ENV_PROJECT_JSON" != "$HDLFORGE_ENV_REPO_JSON" ]; then
+            hdlforge_list_host_and_users "$HDLFORGE_ENV_PROJECT_JSON"
+        fi
+    } | sort -u)
+    if [ "${#host_and_users[@]}" -eq 0 ]; then
+        echo "error: this repository does not define any HDLForge host/user environments" >&2
+        return 1
+    fi
+
+    printf 'Configured HDLForge host/user environments (%d):\n' "${#host_and_users[@]}"
+    for index in "${!host_and_users[@]}"; do
+        if [ "${host_and_users[index]}" = "${HDLFORGE_SELECTED_HOST_AND_USER:-}" ]; then
+            printf '  %d. %s  [ACTIVE]\n' "$((index + 1))" "${host_and_users[index]}"
+        else
+            printf '  %d. %s\n' "$((index + 1))" "${host_and_users[index]}"
+        fi
+    done
+
+    for index in "${!host_and_users[@]}"; do
+        host_and_user="${host_and_users[index]}"
+        [ -n "$host_and_user" ] || continue
+        host_name="${host_and_user%%:*}"
+        user_name="${host_and_user#*:}"
+        if [ "$host_and_user" = "${HDLFORGE_SELECTED_HOST_AND_USER:-}" ]; then
+            printf '\n===== HDLForge environment %d/%d: %s [ACTIVE] =====\n' \
+                "$((index + 1))" "${#host_and_users[@]}" "$host_and_user"
+        else
+            printf '\n===== HDLForge environment %d/%d: %s =====\n' \
+                "$((index + 1))" "${#host_and_users[@]}" "$host_and_user"
+        fi
+        env -u HDLFORGE_CALLED -u HDLFORGE_NESTED_CALL \
+            HOST_MACHINE="$host_name" HDLFORGE_HOST_USER="$user_name" \
+            "$0" --print-env || return $?
+    done
 }
 
 hdlforge_clean_env_json() {
@@ -686,6 +963,7 @@ hdlforge_inject_default_eval_json() {
     local seen_dd=false
     local non_flag_count=0
     local non_flag_value=""
+    local shortcut_value=""
     local eval_json_path=""
     local arg
     local injected=false
@@ -725,6 +1003,9 @@ hdlforge_inject_default_eval_json() {
             *)
                 non_flag_count=$((non_flag_count + 1))
                 non_flag_value="$arg"
+                if [[ "$arg" =~ ^[[:alpha:]_][[:alnum:]_]*(\.[[:alpha:]_][[:alnum:]_]*)+$ ]]; then
+                    shortcut_value="$arg"
+                fi
                 ;;
         esac
     done
@@ -735,8 +1016,21 @@ hdlforge_inject_default_eval_json() {
         return 1
     fi
 
-    if [ "$has_eval_json" = true ] && [ "$non_flag_count" -gt 0 ]; then
-        echo "[!x!] Error: explicit --eval_json cannot be combined with shorthand shortcut path: $non_flag_value"
+    if { [ "$has_tool" = true ] && { [ "$has_eval_json" = true ] || [ "$has_raw_cmd" = true ]; }; } \
+        || { [ "$has_eval_json" = true ] && [ "$has_raw_cmd" = true ]; }; then
+        echo "[!x!] Error: choose exactly one execution mode: --tool, --cmd, --eval_json, or <shortcut.path>"
+        hdlforge_print_usage
+        return 1
+    fi
+
+    if { [ "$has_eval_json" = true ] || [ "$has_raw_cmd" = true ]; } && [ "$non_flag_count" -gt 0 ]; then
+        echo "[!x!] Error: --cmd and --eval_json cannot be combined with shorthand shortcut path: $non_flag_value"
+        hdlforge_print_usage
+        return 1
+    fi
+
+    if [ "$has_tool" = true ] && [ -n "$shortcut_value" ]; then
+        echo "[!x!] Error: --tool cannot be combined with shorthand shortcut path: $shortcut_value"
         hdlforge_print_usage
         return 1
     fi
@@ -788,49 +1082,9 @@ hdlforge_inject_default_eval_json() {
     HDLFORGE_DEFAULT_EVAL_JSON_ARGS=("${new_args[@]}")
 }
 
-# Check if any arguments are provided
-if [ $# -lt 1 ]; then
-    # Look for existing project files in current directory (JSON first, then TOML)
-    hdlforge_json_files=$(ls *.hdlforge.json 2>/dev/null)
-    hdlforge_toml_files=$(ls *.hdlforge.toml 2>/dev/null)
-    hdlforge_files="$hdlforge_json_files"$'\n'"$hdlforge_toml_files"
-    hdlforge_files=$(echo "$hdlforge_files" | grep -v '^$' | head -1)
-    
-    if [ -n "$hdlforge_files" ] && [ $(echo "$hdlforge_files" | wc -l) -eq 1 ]; then
-        # Exactly one file found - use it in the example
-        example_file=$(echo "$hdlforge_files" | head -1)
-        hdlforge_print_usage
-        echo ""
-        echo "Available Tools:"
-        echo "  vivado        - FPGA Development Tasks (synthesis, implementation, bitstream)"
-        echo "  Verilator     - Simulation Tasks (build, sim, lint)"
-        echo "  network       - Network Utilities (raw packet sending)"
-        echo "  vcd_analyzer  - VCD Waveform Analysis"
-        echo "  tsharkWrapper - tshark Command Wrapper"
-        echo "  hw_server     - Interactive FPGA Tools (program, ILA/VIO, JTAG)"
-        echo "  projects      - Project Management"
-        echo ""
-        echo "hdlforge auto-detected project file in the current directory: $example_file"
-    else
-        hdlforge_print_usage
-        echo ""
-        echo "Available Tools:"
-        echo "  vivado        - FPGA Development Tasks (synthesis, implementation, bitstream)"
-        echo "  Verilator     - Simulation Tasks (build, sim, lint)"
-        echo "  network       - Network Utilities (raw packet sending)"
-        echo "  vcd_analyzer  - VCD Waveform Analysis"
-        echo "  tsharkWrapper - tshark Command Wrapper"
-        echo "  hw_server     - Interactive FPGA Tools (program, ILA/VIO, JTAG)"
-        echo "  projects      - Project Management"
-        echo ""
-        echo "Note: --project is optional. If omitted, hdlforge will auto-detect *.hdlforge.json or *.hdlforge.toml files in the current directory."
-    fi
-    echo ""
-    echo "Tab-Tab choices in the current directory:"
-    python3 "$FABRINETES/hdlforge/project_setup/hdlforge_completion_backend.py" \
-        --cwd "$PWD" --comp-cword 1 --display-table --columns "${COLUMNS:-80}" \
-        -- hdlforge "" | sed -n $'s/^__TABLE__\t//p'
-    exit 1
+# Bare invocation is exactly the documented help output.
+if [ $# -eq 0 ]; then
+    exec "$0" --help
 fi
 
 if [ $# -eq 1 ] && ([[ "$1" == "--help" ]] || [[ "$1" == "-h" ]]); then
@@ -845,6 +1099,70 @@ if [ $# -eq 1 ] && ([[ "$1" == "--help" ]] || [[ "$1" == "-h" ]]); then
     echo "  hw_server     - Interactive FPGA Tools (program, ILA/VIO, JTAG)"
     echo "  projects      - Project Management"
     exit 0
+fi
+
+if [ $# -eq 1 ] && [ "$1" = "--init-base-path" ]; then
+    printf 'export HDLFORGE_BASE_PATH=%q\n' "$PATH"
+    exit 0
+fi
+
+if [ $# -eq 1 ] && [ "$1" = "--init-base-pythonpath" ]; then
+    printf 'export HDLFORGE_BASE_PYTHONPATH=%q\n' "${PYTHONPATH:-}"
+    exit 0
+fi
+
+if [ $# -eq 1 ] && [ "$1" == "--add-to-bashrc-path" ]; then
+    hdlforge_add_to_bashrc_path && hdlforge_add_to_bashrc_completion
+    exit $?
+fi
+
+if [ "$1" = "--update-repo-json" ]; then
+    shift
+    update_project=""
+    if [ "$1" = "--project" ]; then
+        update_project="$2"
+        shift 2
+    fi
+    if [ $# -ne 0 ]; then
+        echo "usage: hdlforge --update-repo-json [--project <file>]" >&2
+        exit 2
+    fi
+    update_repo_top="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+    if [ -z "$update_repo_top" ]; then
+        echo "error: --update-repo-json must run inside a Git repository" >&2
+        exit 1
+    fi
+    if [ -z "$update_project" ]; then
+        update_search_dir="$(pwd -P)"
+        while :; do
+            shopt -s nullglob
+            update_candidates=("$update_search_dir"/*.hdlforge.json)
+            shopt -u nullglob
+            if [ "${#update_candidates[@]}" -eq 1 ]; then
+                update_project="${update_candidates[0]}"
+                break
+            fi
+            if [ "$update_search_dir" = "$update_repo_top" ] || [ "$update_search_dir" = "/" ]; then
+                echo "error: --update-repo-json cannot find a project .hdlforge.json" >&2
+                exit 1
+            fi
+            update_search_dir="$(dirname "$update_search_dir")"
+        done
+    fi
+    update_project="$(realpath "$update_project")"
+    case "$update_project" in
+        "$update_repo_top"/*) ;;
+        *)
+            echo "error: --update-repo-json project must be inside repository top: $update_repo_top" >&2
+            exit 1
+            ;;
+    esac
+    if [ ! -f "$update_project" ]; then
+        echo "error: project JSON not found: $update_project" >&2
+        exit 1
+    fi
+    hdlforge_update_repo_json "$update_project"
+    exit $?
 fi
 
 # Check if command requires --project argument
@@ -1070,6 +1388,7 @@ if [ -n "$PROJECT_DIR" ]; then
 fi
 
 # Prepare tool and repository paths without depending on interactive startup.
+[ -z "${PROJECT_FILE_PATH:-}" ] || export HDLFORGE_PROJECT_FILE="$PROJECT_FILE_PATH"
 source "$HDLFORGE_INSTALL_DIR/hdlforge_environment.bash"
 hdlforge_prepare_environment || exit 1
 
@@ -1095,6 +1414,16 @@ fi
 
 hdlforge_apply_env_state "$@"
 set -- "${HDLFORGE_FILTERED_ARGS[@]}"
+
+if [ $# -eq 1 ] && [ "$1" = "--print-env" ]; then
+    hdlforge_print_environment
+    exit 0
+fi
+
+if [ $# -eq 1 ] && [ "$1" = "--print-env-all-host_and_user" ]; then
+    hdlforge_print_all_host_and_user_environments
+    exit 0
+fi
 
 mkdir -p "$TASKS_DIR/logs"
 log_file="$TASKS_DIR/logs/hdlforge_${timestamp}_pid${shell_id}.log"
@@ -1430,6 +1759,13 @@ echo "--------$(pwd): $Date: $timestamp Time $time------" >> "$log_file"
 export HDLFORGE_ORIG_DIR="$ORIG_DIR"
 
 if [ "$DRY_RUN" = true ]; then
+    # Cleanup has a read-only preview that lists actual artifact candidates.
+    # The Python dispatcher validates the complete argument combination.
+    for hdlforge_preview_arg in "$@"; do
+        if [[ "$hdlforge_preview_arg" == "--build_clean_ignore_artifacts" || "$hdlforge_preview_arg" == "--clean_ignore_artifacts" ]]; then
+            exec python3 "$TASKS_DIR/tasks.py" "$@" --dry-run
+        fi
+    done
     echo "[i] HDLForge dry-run: final --tool command resolved"
     echo "[i] Working directory: $(pwd)"
     echo "[i] Command: $(hdlforge_shell_quote_args python3 "$TASKS_DIR/tasks.py" "$@")"

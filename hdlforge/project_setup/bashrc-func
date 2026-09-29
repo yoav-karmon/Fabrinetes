@@ -31,6 +31,22 @@ remove_duplicates_from_path() {
     echo "${result%:}"
 }
 
+set_base_path() {
+    export PATH="$1"
+}
+
+set_base_pythonpath() {
+    export PYTHONPATH="$1"
+}
+
+clean_path() {
+    set_base_path "$(remove_duplicates_from_path "$PATH")"
+}
+
+clean_pythonpath() {
+    set_base_pythonpath "$(remove_duplicates_from_path "${PYTHONPATH:-}")"
+}
+
 
 add_to_pythonpath() {
     local path_to_add="$1"
@@ -244,7 +260,9 @@ update_repo_path() {
     iprint "----------------------------"
     iprint ""
 
-    # STEP 2: Source the repo's init file
+    # STEP 2: Discover the repository.  HDLForge loads host/user tool and
+    # project paths from the selected .hdlforge.json; repositories do not run
+    # an imperative init_repo_env.sh during environment setup.
     local repo_root
     repo_root=$(git rev-parse --show-toplevel 2>/dev/null)
 
@@ -257,22 +275,7 @@ update_repo_path() {
     export REPO_TOP="$repo_root"
     iprint "[v] REPO_TOP set to $REPO_TOP"
 
-    init_repo_env_file="$REPO_TOP/init_repo_env.sh"
-    if [[ -f "$init_repo_env_file" ]]; then
-        iprint "[i] Sourcing $init_repo_env_file"
-        source "$init_repo_env_file"
-
-        # Clean duplicates after sourcing repo-specific paths
-        if [ -n "$PATH" ]; then
-            export PATH=$(remove_duplicates_from_path "$PATH")
-        fi
-        if [ -n "$PYTHONPATH" ]; then
-            export PYTHONPATH=$(remove_duplicates_from_path "$PYTHONPATH")
-        fi
-        source_repo_completion_scripts
-    else
-        iprint "[i] Repo missing $init_repo_env_file"
-    fi
+    source_repo_completion_scripts
 
     iprint ""
     iprint "----------------------------"

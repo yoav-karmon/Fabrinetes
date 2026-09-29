@@ -8,6 +8,8 @@ import re
 import shutil
 
 from vivado_build_hash import hash_source, verify_source_hashes
+from vivado_build_config import TIMESTAMP
+from vivado_build_paths import require_complete
 
 
 def snapshot_inputs(config: dict) -> dict:
@@ -39,17 +41,18 @@ def snapshot_inputs(config: dict) -> dict:
         if previous_source is not None:
             raise ValueError(f'Snapshot path collision: {previous_source} and {path} map to {target}')
         target.parent.mkdir(parents=True, exist_ok=True)
-        # Hold the producer's publication lock while copying a latest input.
-        latest = next((parent for parent in path.parents if parent.name == 'latest'), None)
-        if latest is not None and config.get('stage') != 'impl':
-            with ((latest.parent.parent if latest.parent.name == 'artifacts' else latest.parent) / '.publish.lock').open('a') as lock:
-                fcntl.flock(lock, fcntl.LOCK_SH)
-                if ((latest / 'info/status').read_text().strip() != 'complete'
-                        or (latest / 'info/exit_code').read_text().strip() != '0'):
-                    raise ValueError(f'Cannot use inputs from unsuccessful latest run: {latest}')
+        # Inputs already resolve to a fixed producer timestamp. Hold its run
+        # lock so an explicit rerun cannot replace files while they are copied.
+        producer = next((parent for parent in path.parents
+                         if TIMESTAMP.fullmatch(parent.name)
+                         and (parent / 'info/resolved.json').is_file()), None)
+        if producer is not None and config.get('stage') != 'impl':
+            with (producer.parent / f'.{producer.name}.run.lock').open('a') as lock:
+                fcntl.flock(lock, fcntl.LOCK_SH | fcntl.LOCK_NB)
+                require_complete(producer)
                 if path.suffix.lower() in {".xcix", ".xci"}:
                     try:
-                        verify_source_hashes(latest)
+                        verify_source_hashes(producer)
                     except (OSError, ValueError, KeyError, TypeError) as error:
                         warning = f"WARNING: IP freshness could not be verified: {error}. Continuing with {path}"
                         print(warning, flush=True)
@@ -93,7 +96,7 @@ def snapshot_inputs(config: dict) -> dict:
     runtime = freeze(config)
     if config.get('stage') == 'impl':
         # Copy the selected parent checkpoint; all other paths above already
-        # refer to the parent's frozen inputs, never live producer publications.
+        # refer to the parent's frozen inputs, never live producer outputs.
         checkpoint = Path(config['input_dcp'])
         target = destination / 'synthesis_checkpoint' / checkpoint.name
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -166,7 +169,7 @@ def implementation_inputs(config: dict) -> dict:
             checkpoint = Path(cached['input_dcp'])
             # A synthesis rerun may replace the parent DCP. Preserve the shared
             # snapshot used by old attempts; give this attempt private inputs.
-            # Published copies can also contain paths into the original tree.
+            # Historical copied snapshots can also contain paths into the original tree.
             if (not checkpoint.is_relative_to(shared / 'inputs') or
                     not checkpoint.is_file() or
                     hash_source(checkpoint) != hash_source(Path(config['input_dcp']))):
