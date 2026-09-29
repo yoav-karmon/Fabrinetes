@@ -233,7 +233,14 @@ set code [catch {
         trace add execution $command enter ::hdlforge::constraint_enter
         trace add execution $command leave ::hdlforge::constraint_leave
     }
+    set errors_before_run [get_msg_config -count -severity ERROR]
     source [dict get $::hdlforge_config script]
+    # synth_ip can catch a failed nested synth_design and still return success.
+    # An IP with those errors must never be advertised as a completed producer.
+    if {[dict get $::hdlforge_config stage] eq "ip" &&
+        [get_msg_config -count -severity ERROR] > $errors_before_run} {
+        error "IP generation emitted ERROR messages; generated products are incomplete. See the preceding diagnostics."
+    }
     if {!$::hdlforge::ran} {error "Run script did not execute any native build commands"}
     ::hdlforge::collect
 } result options]
