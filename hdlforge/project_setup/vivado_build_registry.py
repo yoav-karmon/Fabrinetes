@@ -16,6 +16,7 @@ from uuid import uuid4
 
 from table_formatter import create_matrix_table_from_data
 from vivado_console.log_analysis import enrich
+from vivado_build_artifacts import cleanable
 from vivado_build_config import TIMESTAMP
 from vivado_build_processes import alive, find_user_vivado, group_members, local_identity, probe_process, process_info, signal_process, thread_activity, vivado_engine
 
@@ -56,6 +57,25 @@ def run_selection(row: dict) -> str:
             attempt = '-'  # Legacy implementation folders had no attempt date.
         selection += f'.{implementation}.{attempt}'
     return selection
+
+
+def unobserved_run(row: dict) -> bool:
+    """Keep uncertain workers visible without resurrecting completed launches."""
+    finished = row.get('finished_at') or row.get('status') in {'complete', 'failed', 'stopped'}
+    return row['pid_state'] == 'unavailable' and (not finished or row.get('continuation_pending', False))
+
+
+def artifact_protection(output: str) -> str:
+    """Report cleanup protection using the cleanup command's own Git rules."""
+    folder = Path(output)
+    try:
+        folder.stat()
+        allowed, _ = cleanable(folder)
+        return 'No' if allowed else 'Yes'
+    except FileNotFoundError:
+        return 'Missing'
+    except (OSError, ValueError):
+        return 'Unknown'
 
 
 class BuildRegistry:
@@ -198,7 +218,7 @@ class BuildRegistry:
     def status(self, *, all_runs: bool = False) -> None:
         rows = self.refresh()
         if not all_runs:
-            rows = [row for row in rows if row['active'] or row['pid_state'] == 'unavailable']
+            rows = [row for row in rows if row['active'] or unobserved_run(row)]
         if not rows:
             print("No registered builds" if all_runs else "No active builds")
             return
@@ -222,19 +242,21 @@ class BuildRegistry:
                 run_selection(row),
                 row.get('engine_pid') or '-',
                 row.get('stage', '-'), row.get('status', '-'),
-                thread_activity(row.get('engine'), row['host']) if row['active'] or row['pid_state'] == 'unavailable' else 'Exited',
+                thread_activity(row.get('engine'), row['host']) if row['active'] else ('Unavailable' if unobserved_run(row) else 'Exited'),
                 '/'.join(str(detail.get(key, '-')) for key in ('WARNINGS', 'CRITICAL_WARNINGS', 'ERRORS')),
                 *[detail.get('LOG_' + key, '-') for key in ('WNS', 'TNS', 'WHS', 'THS')],
                 detail.get('LOG_PHASE', '-') or '-',
                 launch_elapsed(row),
                 *[worker.get(key, '-') for key in ('rss', 'peak', 'threads')],
                 detail.get('LOG_AGE_SECONDS', '-') if row['active'] else '-',
+                artifact_protection(row['output']),
             ])
         print(f"Build status | {utc_now()}")
         print(create_matrix_table_from_data(
-            ['Run', 'Vivado PID', 'Stage', 'Status', 'Vivado state', 'W/CW/E', 'WNS(ns)', 'TNS(ns)', 'WHS(ns)', 'THS(ns)', 'Log phase', 'Elapsed', 'RAM used(MB)', 'Peak RAM(MB)', 'Threads', 'Log idle(s)'],
+            ['Run', 'Vivado PID', 'Stage', 'Status', 'Vivado state', 'W/CW/E', 'WNS(ns)', 'TNS(ns)', 'WHS(ns)', 'THS(ns)', 'Log phase', 'Elapsed', 'RAM used(MB)', 'Peak RAM(MB)', 'Threads', 'Log idle(s)', 'Protected'],
             table,
         ))
+        print('Protected = tracked files or Git-ignore cleanup exceptions (Yes/No); Missing/Unknown means protection could not be evaluated.')
         if all_runs:
             return
         print("W/CW/E = warnings / critical warnings / errors. Timing = latest log estimates, not timing closure.")

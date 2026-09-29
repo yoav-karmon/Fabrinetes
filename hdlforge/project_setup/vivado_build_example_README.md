@@ -134,8 +134,9 @@ old input snapshot subdirectories have no special protection.
 
 `--build_clean_ignore_artifacts` covers every configured run; add a run selector
 to narrow it. Cleanup evaluates actual file ignore rules with Git, including manual
-exceptions. Any nonignored file protects its containing run folder. Empty folders
-are eligible. No PID, run-status or tracked-file checks are performed.
+exceptions. Any tracked or nonignored file protects its containing run folder.
+Empty folders without tracked entries are eligible. No PID or run-status checks
+are performed by cleanup.
 
 `--init_build all` fills missing optional settings in existing JSON runs while
 preserving current values; a run selector limits the update to one definition.
@@ -253,6 +254,11 @@ copy, or publication lock is created. Existing historical copies are not consult
 or modified. Input readiness checks apply to the selected date without fallback.
 IP paths containing `artifacts/latest/` are logical references: HDLForge replaces
 that component with a date before copying inputs into the consumer snapshot.
+
+The `Protected` column uses the same tracked-file and Git-ignore evaluation as artifact cleanup:
+`Yes` preserves the folder, `No` means eligible under those rules, and
+`Missing`/`Unknown` means the folder or its protection could not be evaluated.
+This column describes cleanup protection, not whether a build is running.
 
 `--build_status` shows active/unavailable registered builds; `--build_status_all`
 also shows completed, failed, stopped, and dead runs, as a table without tail

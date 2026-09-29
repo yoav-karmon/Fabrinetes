@@ -155,7 +155,15 @@ def initialize_visibility(folder: Path) -> None:
 
 
 def cleanable(folder: Path) -> tuple[bool, str]:
-    """Let Git evaluate actual ignore rules, including user-written exceptions."""
+    """Preserve tracked files and let Git evaluate user-written ignore exceptions."""
+    tracked = subprocess.run(
+        ["git", "-C", str(folder), "ls-files", "--cached", "-z", "--", "."],
+        capture_output=True, text=True,
+    )
+    if tracked.returncode:
+        raise ValueError(tracked.stderr.strip() or "Cannot evaluate tracked artifact files")
+    if tracked.stdout:
+        return False, f"tracked by Git: {tracked.stdout.split(chr(0), 1)[0]}"
     paths = []
     for path in folder.rglob("*"):
         if path.is_symlink() or not path.is_dir():
