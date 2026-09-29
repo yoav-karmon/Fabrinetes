@@ -39,30 +39,36 @@ hdlforge_list_host_and_users() {
     jq -r '.settings.env // {} | to_entries[] | .key as $host | .value | to_entries[] | "\($host):\(.key)"' "$project_json"
 }
 
-hdlforge_apply_json_environment() {
+hdlforge_read_json_environment() {
     local project_json="$1"
     local host_name="$2"
     local user_name="$3"
-    local env_json path_entry pythonpath_entry vivado_settings
 
-    env_json="$(jq -c --arg host "$host_name" --arg user "$user_name" \
-        '.settings.env[$host][$user] // empty' "$project_json")"
+    jq -c --arg host "$host_name" --arg user "$user_name" \
+        '.settings.env[$host][$user] // empty' "$project_json"
+}
+
+hdlforge_apply_json_environment() {
+    local env_json="$1"
+    local jq_bin="$2"
+    local path_entry pythonpath_entry vivado_settings
+
     [ -n "$env_json" ] || return 0
 
     while IFS= read -r path_entry; do
         [ -n "$path_entry" ] && add_to_path "$path_entry"
-    done < <(printf '%s' "$env_json" | jq -r '.path[]?')
+    done < <(printf '%s' "$env_json" | "$jq_bin" -r '.path[]?')
     while IFS= read -r pythonpath_entry; do
         [ -n "$pythonpath_entry" ] && add_to_pythonpath "$pythonpath_entry"
-    done < <(printf '%s' "$env_json" | jq -r '.pythonpath[]?')
+    done < <(printf '%s' "$env_json" | "$jq_bin" -r '.pythonpath[]?')
 
-    vivado_settings="$(printf '%s' "$env_json" | jq -r '.tools.vivado // empty')"
+    vivado_settings="$(printf '%s' "$env_json" | "$jq_bin" -r '.tools.vivado // empty')"
     if [ -n "$vivado_settings" ]; then
         [ -f "$vivado_settings" ] || { echo "error: Vivado settings not found: $vivado_settings" >&2; return 1; }
         export VIVADO_SETTINGS="$vivado_settings"
         source "$VIVADO_SETTINGS"
     fi
-    export VERILATOR_BIN="$(printf '%s' "$env_json" | jq -r '.tools.verilator // empty')"
+    export VERILATOR_BIN="$(printf '%s' "$env_json" | "$jq_bin" -r '.tools.verilator // empty')"
     if [ -n "$VERILATOR_BIN" ]; then
         [ -x "$VERILATOR_BIN" ] || { echo "error: Verilator is unavailable at $VERILATOR_BIN" >&2; return 1; }
         add_to_path "$(dirname "$VERILATOR_BIN")"
@@ -84,6 +90,24 @@ hdlforge_prepare_environment() {
     export HDLFORGE_CALLED=1
     export HDLFORGE_NESTED_CALL=0
 
+    # Read both JSON layers while the caller's tools are still on PATH.
+    local repo_json project_json repo_environment project_environment jq_bin
+    jq_bin="$(type -P jq)" || { echo "error: jq is required on the incoming PATH" >&2; return 1; }
+    jq_bin="$(realpath -s "$jq_bin")" || return 1
+    export REPO_TOP="$(git rev-parse --show-toplevel 2>/dev/null)"
+    [ -n "$REPO_TOP" ] || { echo "error: HDLForge must run inside a Git repository" >&2; return 1; }
+    export HDLFORGE_SELECTED_HOST="${HOST_MACHINE:-$(hostname -s)}"
+    export HDLFORGE_SELECTED_USER="${HDLFORGE_HOST_USER:-$(id -un)}"
+    export HDLFORGE_SELECTED_HOST_AND_USER="${HDLFORGE_SELECTED_HOST}:${HDLFORGE_SELECTED_USER}"
+    repo_json="$(hdlforge_find_repo_environment_project)" || return 1
+    project_json="$(hdlforge_find_environment_project || true)"
+    export HDLFORGE_ENV_REPO_JSON="$repo_json"
+    export HDLFORGE_ENV_PROJECT_JSON="${project_json:-$repo_json}"
+    repo_environment="$(hdlforge_read_json_environment "$repo_json" "$HDLFORGE_SELECTED_HOST" "$HDLFORGE_SELECTED_USER")" || return 1
+    if [ -n "$project_json" ] && [ "$project_json" != "$repo_json" ]; then
+        project_environment="$(hdlforge_read_json_environment "$project_json" "$HDLFORGE_SELECTED_HOST" "$HDLFORGE_SELECTED_USER")" || return 1
+    fi
+
     set_base_path "${HDLFORGE_BASE_PATH:-/usr/bin:/bin}"
     set_base_pythonpath "${HDLFORGE_BASE_PYTHONPATH:-}"
     export HDLFORGE_INHERITED_PATH="$PATH"
@@ -102,19 +126,8 @@ hdlforge_prepare_environment() {
     export HDLFORGE_BOOTSTRAP_PYTHONPATH="$INIT_PYTHONPATH"
     update_repo_path
 
-    export HDLFORGE_SELECTED_HOST="${HOST_MACHINE:-$(hostname -s)}"
-    export HDLFORGE_SELECTED_USER="${HDLFORGE_HOST_USER:-$(id -un)}"
-    export HDLFORGE_SELECTED_HOST_AND_USER="${HDLFORGE_SELECTED_HOST}:${HDLFORGE_SELECTED_USER}"
-    local repo_json project_json
-    repo_json="$(hdlforge_find_repo_environment_project)" || return 1
-    export HDLFORGE_ENV_REPO_JSON="$repo_json"
-    hdlforge_apply_json_environment "$repo_json" "$HDLFORGE_SELECTED_HOST" "$HDLFORGE_SELECTED_USER" || return 1
-
-    project_json="$(hdlforge_find_environment_project || true)"
+    hdlforge_apply_json_environment "$repo_environment" "$jq_bin" || return 1
     if [ -n "$project_json" ] && [ "$project_json" != "$repo_json" ]; then
-        export HDLFORGE_ENV_PROJECT_JSON="$project_json"
-        hdlforge_apply_json_environment "$project_json" "$HDLFORGE_SELECTED_HOST" "$HDLFORGE_SELECTED_USER" || return 1
-    else
-        export HDLFORGE_ENV_PROJECT_JSON="$repo_json"
+        hdlforge_apply_json_environment "$project_environment" "$jq_bin" || return 1
     fi
 }

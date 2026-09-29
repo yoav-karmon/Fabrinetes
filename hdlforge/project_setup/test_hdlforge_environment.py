@@ -3,6 +3,7 @@
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -10,7 +11,8 @@ import unittest
 
 class LauncherEnvironmentTest(unittest.TestCase):
     def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory()
+        # Snap-installed jq has a private /tmp but can read user-owned home files.
+        self.temporary = tempfile.TemporaryDirectory(dir=Path.home())
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         self.home = self.root / "home"
@@ -22,6 +24,9 @@ class LauncherEnvironmentTest(unittest.TestCase):
         self.wrapper = Path(__file__).with_name("hdlforge").resolve()
         self.project.joinpath("sample.hdlforge.json").write_text(json.dumps({
             "LLM_orch": {"nested": "hdlforge --no-print --cmd 'command -v hdlforge'"},
+            "settings": {"env": {"test-host": {"test-user": {
+                "path": [str(Path(shutil.which("jq")).parent)],
+            }}}},
         }))
         self.bin_dir = self.root / "vendor bin"
         self.bin_dir.mkdir()
@@ -30,9 +35,41 @@ class LauncherEnvironmentTest(unittest.TestCase):
         self.settings = self.root / "settings.sh"
         self.settings.write_text(f'export PATH="{self.bin_dir}:$PATH"\necho TOOL_STARTUP\n')
         self.env = {"HOME": str(self.home), "USER": os.environ.get("USER", "test"),
-                    "PATH": os.defpath, "INIT_PATH": os.defpath, "INIT_PYTHONPATH": "",
+                    "HOST_MACHINE": "test-host", "HDLFORGE_HOST_USER": "test-user",
+                    "PATH": f"{Path(shutil.which('jq')).parent}:{os.defpath}",
+                    "INIT_PATH": os.defpath, "INIT_PYTHONPATH": "",
                     "BASHRC_INITIALIZED": "1", "FABRINETES": "/stale/installation",
                     "VIVADO_SETTINGS": str(self.settings)}
+
+    def test_json_is_read_before_path_reset(self):
+        # jq exists only on the incoming PATH, not the configured base PATH.
+        incoming_bin = self.root / "incoming bin"
+        incoming_bin.mkdir()
+        incoming_bin.joinpath("jq").symlink_to(shutil.which("jq"))
+        self.env["PATH"] = f"{incoming_bin}:{os.defpath}"
+        self.env["HDLFORGE_BASE_PATH"] = os.defpath
+        self.env["HOST_MACHINE"] = "test-host"
+        self.env["HDLFORGE_HOST_USER"] = "test-user"
+        self.project.joinpath("sample.hdlforge.json").write_text(json.dumps({
+            "settings": {"env": {"test-host": {"test-user": {
+                "path": [str(self.bin_dir)], "pythonpath": [str(self.root)],
+            }}}},
+        }))
+        result = subprocess.run([str(self.wrapper), "--no-print", "--cmd",
+                                 'command -v vivado; printf "%s\\n" "$PATH" "$PYTHONPATH"'],
+                                cwd=self.project, env=self.env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines()[0], str(self.bin_dir / "vivado"))
+        self.assertNotIn(str(incoming_bin), result.stdout)
+        self.assertEqual(result.stdout.splitlines()[-1], str(self.root))
+        self.assertEqual(result.stderr, "")
+
+    def test_invalid_json_stops_before_command(self):
+        self.project.joinpath("sample.hdlforge.json").write_text("{invalid")
+        result = subprocess.run([str(self.wrapper), "--no-print", "--cmd", "echo SHOULD_NOT_RUN"],
+                                cwd=self.project, env=self.env, capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("SHOULD_NOT_RUN", result.stdout)
 
     def test_cold_shortcut_resolves_nested_launcher(self):
         result = subprocess.run([str(self.wrapper), "--no-print", "nested"], cwd=self.project,
@@ -84,7 +121,7 @@ class LauncherEnvironmentTest(unittest.TestCase):
         result = subprocess.run([str(self.wrapper), "--print-env"], cwd=self.project,
                                 env=self.env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("HDLForge prepared environment", result.stdout)
+        self.assertIn("HDLForge selected environment", result.stdout)
         self.assertIn("PATH (lookup order):", result.stdout)
         self.assertIn("PYTHONPATH (lookup order):", result.stdout)
         self.assertIn("HDLForge launcher", result.stdout)
