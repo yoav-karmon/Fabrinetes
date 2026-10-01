@@ -11,6 +11,7 @@ Container setup:
 
 HDLForge:
   hdlforge.md                            -> command line reference
+  hdlforge.md#ssh-configuration-inventory -> SSH config/JSON import, export, verify, merge, collisions, backups
   hdlforge_project_file.md               -> project JSON, Verilator, Vivado, LLM_orch
   hdlforge_vcd_analyzer.md               -> VCD helper
 

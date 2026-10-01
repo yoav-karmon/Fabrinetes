@@ -23,6 +23,7 @@ NETWORK_COMMANDS = ["send_raw", "send_arp", "send_icmp", "send_udp"]
 HW_SERVER_COMMANDS = ["program", "scan_ila", "scan_jtag", "read_dna"]
 VERILATOR_STEPS = ["build", "sim", "lint"]
 GLOBAL_ENV_FLAGS = ["--env-python", "--env-path", "--env-var"]
+SSH_ACTIONS = [f"--{prefix}_{action}" for prefix in ("sshconfig", "sshcofnig") for action in ("import", "export", "verify", "merge")]
 GLOBAL_FLAGS = [*GLOBAL_ENV_FLAGS, "--dry-run", "--no-print", "--print-env", "--print-env-all-host_and_user", "--add-to-bashrc-path", "--init-base-path", "--init-base-pythonpath"]
 GLOBAL_VALUE_FLAGS = {"--project", "--tool", "--cmd", "--env-python", "--env-path", "--env-var"}
 REPEATABLE_GLOBAL_ENV_FLAGS = {"--env-python", "--env-path", "--env-var"}
@@ -905,6 +906,15 @@ def parse_llm_mode(tokens_before_current: list[str], cwd: Path) -> ParsedState:
 
 
 def complete_llm(tokens_before_current: list[str], cur: str, cwd: Path) -> CompletionResult:
+    if any(token in SSH_ACTIONS for token in tokens_before_current):
+        previous = tokens_before_current[-1]
+        if previous in {"--json", "--project", "--input", "--ssh-config"}:
+            return complete_path(cur, cwd)
+        if previous == "--on-collision":
+            return complete_words(cur, ["error", "keep", "incoming"])
+        if previous in {"--local-host", "--local-user"}:
+            return CompletionResult([])
+        return complete_words(cur, ["--json", "--input", "--ssh-config", "--local-host", "--local-user", "--on-collision", "--dry-run", "--force", "--help", "-h"])
     if "--" in tokens_before_current:
         dd_index = tokens_before_current.index("--")
         passthrough_tokens = tokens_before_current[dd_index + 1 :]
@@ -931,7 +941,7 @@ def complete_llm(tokens_before_current: list[str], cur: str, cwd: Path) -> Compl
             return complete_words(cur, append_flags)
         return CompletionResult([])
 
-    llm_flags = filter_single_use(["--eval_json", "--cmd", "--project", "--tool", *GLOBAL_FLAGS, "--help", "-h"], state)
+    llm_flags = filter_single_use(["--eval_json", "--cmd", "--project", "--tool", *GLOBAL_FLAGS, *SSH_ACTIONS, "--help", "-h"], state)
 
     if (cur.startswith("-") or not cur) and not state.has_llm_path:
         merged = unique(complete_llm_path(state.project_file, cur).completions + [flag for flag in llm_flags if flag.startswith(cur)])

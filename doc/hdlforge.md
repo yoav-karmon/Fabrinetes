@@ -1,5 +1,96 @@
 HDLForge
 
+## SSH configuration inventory
+
+Run these from the repository root to use its `*.hdlforge.json`, or select
+`--json PATH` explicitly. These commands need only Python's standard library;
+they do not connect to hosts or execute SSH `Match exec` commands.
+
+```bash
+hdlforge --sshconfig_import --json fpga.hdlforge.json --ssh-config ~/.ssh/config --dry-run
+hdlforge --sshconfig_import --json fpga.hdlforge.json
+hdlforge --sshconfig_verify --json fpga.hdlforge.json
+hdlforge --sshconfig_export --json fpga.hdlforge.json --dry-run
+hdlforge --sshconfig_merge --json fpga.hdlforge.json --input laptop.json --input lab.json --dry-run
+hdlforge --sshconfig_merge --json fpga.hdlforge.json --input lab.json --on-collision incoming
+hdlforge --sshconfig_export --help
+```
+
+`--sshcofnig_import`, `--sshcofnig_export`, `--sshcofnig_verify`, and
+`--sshcofnig_merge` are accepted spelling aliases. Every action supports
+`--help` / `-h`, `--dry-run`, and `--force` / `-f`.
+
+The inventory belongs to the **local** hostname and local user:
+`settings.env.<local-host>.<local-user>.ssh_config`. Defaults come from the
+current machine and login user; select another environment with
+`--local-host NAME --local-user NAME`. These select inventory ownership, not
+remote login credentials. Each input to merge uses this same explicit scope;
+other hosts, users, and repository settings are preserved.
+
+```json
+{
+  "settings": {
+    "env": {
+      "fpga-dev-1": {
+        "ykarmon": {
+          "ssh_config": {
+            "ch4dev-03": {
+              "HostName": "ch4dev-03",
+              "User": "yoav.karmon",
+              "Port": 22
+            },
+            "ch4fpgadev-01": {
+              "HostName": "ch4fpgadev-01",
+              "User": "yoav.karmon",
+              "Port": 22
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+There is no version, preamble, host list or multiline configuration blob.
+The destination host is the dictionary key; its value is an SSH option
+dictionary. Repeated directives such as `IdentityFile` use arrays of values.
+Import discards standalone comments and whitespace; export generates consistent
+SSH syntax. Values retain SSH quoting, and numeric ports are stored as integers.
+Global settings, `Include`, `Match`, wildcard/negated patterns, multi-alias
+blocks and repeated Host blocks are rejected before import writes anything:
+this scoped host dictionary cannot preserve their precedence. SSH directives
+are never executed during import or verification.
+
+Import replaces only the selected environment's inventory. Export replaces the
+selected SSH file, so review its diff before applying. Verification compares
+host options rather than whitespace or comments and reports host collisions;
+it does not certify SSH syntax or reachability.
+
+The connection **Host alias**, compared case-insensitively, is the merge key.
+Different aliases sharing one `HostName` remain separate. Duplicate JSON object
+keys are rejected. Merge reads the destination's selected inventory first,
+followed by each `--input` in order. Identical settings are reported as
+`DUPLICATE` and deduplicated; differing settings for the same host are reported
+as `COLLISION` with source filenames. Default collision policy is `error`
+(no write). Explicit `--on-collision keep` keeps the first entry; `incoming`
+uses the last. `--force` skips approval but never chooses a collision policy.
+
+Writes show a unified diff and prompt `Apply changes? [y/N]`; EOF or declining
+leaves files untouched. `--force` retains the diff and backup but skips the
+prompt. Every changed existing destination gets a sibling backup named
+`<filename>.<YYYYMMDDTHHMMSS.microsecondsZ>.bak`, with private permissions.
+New files have no previous content to back up and are created with mode 0600.
+Existing destination permissions are retained. Writes use atomic replacement;
+symlink destinations are refused (select the resolved path explicitly).
+Changes detected during approval abort the write.
+
+Dry-run, verification, cancellation, and unchanged files create no backups or
+other writes. Exit codes: 0 for success/clean verification, 1 for cancellation
+or verification differences/collisions, 2 for invalid input/unresolved merge
+collisions. Inventories and diffs can contain sensitive SSH options; review
+their contents before committing or sharing.
+
 Bitstream-only regeneration uses the normal Vivado build selector:
 
 ```bash

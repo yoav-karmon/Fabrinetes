@@ -228,7 +228,7 @@
     "--env-path": null,
     "#--env-path": "Add executable search paths from a JSON array or project JSON key.",
     "--env-var": null,
-    "#--env-var": "Export environment variables from a JSON array or project JSON key.",
+    "#--env-var": "Set environment variables for the launched command from a JSON array or project JSON key.",
     "#--group": "Synthesis group from get_groups; process synthesis and enabled implementations.",
     "--group": null,
     "#--reset": "With build_run/build_group, reset the target before its full build.",
