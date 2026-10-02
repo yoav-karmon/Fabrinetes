@@ -20,7 +20,7 @@
       ],
       "ips": [
         {
-          "path": "compilation/non_project_mode/ip_example/artifacts/latest/work/ip_sources/0/example.xcix",
+          "path": "compilation/non_project_mode/ip_example/latest/work/ip_sources/0/example.xcix",
           "properties": {},
           "file_properties": {
             "example_ooc.xdc": {
@@ -45,7 +45,7 @@
       "impl_runs": {
         "impl_example": {
           "stage": "impl",
-          "script": "compilation/non_project_mode/synth_example/impl_example/run.tcl",
+          "script": "compilation/non_project_mode/synth_example/impl_run_example.tcl",
           "part": "xcvu9p-fsgd2104-3-e",
           "top": "top",
           "constraints": [

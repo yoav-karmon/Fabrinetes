@@ -148,112 +148,79 @@ Verilator:
   --file and --lint-file imply --step lint when no step is supplied
   targetless file lint scopes -Werror-<CODE> failures to selected files
 
-Vivado:
+Vivado non-project:
   hdlforge --project example.hdlforge.json --tool vivado --build synth_example
-  hdlforge --project example.hdlforge.json --tool vivado --build synth_example.impl_example
-  hdlforge --project example.hdlforge.json --tool vivado --build synth_example.impl_example --synth_timestamp 2026-09-28T120000Z
-    Native non-project builds read vivado.non_project.runs from the selected JSON.
-    Implementation definitions live under the synthesis run's impl_runs object.
-    All paths are relative to the JSON directory, except IP file_properties member
-    names, which are relative to the imported IP root. Stages share one process.
-    Without --synth_timestamp, implementation uses the newest synthesis timestamp (which must be complete)
-    with its checkpoint present. Explicit timestamps must also be complete.
-    Output: <output_root>/<synth>/artifacts/<UTC timestamp>/impl_runs/<impl>.
-    Implementation attempts create new timestamped output folders; new synthesis/IP folders must be unique. Logs, checkpoints, reports and bitstreams
-    are retained as regular files. Declared RTL, IP, XDC, Tcl, supporting input_files
-    and literal RTL includes are copied into artifacts/TIMESTAMP/inputs/ before launch.
-    info/input_manifest.json records the copies. Synthesis freezes implementation
-    configurations and inputs too; implementations reuse those snapshots and the
-    parent checkpoint. Older synthesis runs without snapshots require regeneration.
-    Declare dynamic script dependencies and memory files explicitly in input_files.
-    The configured script owns native Vivado commands, directives, checkpoints and
-    reports, e.g. route_design -directive AggressiveExplore. It calls
-    ::hdlforge::initialize_design to create the project and load the JSON file lists.
-    Common input-loading defaults live in vivado_build_runtime.tcl. JSON contains inputs and run identity;
-    it has no JSON stage sequence or hook configuration. Edit run.tcl to change the sequence
-    or directives. Passive Tcl execution traces record status and timing without
-    wrapping or changing the native commands. Artifact traces copy completed outputs.
-    Completion offers run names, then --synth_timestamp only for an implementation,
-    then timestamp directories found on disk (including incomplete folders).
-  hdlforge --project example.hdlforge.json --tool vivado --build synth_example --auto_impl impl_example --auto_impl impl_other
-    Repeated --auto_impl values are deduplicated in order. Names are validated before
-    synthesis starts. After synthesis succeeds, implementations run sequentially,
-    each pinned to that synthesis's exact timestamp, never an implicit latest run.
-    A failed/stopped run stops the chain. Each implementation runs its configured
-    Tcl stages through write_bitstream when included. The Python launcher monitors
-    the process and schedules continuation; no per-project run.sh is needed.
-    New timestamps include six fractional digits to distinguish same-second launches;
-    old second-resolution timestamps remain selectable.
+  hdlforge --project example.hdlforge.json --tool vivado --build synth_example --auto_impl impl_example
+  hdlforge --project example.hdlforge.json --tool vivado --build synth_example.latest.impl_example.new
+  hdlforge --project example.hdlforge.json --tool vivado --build synth_example.rerun.<run-id>
+  hdlforge --project example.hdlforge.json --tool vivado --build synth_example.<synth-id>.impl_example.rerun.<impl-id>
+    Definitions live in vivado.non_project.runs; implementation definitions are
+    nested in impl_runs. Project-definition paths are relative to the project JSON.
+    The script field explicitly selects maintained Tcl code. HDLForge copies it,
+    generates snapshot/scripts/run.json, and launches the copied run.tcl directly
+    with -tclargs <run.json>. The current working directory is the run's work/.
+    New synthesis snapshots also freeze each implementation's declared inputs and
+    store each definition in run.json implementation_configs. Each launched
+    implementation adds an entry to that same JSON under attempts, keyed by run ID,
+    with identity and checkpoint hash. Child scripts receive the shared JSON path
+    and run ID. Updates use file locking and atomic replacement.
+    The maintained script's bootstrap loads the frozen runtime and Tcllib JSON parser.
+
+    Layout: <output_root>/<synth>/_<label>/{snapshot,logs,artifacts,work}.
+    snapshot contains source/ and scripts/{run.tcl,run.json,_hdlforge/}.
+    Implementation: <synth-run>/impl_runs/<implementation-name>/_<label>/ with exactly the same layout.
+    Maintained implementation scripts live beside the synthesis script, conventionally
+    impl_run_NAME.tcl. Only declared files and literal RTL includes are snapshotted;
+    declare dynamic dependencies in input_files. Implementations inherit the parent's
+    frozen IP list only when ips is omitted; they do not copy synthesis RTL or DCP.
+    Their JSON references the parent DCP relatively and stores SHA-256/parent run ID.
+    A missing or changed checkpoint refuses execution or rerun.
+
+    Generated JSON paths are relative to its own directory, not the working directory.
+    Run labels are opaque and start with _. Identity and time come from run_id,
+    created_at, timestamp and launch_epoch in JSON. Renaming generated run folders
+    preserves execution, discovery, latest selection and reruns. Use stable IDs
+    from completion when labels contain punctuation. New implementations snapshot
+    the parent synthesis's frozen declared Tcl/XDC/support files; reruns preserve the original JSON,
+    scripts, inputs and bitstream USERID timestamp. --refresh_impl_inputs remains
+    accepted for a new implementation but is redundant with that default behavior.
+    Latest selects by JSON creation time and requires success; no fallback to an
+    older success. Auto-implementation pins the successful parent's stable ID.
+    Commands, directives and stages belong to Tcl. Parameter/property maps remain
+    literal Vivado values. initialize_design loads JSON inputs into an in-memory project.
+
+  hdlforge --project example.hdlforge.json --tool vivado --build synth_example.latest.impl_example.bitstream.<impl-id>
+    Open the selected routed checkpoint without synthesis/place/route. Save a
+    hash-checked reference and paired probes in a new bitstream_runs/_<label> run.
+    Preserve the implementation's original bitstream USERID timestamp.
+  hdlforge --project example.hdlforge.json --tool vivado --build ip_example
+    Regenerate private work/ip_sources copies; the input snapshot stays immutable.
   hdlforge --project example.hdlforge.json --tool vivado --build_status
+  hdlforge --project example.hdlforge.json --tool vivado --build_status_all
   hdlforge --project example.hdlforge.json --tool vivado --build_stop_all
   hdlforge --project example.hdlforge.json --tool vivado --build_find_all_user_runs
-    Launch records are stored in <output_root>/run_registry.json using a lock and
-    atomic replacement. Rows include project, selector, synthesis timestamp,
-    launcher/Vivado PID identities, process state, run status, exit code, timestamps,
-    output folder, runme.log/vivado.log locations and parent/continuation links.
-    --build_status shows active/unavailable registered builds.
-    --build_status_all also includes completed, failed, stopped, and dead runs.
-    Stage status comes from each run's info/status. Dead history stays in the registry.
-    --stopall cancels queued continuation and sends TERM to registered local-user
-    launchers and Vivado process groups, escalating after ten seconds. PID start time,
-    boot identity and PID namespace prevent acting on reused or foreign PIDs.
-    --find_all_user_runs scans the visible Linux /proc tree for current-user Vivado
-    processes, including those absent from this output root's registry. It reports
-    PID/state, command, working directory and log argument when available. Stop-all
-    also reports remaining processes; it does not kill unregistered processes.
-    All these options and --auto_impl implementation values support completion.
-  hdlforge --project example.hdlforge.json --tool vivado --build ip_example
-    stage: ip regenerates a private IP copy using the configured run.tcl.
-    The supplied example uses generate_target, synth_ip and convert_ips; generated
-    output products and XCIX remain under work/ip_sources/. No persistent XPR is needed.
-    Parameters and project/fileset properties are JSON maps. Set general.maxThreads
-    in parameters per run. enabled_on_all defaults true for batch selection; false
-    does not prevent explicitly selecting the run. Batch shortcuts are project-defined.
-    Outputs remain in timestamped folders. The logical latest selector resolves
-    to the newest dated attempt, never a physical latest directory. Consumer inputs
-    require successful completion (complete status and zero exit code). Failure
-    remains visible in its dated run; no older successful run is silently chosen.
-  hdlforge --project example.hdlforge.json --tool vivado --build_create syth_imp_example
-  hdlforge --project example.hdlforge.json --tool vivado --init_build_example
-    Inject synth_example, nested impl_example and ip_example JSON entries, their
-    run.tcl scripts, README files, and synthesis/IP root .gitignore files.
-    Existing example entries or folders are rejected; other settings are preserved.
-    Replace placeholder inputs before building. No Vivado process starts.
-    The generated ip_keep_hierarchy.xdc contains a commented KEEP_HIERARCHY SOFT
-    example. Injection warns to customize its cell query before enabling it.
-    create_msg_db/close_msg_db are optional, commented examples for structured GUI
-    messages; normal text logging works without them. Custom actions belong in Tcl.
-  hdlforge --project example.hdlforge.json --tool vivado --init_build all
-  hdlforge --project example.hdlforge.json --tool vivado --init_build synth_example.impl_example
-    Fill missing optional settings in existing run definitions, preserving existing
-    values. Also accepts vivado.non_project.runs.<run> JSON paths. Required identity
-    and input paths must already be supplied; initialization does not launch builds.
-  hdlforge --project example.hdlforge.json --tool vivado --build synth_example.impl_example --save_this_run
-  hdlforge --project example.hdlforge.json --tool vivado --build_clean_ignore_artifacts
+    _run_registry.json records launches; run IDs relocate renamed folders.
+    logs/ holds status, exit code, stage events, runme.log, vivado.log and journal.
+    Ctrl-C detaches log following; it does not stop the background worker.
+    Process identity and run locks protect active runs.
   hdlforge --project example.hdlforge.json --tool vivado --build_clean_ignore_artifacts --dry-run
-    Preview cleanup across all runs: print Would delete for eligible folders and
-    Skipped with the reason for protected folders. No artifacts are deleted.
-    Also supported with --build SYNTH[.IMPL] --clean_ignore_artifacts --dry-run.
-    Management replaces building. A selected run covers all matching timestamps;
-    --synth_timestamp narrows selection. Cleanup without a selector covers all runs.
-    One .gitignore at each synthesis/IP run root controls all timestamps and nested
-    implementations. Artifact files are ignored by default; directories remain
-    traversable for exceptions. --save_this_run adds a saved-path exception;
-    so saving synthesis does not automatically save its implementations.
-    Cleanup selects timestamped runs. A historical snapshot directory named latest inside
-    an artifact tree has no special protection.
-    Cleanup asks Git to evaluate actual file ignore rules with check-ignore --no-index.
-    A folder containing any nonignored file is skipped. Empty folders are eligible.
-    No PID, run-status or tracked-file protection is applied. These commands do not
-    stage, commit, or untrack files. User-authored ignore exceptions also apply.
+    Cleanup without a selector checks whole synthesis trees, including every nested
+    implementation. Any tracked or non-ignored descendant prevents deletion of
+    the entire tree; unreadable paths, nested repositories and held locks also block.
+    Remove --dry-run to delete eligible trees. --build RUN --clean_ignore_artifacts
+    narrows selection. Add _* once to the repository root .gitignore; HDLForge does
+    not generate per-run ignore files. Save explicitly with git add -f <run-folder>.
+    --save_this_run is retired. Old-format folders remain intact and are not selected.
+  hdlforge --project example.hdlforge.json --tool vivado --build_create syth_imp_example
+  hdlforge --project example.hdlforge.json --tool vivado --init_build all
   hdlforge --project example.hdlforge.json --tool vivado --build_lint
-    Check all run definitions, file paths and scoped IP files/archive members.
-    Require existing output_root and named script folders: <output_root>/<synth>/
-    and <output_root>/<synth>/<impl>/. Each run's script must be directly in its
-    folder. Resolved paths
-    are checked, so '..' or symlink escapes do not bypass the layout rules.
-    Prints defects together and exits nonzero on failure; never launches Vivado
-    or creates build artifacts. This is structural lint, not HDL/timing analysis.
+    Create examples, fill missing defaults without overriding values, or validate
+    definitions and script/input paths without launching Vivado. Scripts belong
+    directly in the synthesis/IP definition directory. Existing examples are not
+    overwritten. enabled_on_all controls project-defined batch selection.
+    See hdlforge/project_setup/vivado_build_example_README.md for the full example.
+
+Vivado project mode:
   hdlforge --tool vivado --get_xpr_path
     Print only the absolute configured XPR path on stdout, without starting Vivado.
     Uses ProjectFile, including --project selection and JSON/TOML discovery.
@@ -558,3 +525,8 @@ is resident memory (RSS); `Peak RAM(MB)` is the peak memory measurement.
 `Waiting` when all sampled threads are waiting. A waiting main thread alone
 does not imply idle workers; even `Waiting` is an instantaneous observation,
 not evidence of a stalled build. `Log idle(s)` measures time without log updates.
+
+Synthesis reruns are refused once the run has implementation history under
+impl_runs/<implementation-name>/. Empty implementation folders do not block
+reruns. Create a new synthesis run once implementation history exists. Implementation reruns remain available
+and validate the parent checkpoint hash before changing outputs.

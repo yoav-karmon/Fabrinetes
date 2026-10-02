@@ -17,7 +17,7 @@ from uuid import uuid4
 from table_formatter import create_matrix_table_from_data
 from vivado_console.log_analysis import enrich
 from vivado_build_artifacts import cleanable
-from vivado_build_config import TIMESTAMP
+from vivado_build_layout import descendant_runs, read_run, run_directories
 from vivado_build_processes import alive, find_user_vivado, group_members, local_identity, probe_process, process_info, signal_process, thread_activity, vivado_engine
 
 
@@ -52,9 +52,7 @@ def run_selection(row: dict) -> str:
     stamp = row.get('synth_timestamp') or '-'
     selection = f'{synthesis}.{stamp}'
     if row.get('stage') == 'impl':
-        attempt = Path(row['output']).name
-        if attempt != 'latest' and not TIMESTAMP.fullmatch(attempt):
-            attempt = '-'  # Legacy implementation folders had no attempt date.
+        attempt = row.get('run_id', '-')
         selection += f'.{implementation}.{attempt}'
     return selection
 
@@ -81,7 +79,7 @@ def artifact_protection(output: str) -> str:
 class BuildRegistry:
     def __init__(self, output_root: Path):
         self.root = output_root.resolve()
-        self.path = self.root / "run_registry.json"
+        self.path = self.root / "_run_registry.json"
 
     @contextmanager
     def locked(self):
@@ -89,7 +87,7 @@ class BuildRegistry:
         # Lock a separate inode; atomically replace JSON while holding it.     #
         #######################################################################
         self.root.mkdir(parents=True, exist_ok=True)
-        with (self.root / ".run_registry.lock").open("a") as lock:
+        with (self.root / "_run_registry.lock").open("a") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
             data = json.loads(self.path.read_text()) if self.path.exists() else {"version": 1, "runs": {}}
             yield data
@@ -114,11 +112,11 @@ class BuildRegistry:
                 raise BuildStopped("Continuation cancelled by --stopall")
             output = Path(config["output"])
             data["runs"][launch_id] = {
-                "launch_id": launch_id, "project": str(project.resolve()), "selector": config["selector"],
-                "stage": config["stage"], "synth_timestamp": config["timestamp"],
+                "launch_id": launch_id, "run_id": config["run_id"], "project": str(project.resolve()), "selector": config["selector"],
+                "stage": config["stage"], "synth_timestamp": config["synthesis_run_id"],
                 "build_selection": config.get('build_selection'),
-                "output": str(output), "run_log": str(output / "runme.log"),
-                "vivado_log": str(output / "vivado.log"), "status_file": str(output / "info/status"),
+                "output": str(output), "run_log": str(output / "logs/runme.log"),
+                "vivado_log": str(output / "logs/vivado.log"), "status_file": str(output / "logs/status"),
                 "host": local_identity(), "launcher": process_info(os.getpid()), "process": None,
                 "pid": None, "pid_state": "not_started", "status": "starting", "exit_code": None,
                 "started_at": utc_now(), "finished_at": None, "stop_requested": False,
@@ -145,7 +143,19 @@ class BuildRegistry:
             return []
         with self.locked() as data:
             rows = list(data["runs"].values())
+            locations = {}
+            for definition in self.root.iterdir():
+                if not definition.is_dir() or definition.is_symlink():
+                    continue
+                for parent in run_directories(definition):
+                    for folder in descendant_runs(parent):
+                        config = read_run(folder)
+                        locations[config['run_id']] = folder
             for row in rows:
+                if row.get('run_id') in locations:
+                    current = locations[row['run_id']]
+                    row.update(output=str(current), run_log=str(current / 'logs/runme.log'),
+                               vivado_log=str(current / 'logs/vivado.log'), status_file=str(current / 'logs/status'))
                 row["pid_state"] = probe_process(row.get("process"), row["host"])
                 engine = row.get('engine')
                 if not engine or not alive(probe_process(engine, row['host'])):
@@ -225,7 +235,7 @@ class BuildRegistry:
         rows.sort(key=lambda row: (not row['active'], row.get('started_at', '')))
         analysis = enrich({'records': [
             # Running enables log enrichment; the registry status stays authoritative.
-            {'STATUS': 'Running', 'DIRECTORY': row['output'], 'WORKER_RECORD': {
+            {'STATUS': 'Running', 'DIRECTORY': str(Path(row['output']) / 'logs'), 'WORKER_RECORD': {
                 'pid': row.get('engine_pid'), 'origin': {
                     'host': row['host'].get('host'), 'boot': row['host'].get('boot_id'),
                     'pidns': str(row['host'].get('pid_namespace', '')),
@@ -270,7 +280,7 @@ class BuildRegistry:
                 print(f"{detail.get('LOG_PATH', '-')}: {detail['LOG_STAGE']}")
         print(f"Follow logs (paths relative to {Path.cwd()}):")
         for row in rows:
-            log = Path(row.get('run_log', str(Path(row['output']) / 'runme.log')))
+            log = Path(row.get('run_log', str(Path(row['output']) / 'logs/runme.log')))
             command = shlex.join(['tail', '-n', '50', '-f', '--', os.path.relpath(log, Path.cwd())])
             print(f"  {run_selection(row)}:\n    {command}")
 

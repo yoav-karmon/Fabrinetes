@@ -4,145 +4,60 @@ import json
 import re
 from pathlib import Path
 
+from vivado_build_layout import read_run, run_directories
+
 
 RUN_NAME = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_-]*\Z")
-TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{6}(?:\.\d{6})?Z\Z")
 ARTIFACT_FLAGS = ["--save_this_run", "--clean_ignore_artifacts"]
 PROCESS_FLAGS = ["--stopall", "--find_all_user_runs"]
 
 BUILD_HELP = """
-Bitstream regeneration from a completed implementation (no synthesis/place/route):
-  --build SYNTH.<timestamp|latest>.IMPL.bitstream.<impl_timestamp|latest>
-  Copies the final routed checkpoint and original paired LTX into a new
-  implementation/bitstream_runs/TIMESTAMP/inputs/ snapshot. Outputs, logs and status
-  are separate from the original implementation; its USERID launch timestamp is
-  retained. Uses normal background execution, --build_status and --build_stop_all.
-  Completion offers existing completed implementation folders. No JSON field needed.
-  Refreshing XDC requires a new implementation, not bitstream regeneration.
-Non-project JSON: vivado.non_project
-  vivado_version: optional exact Vivado version; output_root: artifact/script root.
-  runs: named independent synthesis or IP builds; impl_runs: nested implementations.
-Run fields:
-  stage: synth (RTL synthesis), impl (parent DCP implementation), ip (IP regeneration).
-  enabled_on_all: optional boolean, default true. Set false to exclude a run
-       from the project's build-all and continue-all shortcuts. Explicit --build
-       selection and explicit --auto_impl selection remain allowed.
-  script: run.tcl; part: FPGA part; top: required for synth/impl, unnecessary for ip.
-  latest is a logical selector, never a published folder or symlink.
-       Select the newest timestamp directory by its name (not mtime), once per
-       launch. A failed/incomplete newest run is not replaced by an older success.
-       Consumers require the selected producer to complete successfully.
-       IP hashes remain in that producer's info/source_hashes.json; changed or
-       missing source hashes warn and continue, recorded in info/warnings.log.
-  sources: RTL paths or {path, language, library, properties}; language: vhdl2008.
-  ips: XCI/XCIX paths or {path, properties, file_properties}.
-       Implementation inherits its synthesis list when ips is omitted.
-       An explicit implementation ips list overrides it; [] selects none.
-       file_properties maps IP-relative member paths to property overrides.
-       Consumer example: OUTPUT_ROOT/ip_example/artifacts/latest/work/ip_sources/0/example.xcix
-       The producer uses sources/ip/example.xcix. Build the producer first;
-       latest is expanded to a timestamp before snapshotting; a missing file is an error, not fallback to checked-in IP products.
-       Injection rebases this example path when output_root is customized.
-  constraints: XDC paths or {path, properties}; defines: synthesis macro list.
-       Injection creates synth_example/ip_keep_hierarchy.xdc and lists it in
-       synthesis constraints. It warns to replace the placeholder reference and
-       uncomment KEEP_HIERARCHY SOFT only for IP hierarchy that needs preserving.
-       Verify cell matches; the supplied assignment is commented out.
-  input_files: extra supporting file paths (headers, memory/data files, helpers).
-       Snapshot declared dependencies here; dynamic Tcl/Python dependencies are
-       not inferred. Literal RTL includes are copied recursively.
-       Input paths may use globs, but each must match exactly one existing file.
-       Synthesis freezes inputs and all declared implementation configurations
-       under artifacts/TIMESTAMP/inputs/. Implementations reuse that snapshot
-       and parent DCP, never current latest IPs. Old runs without snapshots must
-       be rebuilt. info/input_manifest.json records original-to-copy mappings.
-  parameters: set_param before project creation.
-       general.maxThreads: per-run thread limit, 1 through 8; examples use 8.
-       Applies to IP, synthesis and implementation; actual usage depends on
-       the operation and available CPUs. This is a limit, not reserved CPUs.
-       general.usePosixSpawnForFork: child-process launch mechanism, not a
-       thread/job count; examples use 1.
-       Example: "parameters": {"general.usePosixSpawnForFork": 1,
-                               "general.maxThreads": 8}
-       Jobs are independent concurrent runs, not threads within one run.
-       This runner has no concurrent-job scheduler or --jobs option;
-       automatic implementation continuations are sequential. The Vivado
-       runs.launchOptions parameter does not schedule HDLForge builds.
-  project_properties / fileset_properties: set_property on project / fileset.
-  post_load_parameters: set_param after reading inputs.
-  checkpoint_properties / constraint_properties: imported-file defaults;
-       explicit per-file constraint properties override defaults.
-  Parameter/property maps accept scalar values or lists; omitted maps are empty.
-  Source/script/output_root paths are relative to the JSON directory.
-  Property values are literal Vivado values; relative ip_output_repo is under work/.
-  Commands, directives, reports and checkpoints belong in run.tcl, not JSON hooks.
-Create all examples without running Vivado:
-  --init_build all: fill missing optional settings in all existing runs.
-  --init_build synth_production.impl_production: fill one existing run.
-  Full JSON paths such as vivado.non_project.runs.synth_production are accepted.
-  Existing values, including false flags, are preserved. Required part/top/script
-  must already be supplied; example input filenames are never injected into runs.
-  --build_create syth_imp_example (also accepts synth_impl_example)
-  --init_build_example is an alias. Creates synth_example/run.tcl,
-  synth_example/impl_example/run.tcl and ip_example/run.tcl under output_root,
-  plus a README.md in each folder with project-specific commands, input snapshots,
-  logical latest selection and settings. Injects matching JSON. Refuses existing
-  entries/folders. Replace placeholder
-  inputs and choose the correct part before building. --build_lint checks offline.
-Build examples:
-  First replace placeholder inputs, then run in dependency order:
-  --build ip_example
-  --build synth_example
-  --build synth_example.impl_example [--synth_timestamp TIMESTAMP]
-  --build synth_example --auto_impl impl_example
-  Repeat --auto_impl for distinct implementations; duplicates are removed.
-  Continuations require success and carry the exact synthesis timestamp.
-  Implementation defaults to the newest synthesis timestamp; success and a checkpoint are required.
-  IP builds use private copies, generate_target and synth_ip; no top-level bitstream,
-  parent synthesis timestamp or auto_impl. Checked-in IP sources are not overwritten.
+Non-project builds: vivado.non_project in the selected project JSON.
+  output_root: run-definition root; vivado_version: optional exact version.
+  runs.NAME: stage (synth/ip), script, part, top, sources, ips, constraints,
+    defines, input_files, parameters, post_load_parameters, project_properties,
+    fileset_properties, checkpoint_properties, constraint_properties.
+  impl_runs.NAME: implementation definition with its own script and inputs.
+    Omitted ips inherits the selected synthesis's frozen IP inputs; [] selects none.
+  HDLForge copies the maintained script unchanged as snapshot/scripts/run.tcl.
+  Implementation scripts conventionally live beside the synthesis script as
+    impl_run_NAME.tcl; script paths always come from the project JSON.
+  Commands, directives, reports and checkpoints belong in Tcl, not JSON hooks.
+  Use the example scripts' bootstrap to load the shared runtime and generated JSON.
+
+Run layout:
+  RUN/_LABEL/{snapshot/source,snapshot/scripts,logs,artifacts,work}
+  RUN/_LABEL/impl_runs/IMPL/_LABEL/{snapshot/source,snapshot/scripts,logs,artifacts,work}
+  All run.json paths are relative to snapshot/scripts. Vivado runs from work/.
+  The JSON stores the stable run_id, created_at and launch_epoch; folder names
+    carry no time/identity semantics. Renaming generated run folders is supported.
+  Implementations reference the parent DCP directly and freeze its SHA-256.
+    A changed or missing parent checkpoint refuses execution/rerun.
+  Existing old-format directories are not migrated or deleted by these commands.
+
 Selectors:
-  SYNTH.new or SYNTH.rerun.TIMESTAMP (or rerun.latest): new synthesis or rerun frozen synthesis.
-  SYNTH.latest.IMPL.new or SYNTH.TIMESTAMP.IMPL.new: new implementation.
-  SYNTH.TIMESTAMP.IMPL.rerun.IMPL_TIMESTAMP (or rerun.latest): rerun that attempt from frozen inputs.
-  Reruns preserve inputs and child implementations; generated outputs are cleared.
-Folders:
-  One managed .gitignore at each synthesis/IP run root controls all timestamps
-  and nested implementations. Examples inject it with explanatory comments.
-  !/artifacts/ permits traversal; /artifacts/** ignores all artifact files;
-  !/artifacts/**/ permits directory traversal so saved exceptions can work.
-  Saved synthesis exceptions come next, followed by implementation ignore rules
-  and then saved implementation exceptions. Saving synthesis does not save its
-  implementations. --save_this_run adds a saved-path exception;
-  Edit .gitignore manually to remove exceptions. Saving implementation also saves synthesis.
-  output_root/RUN/artifacts/TIMESTAMP/{info,work,checkpoints,reports,bitstream}
-  Implementation: SYNTH/artifacts/TIMESTAMP/impl_runs/IMPL/IMPL_TIMESTAMP/ with the same subfolders.
-  IMPL/inputs is shared across attempts; earlier outputs and inputs are retained.
-  Full regenerated IP products remain under work/ip_sources/.
-  runme.log, vivado.log and vivado.jou are retained per run; run_registry.json
-  under output_root records launch identities, PID state, status and log paths.
-Management (does not launch builds):
-  --build_clean_ignore_artifacts: clean eligible explicitly ignored artifacts
-       across all configured runs, regardless of enabled_on_all.
-       No status, PID, or tracked-file checks.
-  --build_status: registered non-dead/unavailable processes.
-  --build_status_all: all registered runs, including completed, failed, stopped, and dead runs.
-  --build_stop_all: stop verified registered launches and cancel continuations.
-  --build_find_all_user_runs: report visible current-user Vivado processes,
-       including unregistered processes; does not stop unregistered processes.
-  --build RUN --save_this_run / --clean_ignore_artifacts:
-       Save selects the newest matching run unless --synth_timestamp is supplied.
-       Cleanup covers all matching timestamps unless narrowed by --synth_timestamp.
-       Cleanup evaluates actual file ignore rules using Git check-ignore --no-index.
-       Any nonignored file protects its run folder; empty folders are eligible.
-       No status, PID or tracked-file checks. Only timestamped attempts are selected.
-Optional create_msg_db/close_msg_db pairs retain structured GUI messages;
-text logs remain available without them. Templates explain these commands.
+  --build SYNTH / SYNTH.new
+  --build SYNTH.IMPL --synth_timestamp ID
+  --build SYNTH.latest.IMPL.new
+  --build SYNTH.rerun.ID
+  --build SYNTH.SYNTH_ID.IMPL.rerun.IMPL_ID
+  --build SYNTH.SYNTH_ID.IMPL.bitstream.IMPL_ID
+  IDs are stable JSON run IDs; existing folder labels are also accepted.
+  latest uses JSON created_at, never folder names or filesystem mtime.
+  --auto_impl NAME may be repeated; continuations pin their parent by run ID.
+  A new implementation snapshots current declared Tcl/XDC/support files.
+    --refresh_impl_inputs is retained as a compatibility spelling for this behavior.
+  Reruns use frozen run.json and scripts; their recorded time does not change.
+
+Cleanup:
+  Add a single _* rule to the repository root .gitignore.
+  Generated labels and housekeeping files start with _; no per-run ignore files.
+  Save explicitly with git add -f <run-directory>; --save_this_run is retired.
+  --build_clean_ignore_artifacts [--dry-run], or --build RUN --clean_ignore_artifacts:
+    refuse the entire selected tree if ANY descendant is tracked or not ignored,
+    a nested repository exists, inspection fails, or a run lock is held.
+  --build_status / --build_status_all / --build_stop_all manage launch workers.
 """
-
-
-def timestamp_key(value: str) -> tuple[str, str]:
-    seconds, _, fraction = value.removesuffix("Z").partition(".")
-    return seconds, fraction or "000000"
 
 
 def build_names(data: dict) -> list[str]:
@@ -164,31 +79,24 @@ def build_names(data: dict) -> list[str]:
 
 def synthesis_timestamps(project_file: Path, data: dict, selector: str,
                          *, completed_only: bool = False) -> list[str]:
-    """List timestamp directories without querying Vivado or changing artifacts."""
+    """List stable synthesis IDs ordered by JSON creation time."""
     if selector not in build_names(data):
         return []
     config = data["vivado"]["non_project"]
     root = config.get("output_root")
     if not isinstance(root, str) or not root:
         return []
-    artifacts = project_file.parent / root / selector.split(".")[0] / "artifacts"
-    try:
-        candidates = sorted(artifacts.iterdir(), key=lambda path: path.name)
-        result = []
-        for path in candidates:
-            if not TIMESTAMP.fullmatch(path.name) or not path.is_dir() or path.is_symlink():
+    root = project_file.parent / root / selector.split(".")[0]
+    result = []
+    for folder in run_directories(root):
+        config = read_run(folder)
+        if completed_only:
+            try:
+                if ((folder / 'logs/status').read_text().strip() != 'complete'
+                        or (folder / 'logs/exit_code').read_text().strip() != '0'
+                        or not (folder / 'artifacts' / f"{config['top']}.dcp").is_file()):
+                    continue
+            except OSError:
                 continue
-            if completed_only:
-                status = path / "info" / "status"
-                if not status.is_file() or status.read_text().strip() != "complete":
-                    continue
-                resolved = path / "info/resolved.json"
-                top = config["runs"][selector.split(".")[0]].get("top", "top")
-                if resolved.is_file():
-                    top = json.loads(resolved.read_text()).get("top", top)
-                if not (path / "checkpoints" / f"{top}.dcp").is_file():
-                    continue
-            result.append(path.name)
-        return sorted(result, key=timestamp_key)
-    except OSError:
-        return []
+        result.append(config['run_id'])
+    return result

@@ -1,3 +1,9 @@
+# HDLForge snapshots this maintained script unchanged and supplies run.json.
+if {![info exists ::hdlforge_config]} {
+    source [file join [file dirname [info script]] _hdlforge runtime.tcl]
+    ::hdlforge::run [file normalize [info script]] $argv
+}
+
 ##############################################################################
 ## Bitstream-only run: open the frozen final implementation checkpoint.
 ## HDLForge supplies USERID from the source implementation's launch epoch.

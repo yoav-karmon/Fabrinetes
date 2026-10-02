@@ -1,36 +1,26 @@
-"""Resolve logical latest selectors to real timestamped run directories."""
+"""Resolve producer selectors using JSON identities and timestamps."""
 
 import os
 from pathlib import Path
 
-from vivado_build_config import TIMESTAMP, timestamp_key
+from vivado_build_layout import find_run, run_directories
 
 
 def dated_runs(folder: Path) -> list[Path]:
-    """List real dated attempts in timestamp order, never filesystem mtime order."""
-    try:
-        return sorted((path for path in folder.iterdir()
-                       if TIMESTAMP.fullmatch(path.name) and path.is_dir() and not path.is_symlink()),
-                      key=lambda path: timestamp_key(path.name))
-    except FileNotFoundError:
-        return []
+    return run_directories(folder)
 
 
 def latest_run(folder: Path) -> Path:
-    """Select the newest attempt; callers validate readiness without fallback."""
-    runs = dated_runs(folder)
-    if not runs:
-        raise ValueError(f'No timestamped runs in {folder}; build the producer first')
-    return runs[-1]
+    return find_run(folder, 'latest')
 
 
 def resolve_latest_path(path: Path, selections: dict[Path, Path] | None = None) -> Path:
-    """Expand artifacts/latest and impl_runs/NAME/latest before accessing files."""
+    """Expand logical latest once without embedding physical directory labels."""
     cache = selections if selections is not None else {}
     path = Path(os.path.abspath(path))
     result = Path(path.anchor)
     for part in path.parts[1:]:
-        if part == 'latest' and (result.name == 'artifacts' or result.parent.name == 'impl_runs'):
+        if part == 'latest' and (not (result / part).exists() or run_directories(result)):
             if result not in cache:
                 cache[result] = latest_run(result)
             result = cache[result]
@@ -40,11 +30,10 @@ def resolve_latest_path(path: Path, selections: dict[Path, Path] | None = None) 
 
 
 def require_complete(folder: Path) -> None:
-    """Require success for an input-producing attempt, not just an existing file."""
     try:
-        complete = ((folder / 'info/status').read_text().strip() == 'complete'
-                    and (folder / 'info/exit_code').read_text().strip() == '0')
+        complete = ((folder / 'logs/status').read_text().strip() == 'complete'
+                    and (folder / 'logs/exit_code').read_text().strip() == '0')
     except OSError:
         complete = False
     if not complete:
-        raise ValueError(f'Selected run is incomplete or unsuccessful: {folder}; select an older timestamp explicitly or rebuild')
+        raise ValueError(f'Selected run is incomplete or unsuccessful: {folder}')

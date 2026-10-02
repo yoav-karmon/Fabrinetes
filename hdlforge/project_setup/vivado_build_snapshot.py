@@ -7,8 +7,8 @@ from pathlib import Path
 import re
 import shutil
 
-from vivado_build_hash import hash_source, verify_source_hashes
-from vivado_build_config import TIMESTAMP
+from vivado_build_hash import verify_source_hashes
+from vivado_build_layout import CONFIG, read_run, map_paths
 from vivado_build_paths import require_complete
 
 
@@ -16,11 +16,11 @@ def snapshot_inputs(config: dict) -> dict:
     """Return a runtime configuration whose inputs point only at saved copies."""
     output = Path(config['output'])
     root = Path(config['project_root'])
-    destination = Path(config.get('input_destination', output / 'inputs'))
+    destination = Path(config.get('input_destination', output / 'snapshot/source'))
     copied = {}
     # Implementation paths may mix live refreshed XDC/Tcl with frozen IPs.
     # Resolve frozen inputs against their snapshot root before the live project.
-    frozen_root = (Path(config['input_dcp']).parent.parent / 'inputs'
+    frozen_root = (Path(config['input_dcp']).parent.parent / 'snapshot/source'
                    if config.get('stage') == 'impl' else None)
 
     def save(path: Path) -> Path:
@@ -44,10 +44,9 @@ def snapshot_inputs(config: dict) -> dict:
         # Inputs already resolve to a fixed producer timestamp. Hold its run
         # lock so an explicit rerun cannot replace files while they are copied.
         producer = next((parent for parent in path.parents
-                         if TIMESTAMP.fullmatch(parent.name)
-                         and (parent / 'info/resolved.json').is_file()), None)
+                         if (parent / CONFIG).is_file()), None)
         if producer is not None and config.get('stage') != 'impl':
-            with (producer.parent / f'.{producer.name}.run.lock').open('a') as lock:
+            with (producer.parent / f'_{read_run(producer)["run_id"]}.run.lock').open('a') as lock:
                 fcntl.flock(lock, fcntl.LOCK_SH | fcntl.LOCK_NB)
                 require_complete(producer)
                 if path.suffix.lower() in {".xcix", ".xci"}:
@@ -56,7 +55,7 @@ def snapshot_inputs(config: dict) -> dict:
                     except (OSError, ValueError, KeyError, TypeError) as error:
                         warning = f"WARNING: IP freshness could not be verified: {error}. Continuing with {path}"
                         print(warning, flush=True)
-                        with (output / 'info/warnings.log').open('a') as warnings:
+                        with (output / 'logs/warnings.log').open('a') as warnings:
                             warnings.write(warning + '\n')
                 shutil.copy2(path, target)
         else:
@@ -74,6 +73,9 @@ def snapshot_inputs(config: dict) -> dict:
 
     def freeze(run: dict) -> dict:
         frozen = copy.deepcopy(run)
+        script = Path(run['script'])
+        scripts = output / 'snapshot/scripts'
+        scripts.mkdir(parents=True, exist_ok=True)
         for field in ('sources', 'ips', 'constraints'):
             for entry in frozen.get(field, []):
                 source = Path(entry['path'])
@@ -83,114 +85,38 @@ def snapshot_inputs(config: dict) -> dict:
                             save(sibling)
                 entry['path'] = str(save(source))
         for path in frozen.get('input_files', []):
-            save(Path(path))
+            helper = Path(path)
+            if helper.suffix == '.tcl' and helper.is_relative_to(script.parent):
+                target = scripts / helper.relative_to(script.parent)
+                if target.name == 'run.tcl' or target.is_relative_to(scripts / '_hdlforge'):
+                    raise ValueError(f'Declared helper conflicts with reserved runtime paths: {helper}')
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(helper, target)
+                copied[str(helper)] = str(target)
+            else:
+                save(helper)
         frozen['input_files'] = [copied[path] for path in frozen.get('input_files', [])]
-        script = Path(run['script'])
-        for sibling in script.parent.glob('*.tcl'):
-            save(sibling)
-        frozen['script'] = str(save(script))
+        target_script = scripts / ('run.tcl' if run is config else script.name)
+        if target_script.exists() and copied.get(str(script)) != str(target_script):
+            raise ValueError(f'Script snapshot collision: {script} -> {target_script}')
+        shutil.copy2(script, target_script)
+        frozen['script'] = str(target_script)
+        copied[str(script)] = str(target_script)
         frozen['project_root'] = str(destination / root.name)
         frozen['vivado_version'] = config.get('vivado_version', '')
         return frozen
 
     runtime = freeze(config)
-    if config.get('stage') == 'impl':
-        # Copy the selected parent checkpoint; all other paths above already
-        # refer to the parent's frozen inputs, never live producer outputs.
-        checkpoint = Path(config['input_dcp'])
-        target = destination / 'synthesis_checkpoint' / checkpoint.name
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(checkpoint, target)
-        copied[str(checkpoint)] = str(target)
-        runtime['input_dcp'] = str(target)
-        (output / 'info/input_hashes.json').write_text(json.dumps({
-            source: {'copy': saved, 'sha256': hash_source(Path(saved))}
-            for source, saved in copied.items()
-        }, indent=2) + '\n')
-    children = {name: freeze(child) for name, child in config.get('implementation_configs', {}).items()}
-    runtime.pop('implementation_configs', None)
-    (output / 'info/implementations.json').write_text(json.dumps(children, indent=2) + '\n')
-    (output / 'info/input_manifest.json').write_text(json.dumps(copied, indent=2) + '\n')
+    runtime['implementation_configs'] = {
+        name: freeze(child) for name, child in config.get('implementation_configs', {}).items()
+    }
+    runtime.pop('implementation_scripts', None)
+    runtime.pop('impl_json', None)
+    (output / 'logs/input_manifest.json').write_text(json.dumps(copied, indent=2) + '\n')
     return runtime
 
 
+
 def implementation_inputs(config: dict) -> dict:
-    """Create one shared frozen input tree, then reuse it for dated attempts."""
-    output = Path(config['output'])
-    if config.get('refresh_impl_inputs'):
-        runtime = snapshot_inputs(config)
-        previous = config.get('refresh_previous_inputs', {})
-        old_root = Path(previous['project_root'])
-        old_manifest = Path(config['input_dcp']).parent.parent / 'info/input_manifest.json'
-        originals = json.loads(old_manifest.read_text()) if old_manifest.is_file() else {}
-        manifest = json.loads((output / 'info/input_manifest.json').read_text())
-        changes = []
-        frozen_sources = set(originals.values()) | {config['input_dcp']}
-        for source, saved in manifest.items():
-            path = Path(source)
-            frozen = source in frozen_sources
-            try:
-                relative = path.relative_to(Path(config['project_root']))
-            except ValueError:
-                relative = path
-            baseline = path if frozen else Path(originals.get(source, str(old_root / relative)))
-            current_hash = hash_source(Path(saved))
-            old_hash = hash_source(baseline) if baseline.is_file() else None
-            state = 'ADDED' if old_hash is None else 'UNCHANGED' if old_hash == current_hash else 'CHANGED'
-            changes.append({'path': str(relative), 'source': source, 'destination': saved,
-                            'baseline': str(baseline), 'status': state, 'frozen': frozen,
-                            'previous_sha256': old_hash, 'sha256': current_hash,
-                            'changed': old_hash != current_hash})
-        (output / 'info/refreshed_inputs.json').write_text(json.dumps(changes, indent=2) + '\n')
-        with (output / 'info/refreshed_inputs.log').open('w') as log:
-            for item in changes:
-                message = (
-                    f"[{item['status']}] Copied {'frozen' if item['frozen'] else 'current'} input\n"
-                    f"  Source: {item['source']}\n"
-                    f"  Destination: {item['destination']}\n"
-                    f"  Compared with: {item['baseline']}\n"
-                    f"  Previous SHA-256: {item['previous_sha256'] or '(no previous snapshot file)'}\n"
-                    f"  Copied SHA-256:   {item['sha256']}"
-                )
-                print(message, flush=True)
-                log.write(message + '\n')
-            summary = 'Input copy summary: ' + ', '.join(
-                f"{sum(item['status'] == state for item in changes)} {state.lower()}"
-                for state in ('CHANGED', 'ADDED', 'UNCHANGED'))
-            print(summary, flush=True)
-            log.write(summary + '\n')
-        return runtime
-    shared = output.parent
-    cache = shared / 'input_config.json'
-    with (shared / '.inputs.lock').open('a') as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        if cache.is_file():
-            cached = json.loads(cache.read_text())
-            checkpoint = Path(cached['input_dcp'])
-            # A synthesis rerun may replace the parent DCP. Preserve the shared
-            # snapshot used by old attempts; give this attempt private inputs.
-            # Historical copied snapshots can also contain paths into the original tree.
-            if (not checkpoint.is_relative_to(shared / 'inputs') or
-                    not checkpoint.is_file() or
-                    hash_source(checkpoint) != hash_source(Path(config['input_dcp']))):
-                print('Parent checkpoint changed or shared inputs were relocated; copying private inputs for this implementation.', flush=True)
-                return snapshot_inputs(config)
-        if not cache.exists():
-            inputs = shared / 'inputs'
-            # A missing completion marker means a prior snapshot was interrupted.
-            if inputs.exists():
-                shutil.rmtree(inputs)
-            preparation = copy.deepcopy(config)
-            preparation['input_destination'] = str(inputs)
-            frozen = snapshot_inputs(preparation)
-            fields = ('sources', 'ips', 'constraints', 'input_files', 'script', 'project_root', 'input_dcp')
-            for name in ('input_manifest.json', 'input_hashes.json'):
-                shutil.copy2(output / 'info' / name, shared / name)
-            temporary = shared / '.input_config.tmp'
-            temporary.write_text(json.dumps({key: frozen[key] for key in fields if key in frozen}, indent=2) + '\n')
-            temporary.replace(cache)
-        runtime = copy.deepcopy(config)
-        runtime.update(json.loads(cache.read_text()))
-        for name in ('input_manifest.json', 'input_hashes.json'):
-            shutil.copy2(shared / name, output / 'info' / name)
-        return runtime
+    """Each implementation snapshots only its declared inputs; DCP stays in parent."""
+    return snapshot_inputs(config)

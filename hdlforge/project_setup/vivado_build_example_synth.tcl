@@ -1,7 +1,13 @@
+# HDLForge snapshots this maintained script unchanged and supplies run.json.
+if {![info exists ::hdlforge_config]} {
+    source [file join [file dirname [info script]] _hdlforge runtime.tcl]
+    ::hdlforge::run [file normalize [info script]] $argv
+}
+
 ##############################################################################
 ## See the injected README.md beside this script for setup and build commands.
-## HDLForge snapshots these inputs, plus declared implementation inputs,
-## before this script starts. Build ip_example first to populate latest.
+## HDLForge snapshots this run's declared inputs before this script starts.
+## Build ip_example first to populate the logical latest selection.
 ##############################################################################
 
 set top [dict get $::hdlforge_config top]

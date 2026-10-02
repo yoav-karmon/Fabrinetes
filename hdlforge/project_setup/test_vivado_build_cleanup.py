@@ -1,0 +1,97 @@
+"""Recursive cleanup eligibility against real Git ignore rules and indexes."""
+
+import contextlib
+import io
+import json
+from pathlib import Path
+import subprocess
+import tempfile
+import unittest
+from unittest.mock import patch
+
+from vivado_build_artifacts import cleanable, manage_artifacts
+from vivado_build_layout import write_run, new_identity
+
+
+class RecursiveCleanupTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory(prefix='hdlforge cleanup ')
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        subprocess.run(['git', 'init', '-q', str(self.root)], check=True)
+        self.run = self.root / '_run'
+        self.deep = self.run / 'impl' / '_attempt' / 'snapshot' / 'source'
+        self.deep.mkdir(parents=True)
+        self.rules = self.root / '.gitignore'
+        self.rules.write_text('/_run/**\n!/_run/**/\n')
+        self.payload = self.deep / 'design.dcp'
+        self.payload.write_text('checkpoint')
+        write_run(self.run, {**new_identity(), 'selector': 'synth'})
+        self.project = self.root / 'sample.hdlforge.json'
+        self.project.write_text(json.dumps({'vivado': {'non_project': {
+            'output_root': '.', 'runs': {'synth': {}}}}}))
+
+    def test_all_descendants_ignored_allows_cleanup(self) -> None:
+        allowed, _ = cleanable(self.run)
+        self.assertTrue(allowed)
+
+    def test_one_deep_exception_protects_entire_run(self) -> None:
+        with self.rules.open('a') as rules:
+            rules.write('!/_run/impl/_attempt/snapshot/source/design.dcp\n')
+        allowed, reason = cleanable(self.run)
+        self.assertFalse(allowed)
+        self.assertIn('not ignored', reason)
+        self.assertTrue(self.payload.is_file())
+
+    def test_forced_tracked_descendant_protects_entire_run(self) -> None:
+        subprocess.run(['git', '-C', str(self.root), 'add', '-f', str(self.payload)], check=True)
+        allowed, reason = cleanable(self.run)
+        self.assertFalse(allowed)
+        self.assertIn('tracked by Git', reason)
+
+    def test_missing_tracked_descendant_still_protects_run(self) -> None:
+        subprocess.run(['git', '-C', str(self.root), 'add', '-f', str(self.payload)], check=True)
+        self.payload.unlink()
+        self.assertFalse(cleanable(self.run)[0])
+
+    def test_unreadable_descendant_does_not_authorize_cleanup(self) -> None:
+        # Model the OS error even when tests execute with elevated permissions.
+        with patch('vivado_build_artifacts.os.scandir', side_effect=PermissionError('cannot inspect')):
+            with self.assertRaises(PermissionError):
+                cleanable(self.run)
+
+    def test_nested_repository_is_protected(self) -> None:
+        subprocess.run(['git', 'init', '-q', str(self.deep)], check=True)
+        self.assertFalse(cleanable(self.run)[0])
+
+    def test_symlink_root_is_protected(self) -> None:
+        alias = self.root / '_alias'
+        alias.symlink_to(self.run, target_is_directory=True)
+        self.assertFalse(cleanable(alias)[0])
+
+    def test_hidden_descendant_exception_is_protected(self) -> None:
+        hidden = self.deep / '.hidden'
+        hidden.mkdir()
+        (hidden / 'keep.txt').write_text('keep')
+        with self.rules.open('a') as rules:
+            rules.write('!keep.txt\n')
+        self.assertFalse(cleanable(self.run)[0])
+
+    def test_cleanup_preserves_whole_tree_for_one_visible_file(self) -> None:
+        sibling = self.run / 'ignored.log'
+        sibling.write_text('also preserve')
+        with self.rules.open('a') as rules:
+            rules.write('!design.dcp\n')
+        with patch('vivado_build_artifacts.selected_folders', return_value=[self.run]), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(manage_artifacts(self.project, 'synth', '--clean_ignore_artifacts'), 0)
+        self.assertTrue(self.payload.is_file())
+        self.assertTrue(sibling.is_file())
+
+    def test_cleanup_deletes_tree_only_when_every_file_is_ignored(self) -> None:
+        with patch('vivado_build_artifacts.selected_folders', return_value=[self.run]), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(manage_artifacts(self.project, 'synth', '--clean_ignore_artifacts'), 0)
+        self.assertFalse(self.run.exists())
+
+
+if __name__ == '__main__':
+    unittest.main()

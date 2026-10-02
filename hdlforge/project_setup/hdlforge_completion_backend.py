@@ -712,7 +712,7 @@ def suggest_vivado_flags(state: ParsedState) -> list[str]:
         if valid and not artifact_action and not (parsed and parsed.get('bitstream')):
             if parsed and parsed["impl"] and parsed["attempt"] == "new":
                 modifiers.append("--refresh_impl_inputs")
-            modifiers += ARTIFACT_FLAGS + ["--remove_lock", "--stop_run", "--force_run"]
+            modifiers += [flag for flag in ARTIFACT_FLAGS if flag != '--save_this_run'] + ["--remove_lock", "--stop_run", "--force_run"]
             if (parsed and not parsed["impl"] or "." not in build) and (project_json_data(state) or {}).get("vivado", {}).get("non_project", {}).get("runs", {}).get(parsed["run"] if parsed else build, {}).get("stage") == "synth":
                 modifiers.append("--auto_impl")
         if not build and "--create" not in state.tokens and not any(flag in state.tokens for flag in PROCESS_FLAGS):

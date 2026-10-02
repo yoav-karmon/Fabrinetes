@@ -11,7 +11,6 @@ import sys
 import zipfile
 
 from vivado_build import file_path, normalize_run
-from vivado_build_artifacts import DEFAULT_IGNORE
 from vivado_build_config import BUILD_HELP, RUN_NAME
 
 
@@ -19,14 +18,12 @@ def lint_layout(project: Path, output_root: Path, selector: str, run: dict) -> l
     """Check named run folders and all directly configured Tcl script paths."""
     errors = []
     names = selector.split(".")
-    expected = output_root.joinpath(*names)
+    expected = output_root / names[0]
     resolved_root = output_root.resolve()
     resolved_synth = (output_root / names[0]).resolve()
     resolved_run = expected.resolve()
     if resolved_synth.parent != resolved_root:
         errors.append(f"{selector}: synthesis folder escapes output_root: {resolved_synth}")
-    if len(names) == 2 and resolved_run.parent != resolved_synth:
-        errors.append(f"{selector}: implementation folder must be directly under synthesis: {resolved_run}")
     if not expected.is_dir():
         errors.append(f"{selector}: missing run folder: {expected}")
     script = run.get("script")
@@ -134,13 +131,13 @@ def initialize_example(project: Path) -> None:
             config.setdefault(key, value)
     sample = copy.deepcopy(example["runs"]["synth_example"])
     sample["constraints"][-1] = str(Path(config["output_root"]) / "synth_example/ip_keep_hierarchy.xdc")
-    latest_ip = str(Path(config["output_root"]) / "ip_example/artifacts/latest/work/ip_sources/0/example.xcix")
+    latest_ip = str(Path(config["output_root"]) / "ip_example/latest/work/ip_sources/0/example.xcix")
     sample["ips"][0]["path"] = latest_ip
     # Place every example script under the selected output_root.
     for name, run in [("synth_example", sample),
                       ("synth_example/impl_example", sample["impl_runs"]["impl_example"])]:
         folder = Path(config["output_root"]) / name
-        run["script"] = str(folder / "run.tcl")
+        run["script"] = str(Path(config["output_root"]) / "synth_example" / "impl_run_example.tcl") if run["stage"] == "impl" else str(folder / "run.tcl")
     runs["synth_example"] = sample
     ip_sample = copy.deepcopy(example["runs"]["ip_example"])
     ip_sample["script"] = str(Path(config["output_root"]) / "ip_example" / "run.tcl")
@@ -162,17 +159,12 @@ def initialize_example(project: Path) -> None:
         created_folders.append(implementation)
         ip_destination.mkdir()
         created_folders.append(ip_destination)
-        for folder in (destination, ip_destination):
-            marker = folder / ".gitignore"
-            with marker.open("x") as handle:
-                created_files.append(marker)
-                handle.write(DEFAULT_IGNORE)
         hierarchy = destination / "ip_keep_hierarchy.xdc"
         with hierarchy.open("x") as handle:
             created_files.append(hierarchy)
             handle.write(Path(__file__).with_name("vivado_build_example_ip_keep_hierarchy.xdc").read_text())
         for stage, folder in (("synth", destination), ("impl", implementation), ("ip", ip_destination)):
-            script = folder / "run.tcl"
+            script = destination / "impl_run_example.tcl" if stage == "impl" else folder / "run.tcl"
             with script.open("x") as handle:
                 created_files.append(script)
                 handle.write(Path(__file__).with_name(f"vivado_build_example_{stage}.tcl").read_text())

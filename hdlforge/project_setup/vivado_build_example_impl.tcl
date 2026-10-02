@@ -1,7 +1,13 @@
+# HDLForge snapshots this maintained script unchanged and supplies run.json.
+if {![info exists ::hdlforge_config]} {
+    source [file join [file dirname [info script]] _hdlforge runtime.tcl]
+    ::hdlforge::run [file normalize [info script]] $argv
+}
+
 ##############################################################################
 ## See the injected README.md beside this script for setup and build commands.
-## HDLForge loads the configuration and input copies saved by the parent
-## synthesis. Later edits or IP latest publications do not affect this run.
+## HDLForge snapshots this implementation's declared inputs before launch.
+## Its generated JSON records the parent synthesis DCP path and SHA-256.
 ##############################################################################
 
 set top [dict get $::hdlforge_config top]

@@ -1,4 +1,4 @@
-# Shared JSON-driven non-project execution. Python writes config.tcl as Tcl data.
+# Shared runtime sourced explicitly by each maintained run.tcl.
 namespace eval ::hdlforge {
     variable copied [dict create]
     variable ran 0
@@ -6,7 +6,7 @@ namespace eval ::hdlforge {
 }
 
 proc ::hdlforge::status {value} {
-    set handle [open [file join [dict get $::hdlforge_config output] info status] w]
+    set handle [open [file join [dict get $::hdlforge_config output] logs status] w]
     puts $handle $value
     close $handle
 }
@@ -14,7 +14,7 @@ proc ::hdlforge::status {value} {
 proc ::hdlforge::collect {} {
     variable copied
     set output [dict get $::hdlforge_config output]
-    foreach {pattern folder} {*.dcp checkpoints *.rpt reports *.rpx reports *.bit bitstream *.ltx bitstream *.mmi bitstream} {
+    foreach {pattern folder} {*.dcp artifacts *.rpt artifacts *.rpx artifacts *.pb artifacts *.bit artifacts *.ltx artifacts *.mmi artifacts} {
         foreach path [glob -nocomplain -directory [file join $output work] $pattern] {
             set signature [list [file size $path] [file mtime $path]]
             if {[dict exists $copied $path] && [dict get $copied $path] eq $signature} {continue}
@@ -33,8 +33,8 @@ proc ::hdlforge::artifact_written {command code result operation} {
     if {$routed && [namespace tail [lindex $command 0]] eq "write_checkpoint"} {
         set name [file tail [lindex $command end]]
         set output [dict get $::hdlforge_config output]
-        if {[file isfile [file join $output checkpoints $name]]} {
-            set handle [open [file join $output info last_routed_checkpoint.txt] w]
+        if {[file isfile [file join $output artifacts $name]]} {
+            set handle [open [file join $output logs last_routed_checkpoint.txt] w]
             puts $handle $name
             close $handle
         }
@@ -103,7 +103,7 @@ proc ::hdlforge::load_files {} {
             set configuration [get_files -all [get_property IP_FILE $ip]]
             if {[llength $configuration] != 1} {error "Cannot resolve IP configuration for $path"}
             if {[catch {properties $entry $configuration} message options]} {
-                catch {report_ip_status -file [file join [dict get $config output] reports ip_status_failed.rpt]}
+                catch {report_ip_status -file [file join [dict get $config output] artifacts ip_status_failed.rpt]}
                 return -options $options $message
             }
         }
@@ -144,7 +144,7 @@ proc ::hdlforge::initialize_design {} {
 }
 
 proc ::hdlforge::event {event stage elapsed command} {
-    set handle [open [file join [dict get $::hdlforge_config output] info stages.tsv] a]
+    set handle [open [file join [dict get $::hdlforge_config output] logs stages.tsv] a]
     puts $handle "[clock format [clock seconds] -gmt 1 -format %FT%TZ]\t$event\t$stage\t$elapsed\t[string map [list \t { } \n { }] $command]"
     close $handle
     puts "HDLFORGE_STAGE_$event $stage: $command"
@@ -161,7 +161,7 @@ proc ::hdlforge::stamp_bitstream {} {
     }
     set userid [format "0x%08X" $epoch]
     set_property BITSTREAM.CONFIG.USERID $userid [current_design]
-    set handle [open [file join [dict get $config output] info bitstream_timestamp.json] w]
+    set handle [open [file join [dict get $config output] logs bitstream_timestamp.json] w]
     puts $handle [format {{"launch_epoch": %s, "userid": "%s"}} $epoch $userid]
     close $handle
     puts "Bitstream USERID timestamp: $userid"
@@ -208,18 +208,82 @@ proc ::hdlforge::constraint_leave {command code result operation} {
     }
 }
 
-if {[llength $argv] != 1} {error "Expected a generated config.tcl path"}
-source [lindex $argv 0]
-set ::np_project_root [dict get $::hdlforge_config project_root]
-set output [dict get $::hdlforge_config output]
-set code [catch {
+proc ::hdlforge::run {script arguments} {
+    set base [file dirname $script]
+    source [file join $base _hdlforge json json.tcl]
+    if {[llength $arguments] > 2} {error "Expected run.json path and optional run ID"}
+    set path [expr {[llength $arguments] ? [lindex $arguments 0] : [file join $base run.json]}]
+    set path [file normalize $path]
+    set base [file dirname $path]
+    set handle [open $path r]
+    fconfigure $handle -encoding utf-8
+    set ::hdlforge_config [::json::json2dict [read $handle]]
+    close $handle
+    if {[llength $arguments] == 2} {
+        set identity [lindex $arguments 1]
+        if {$identity ne [dict get $::hdlforge_config run_id]} {
+            set ::hdlforge_config [dict get $::hdlforge_config attempts $identity]
+        }
+    }
+    foreach key {script output output_root project_root input_dcp bitstream_source logs_dir artifacts_dir work_dir} {
+        if {[dict exists $::hdlforge_config $key] && [dict get $::hdlforge_config $key] ne ""} {
+            dict set ::hdlforge_config $key [file normalize [file join $base [dict get $::hdlforge_config $key]]]
+        }
+    }
+    foreach key {sources ips constraints} {
+        set entries {}
+        foreach entry [dict get $::hdlforge_config $key] {
+            dict set entry path [file normalize [file join $base [dict get $entry path]]]
+            lappend entries $entry
+        }
+        dict set ::hdlforge_config $key $entries
+    }
+    foreach key {input_files bitstream_probes} {
+        if {![dict exists $::hdlforge_config $key]} {continue}
+        set entries {}
+        foreach entry [dict get $::hdlforge_config $key] {
+            lappend entries [file normalize [file join $base $entry]]
+        }
+        dict set ::hdlforge_config $key $entries
+    }
+    set ::np_project_root [dict get $::hdlforge_config project_root]
+    set output [dict get $::hdlforge_config output]
+    set code [catch {
     ::hdlforge::status initializing
-    set handle [open [file join $output info vivado_version.txt] w]
+    if {[dict get $::hdlforge_config stage] eq "ip"} {
+        set entries {}
+        set index 0
+        foreach entry [dict get $::hdlforge_config ips] {
+            set original [dict get $entry path]
+            set destination [file join $output work ip_sources $index]
+            file mkdir $destination
+            if {[file extension $original] eq ".xci"} {
+                set destination [file join $destination [file rootname [file tail $original]]]
+                file copy -force [file dirname $original] $destination
+            } else {
+                file copy -force $original [file join $destination [file tail $original]]
+            }
+            dict set entry path [file join $destination [file tail $original]]
+            lappend entries $entry
+            incr index
+        }
+        dict set ::hdlforge_config ips $entries
+    }
+    # Also enforce the frozen hash when a snapshot is launched without Python.
+    if {[dict get $::hdlforge_config stage] in {impl bitstream}} {
+        set checkpoint [dict get $::hdlforge_config input_dcp]
+        set actual [regexp -inline {[a-f0-9]{64}} [exec sha256sum -- $checkpoint]]
+        if {$actual ne [dict get $::hdlforge_config input_dcp_sha256]} {
+            error "Parent checkpoint changed; create a new implementation run"
+        }
+    }
+    cd [dict get $::hdlforge_config work_dir]
+    set handle [open [file join $output logs vivado_version.txt] w]
     puts $handle [version]
     close $handle
     set expected [dict get $::hdlforge_config vivado_version]
     if {$expected ne "" && [version -short] ne $expected} {error "Expected Vivado $expected; found [version -short]"}
-    set handle [open [file join $output info stages.tsv] w]
+    set handle [open [file join $output logs stages.tsv] w]
     puts $handle "utc\tevent\tstage\telapsed_seconds\tcommand"
     close $handle
     foreach command {write_checkpoint generate_parallel_reports write_bitstream} {
@@ -234,7 +298,7 @@ set code [catch {
         trace add execution $command leave ::hdlforge::constraint_leave
     }
     set errors_before_run [get_msg_config -count -severity ERROR]
-    source [dict get $::hdlforge_config script]
+    uplevel #0 [list source $script]
     # synth_ip can catch a failed nested synth_design and still return success.
     # An IP with those errors must never be advertised as a completed producer.
     if {[dict get $::hdlforge_config stage] eq "ip" &&
@@ -246,7 +310,7 @@ set code [catch {
 } result options]
 if {$code} {
     ::hdlforge::status failed
-    set handle [open [file join $output info failure.txt] w]
+    set handle [open [file join $output logs failure.txt] w]
     puts $handle [dict get $options -errorinfo]
     close $handle
     puts stderr "HDLFORGE_BUILD_FAILED: $result"
@@ -255,3 +319,5 @@ if {$code} {
 ::hdlforge::status complete
 puts "HDLFORGE_BUILD_COMPLETE: $output"
 exit 0
+
+}

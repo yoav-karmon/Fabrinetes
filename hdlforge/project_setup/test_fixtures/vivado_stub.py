@@ -3,11 +3,26 @@
 
 import ctypes
 import ctypes.util
+import os
 from pathlib import Path
+import shutil
 import sys
 
 
-library = ctypes.CDLL(ctypes.util.find_library("tcl8.6"))
+library_path = ctypes.util.find_library("tcl8.6")
+if not library_path:
+    vivado = shutil.which('vivado')
+    # HDLForge's test PATH can point at this stub. Use the configured installation
+    # from XILINX_VIVADO, or another Vivado executable on the inherited PATH.
+    roots = [Path(os.environ['XILINX_VIVADO'])] if os.environ.get('XILINX_VIVADO') else []
+    roots.extend(Path(folder).parent for folder in os.get_exec_path()
+                 if (Path(folder) / 'vivado').is_file())
+    installation = next((root for root in roots if (root / 'lib/lnx64.o/libtcl8.6.so').is_file()), None)
+    if installation is None:
+        raise RuntimeError('Offline Tcl fixture requires system Tcl 8.6 or a Vivado Tcl library')
+    library_path = str(installation / 'lib/lnx64.o/libtcl8.6.so')
+    os.environ.setdefault('TCL_LIBRARY', str(installation / 'tps/tcl/tcl8.6'))
+library = ctypes.CDLL(library_path)
 library.Tcl_CreateInterp.restype = ctypes.c_void_p
 library.Tcl_Init.argtypes = [ctypes.c_void_p]
 library.Tcl_Eval.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
@@ -28,6 +43,13 @@ proc record {name args} {
 proc version {args} {return 2025.1}
 proc exit {code} {set ::exit_code $code; error stub_exit}
 proc current_project {args} {return project}
+proc current_design {args} {return design}
+proc get_msg_config {args} {return 0}
+proc get_property {name args} {
+    if {$name eq "default_lib"} {return xil_defaultlib}
+    if {$name eq "IP_FILE"} {return [lindex $args end]}
+    return ""
+}
 proc current_fileset {args} {return sources_1}
 proc get_debug_cores {args} {return {}}
 proc get_files {args} {
@@ -37,7 +59,7 @@ proc get_files {args} {
 }
 proc get_ips {args} {return [lindex $args end]}
 foreach command {create_project set_param set_property read_verilog read_vhdl read_ip read_xdc add_files
-                 synth_design link_design opt_design place_design phys_opt_design route_design
+                 synth_design synth_ip generate_target open_checkpoint link_design opt_design place_design phys_opt_design route_design
                  set_msg_config create_msg_db close_msg_db implement_debug_core} {
     proc $command {args} [format {record %s {*}$args} $command]
 }
@@ -63,8 +85,13 @@ config_path = sys.argv[sys.argv.index("-tclargs") + 1]
 # config paths are fixture-generated; escape Tcl special characters anyway.
 escaped = config_path.replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$").replace("[", "\\[")
 library.Tcl_Eval(interpreter, f'set argv [list "{escaped}"]'.encode())
+arguments = sys.argv[sys.argv.index('-tclargs') + 2:]
+if arguments:
+    library.Tcl_Eval(interpreter, f'lappend argv {arguments[0]}'.encode())
 driver = sys.argv[sys.argv.index("-source") + 1]
-library.Tcl_EvalFile(interpreter, driver.encode())
+status = library.Tcl_EvalFile(interpreter, driver.encode())
+if status:
+    print(library.Tcl_GetStringResult(interpreter).decode(), file=sys.stderr)
 library.Tcl_Eval(interpreter, b"set ::exit_code")
 result = library.Tcl_GetStringResult(interpreter).decode()
 sys.exit(int(result) if result.isdigit() else 99)

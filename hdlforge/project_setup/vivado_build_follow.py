@@ -11,7 +11,7 @@ import time
 
 def background_follow(project: Path, output_root: Path, argv: list[str]) -> int:
     """Ctrl-C detaches the viewer; the worker retains its lock and children."""
-    directory = output_root / 'launch_logs'
+    directory = output_root / '_launch_logs'
     directory.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(mode='w', prefix='build-', suffix='.log', dir=directory, delete=False) as stream:
         path = Path(stream.name)
