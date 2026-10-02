@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 import sys
 
-from vivado_build_selector import parse_selector, selector_choices
+from vivado_build_selector import first_path_component, parse_selector, selector_choices
 
 CATALOG = Path(__file__).with_name('native_command_help.json')
 
@@ -32,7 +32,7 @@ def validate(tree: dict) -> None:
                 raise ValueError(f'Invalid arity: {name}')
             validate(node)
     if tree.get('provider') and tree['provider'] not in {
-        'shortcuts', 'build_synth', 'build_impl', 'word', 'init_builds',
+        'shortcuts', 'build_runs', 'word', 'init_builds',
         'project_files', 'environment_arrays', 'files', 'builds', 'auto_impl',
         'synth_timestamps', 'interfaces', 'sim_targets', 'verilator_flags',
     }:
@@ -92,15 +92,14 @@ def dynamic_choices(provider: str, data: dict, project: Path | None) -> dict:
                     walk(value, path+'.')
         walk(data.get('LLM_orch', {}))
         return choices
-    if provider in ('build_synth', 'build_impl') and project:
+    if provider == 'build_runs' and project:
         result = {}
-        if provider == 'build_synth':
-            result.update({name+'.continue': 'Continue configured synthesis '+name
-                           for name in data.get('vivado', {}).get('non_project', {}).get('runs', {})})
         for value in selector_choices(project, data, ''):
             parsed = parse_selector(value)
-            if bool(parsed and parsed.get('impl')) == (provider == 'build_impl'):
-                result[value] = 'Non-project build '+value
+            if parsed and parsed.get('impl'):
+                stem = f"{parsed['run']}.{parsed['synth']}."
+                value = stem + 'impl.' + value[len(stem):]
+            result[value] = 'Non-project build '+value
         return result
     if provider == 'init_builds':
         return {name: 'Initialize build '+name for name in ['all', *data.get('vivado', {}).get('non_project', {}).get('runs', {})]}
@@ -122,12 +121,18 @@ def resolve_path(tree: dict, command: str, data: dict) -> tuple[dict, str, str, 
                 if selected is None:
                     raise ValueError('Unknown project shortcut: '+value)
                 return node, '.'.join(prefix), value, isinstance(selected, str)
-            if node['provider'] in ('build_synth', 'build_impl'):
-                if node['provider'] == 'build_synth' and value.endswith('.continue'):
-                    return node, '.'.join(prefix), value, True
-                parsed = parse_selector(value)
-                ready = bool(parsed and bool(parsed.get('impl')) == (node['provider'] == 'build_impl'))
-                return node, '.'.join(prefix), value, ready
+            if node['provider'] == 'build_runs':
+                runs = data.get('vivado', {}).get('non_project', {}).get('runs', {})
+                run_name = value.split('.', 1)[0]
+                if runs and run_name not in runs:
+                    raise ValueError('Unknown synthesis run: '+run_name)
+                if run_name == 'impl' and run_name not in runs:
+                    raise ValueError('Select a synthesis run before its implementation')
+                selected = value.replace('.impl.', '.', 1)
+                parsed = parse_selector(selected)
+                if parsed and parsed.get('impl') and '.impl.' not in value:
+                    raise ValueError('Implementation belongs under SYNTH.TIMESTAMP.impl.IMPL')
+                return node, '.'.join(prefix), value, bool(parsed)
             return node, '.'.join(prefix), value, bool(value)
         if part not in entries(node.get('commands', {})):
             raise ValueError('Unknown command: '+'.'.join([*prefix, part]))
@@ -242,7 +247,7 @@ def parse(tokens: list[str], cwd: Path, *, partial: bool = False) -> dict:
         ready = False
     if any(flag not in seen for flag in node.get('required_flags', [])):
         ready = False
-    dispatch_value = value.removesuffix('.continue') if node.get('provider') == 'build_synth' else value
+    dispatch_value = value.replace('.impl.', '.', 1) if node.get('provider') == 'build_runs' else value
     internal = []
     for part in node.get('dispatch', []):
         if part == '{value}' and node.get('split_value'):
@@ -255,7 +260,7 @@ def parse(tokens: list[str], cwd: Path, *, partial: bool = False) -> dict:
             values[item] = internal[offset+1]
     if '--build' in values:
         parsed = parse_selector(values['--build'])
-        values.update(build_valid=bool(parsed), build_stage='impl' if parsed and parsed.get('impl') else 'synth',
+        values.update(build_action=parsed.get("action") if parsed else None, build_valid=bool(parsed), build_stage='impl' if parsed and parsed.get('impl') else 'synth',
                       build_bitstream=bool(parsed and parsed.get('bitstream')),
                       build_new_impl=bool(parsed and parsed.get('impl') and parsed.get('attempt') == 'new'))
     for flag in seen & specs.keys():
@@ -270,7 +275,7 @@ def help_text(state: dict) -> str:
     node = state['node']
     prefix = state['prefix']
     lines = ['Usage: hdlforge '+(state['command'] or '<command>')+' [modifiers]']
-    mapping = node.get('commands', {})
+    mapping = {} if state['value'] else node.get('commands', {})
     choices = {((prefix+'.') if prefix else '')+name: mapping['#'+name] for name in entries(mapping)}
     if node.get('provider'):
         dynamic = dynamic_choices(node['provider'], state['data'], state['project'])
@@ -278,7 +283,7 @@ def help_text(state: dict) -> str:
         for name, description in dynamic.items():
             if not name.startswith(stem):
                 continue
-            child = stem+name[len(stem):].split('.', 1)[0]
+            child = stem+first_path_component(name[len(stem):])
             choices.setdefault(prefix+'.'+child, dynamic.get(child, 'Select '+child))
     if node.get('payload'):
         lines.append("  eval-cmd 'quoted shell command' [--dry-run]")

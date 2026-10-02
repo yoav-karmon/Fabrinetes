@@ -19,7 +19,7 @@ class DottedCommandsTest(unittest.TestCase):
     def test_incomplete_build_prints_help_without_launching(self):
         result = self.run_command('vivado.build')
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn('vivado.build.synth', result.stdout)
+        self.assertIn('vivado.build.status', result.stdout)
         self.assertIn('--allow-env-overwrite', result.stdout)
         self.assertNotIn('TOOL_STARTUP', result.stderr)
 
@@ -110,8 +110,8 @@ class DottedCommandsTest(unittest.TestCase):
         self.assertEqual(result.stdout, str(selected))
 
     def test_build_cleanup_modifier_is_valid_on_its_leaf(self):
-        state = parse(['vivado.build.synth.demo.new', '--clean_ignore_artifacts'], self.project)
-        self.assertIn('--clean_ignore_artifacts', state['args'])
+        state = parse(['vivado.build.clean_ignore_artifacts'], self.project)
+        self.assertIn('--build_clean_ignore_artifacts', state['args'])
 
     def test_hardware_command_payload_preserves_spaces_and_dots(self):
         state = parse(['hw-server.chain', '--commands', '["open device", "program path/file.bit", "q"]'], self.project)

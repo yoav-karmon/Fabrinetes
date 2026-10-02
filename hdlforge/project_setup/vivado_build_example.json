@@ -13,15 +13,13 @@
         "sources/RTL/build_defines.svh",
         "sources/data/init.mem"
       ],
-      "enabled_on_all": true,
       "impl_runs": {
         "impl_example": {
           "script": "compilation/synth_example/impl_run_example.tcl",
           "sources": [
             "compilation/ip_example/latest/work/ip_sources/0/example.xcix",
             "sources/XDC/implementation.xdc"
-          ],
-          "enabled_on_all": true
+          ]
         }
       }
     },
@@ -30,8 +28,7 @@
       "sources": [
         "sources/ip/example.xcix"
       ],
-      "kind": "ip",
-      "enabled_on_all": true
+      "kind": "ip"
     }
   }
 }

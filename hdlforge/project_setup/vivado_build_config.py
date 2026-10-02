@@ -14,8 +14,8 @@ BUILD_HELP = """
 Non-project builds: vivado.non_project in the selected project JSON.
   output_root: maintained run root (normally compilation).
   vivado_version: optional exact installed Vivado version.
-  runs.NAME: script, sources, enabled_on_all, optional kind: ip, impl_runs.
-  impl_runs.NAME: script, sources and optional enabled_on_all.
+  runs.NAME: script, sources, optional kind: ip, impl_runs.
+  impl_runs.NAME: script and sources.
   sources is one list of snapshot file paths: RTL, XDC, IP, Tcl and helpers.
   Each run.tcl owns part/top, defines, threads, properties and Vivado commands.
   Call ::hdlforge::design TOP PART to record the design identity.
@@ -24,23 +24,28 @@ Non-project builds: vivado.non_project in the selected project JSON.
 
 Run layout:
   compilation/RUN/run.tcl
-  compilation/RUN/_TIMESTAMP/{snapshot/source,snapshot/scripts,logs,artifacts,work}
-  compilation/RUN/_TIMESTAMP/impl_runs/IMPL/_TIMESTAMP/{snapshot,logs,artifacts,work}
-  HDLForge copies maintained scripts unchanged into snapshot/scripts.
-  All runtime JSON paths are relative to snapshot/scripts; Vivado runs in work/.
-  Labels begin with _; run_id and created_at remain authoritative after renaming.
-  latest uses JSON metadata, never folder names or filesystem mtime.
-  New synthesis snapshots implementation definitions and their declared sources.
-  New implementations use these frozen inputs unless --refresh_impl_inputs is set.
-  Reruns use frozen Tcl and sources; changed parent checkpoints refuse execution.
+  compilation/RUN/_TIMESTAMP/{manifest.json,build.log,snapshot,artifacts,work}
+  compilation/RUN/_TIMESTAMP/impl_runs/IMPL/snapshot/
+  compilation/RUN/_TIMESTAMP/impl_runs/IMPL/_TIMESTAMP/{manifest.json,build.log,snapshot,artifacts,work}
+  Each attempt owns an atomic manifest; schema paths are relative to it.
+  snapshot/<original-name>.hdlforge.json is the full unchanged project copy.
+  Implementations read script/sources from that saved JSON and copy only saved inputs.
+  Synthesis prepares every implementation's own snapshot before starting Vivado.
+  Edit that prepared implementation Tcl/XDC before the next .run.
+  Implementation launch stays visible; a missing synthesis DCP fails at launch.
+  Every .run freezes those edits into a fresh attempt using the fixed synthesis DCP.
+  Rename completed attempt folders; completion shows folder names, not IDs.
+  Save selected attempts in Git together with the producing synthesis checkpoint.
 
 Commands:
-  hdlforge vivado.build.synth.RUN.new
-  hdlforge vivado.build.impl.RUN.latest.IMPL.new
-  hdlforge vivado.build.synth.RUN.rerun.RUN_ID
-  hdlforge vivado.build.impl.RUN.RUN_ID.IMPL.rerun.IMPL_ID
-  hdlforge vivado.build.impl.RUN.RUN_ID.IMPL.bitstream.IMPL_ID
-  --auto_impl NAME can be repeated and pins the exact synthesis run ID.
+  hdlforge vivado.build.RUN.run
+  hdlforge vivado.build.RUN.ATTEMPT.status
+  hdlforge vivado.build.RUN.ATTEMPT.stop
+  hdlforge vivado.build.RUN.ATTEMPT.impl.IMPL.run
+  hdlforge vivado.build.RUN.ATTEMPT.impl.IMPL.IMPL_ATTEMPT.status
+  hdlforge vivado.build.RUN.ATTEMPT.impl.IMPL.IMPL_ATTEMPT.stop
+  hdlforge vivado.build.RUN.ATTEMPT.impl.IMPL.bitstream.IMPL_ATTEMPT
+  --auto_impl NAME can be repeated and pins the exact synthesis attempt.
   hdlforge vivado.build.status
   hdlforge vivado.build.stop_all
   hdlforge vivado.build.clean_ignore_artifacts --dry-run
@@ -86,8 +91,8 @@ def synthesis_timestamps(project_file: Path, data: dict, selector: str,
         config = read_run(folder)
         if completed_only:
             try:
-                if ((folder / 'logs/status').read_text().strip() != 'complete'
-                        or (folder / 'logs/exit_code').read_text().strip() != '0'
+                if (config.get('status') != 'complete'
+                        or config.get('exit_code') != 0
                         or not (folder / 'artifacts' / f"{config['top']}.dcp").is_file()):
                     continue
             except OSError:

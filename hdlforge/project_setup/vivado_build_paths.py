@@ -3,7 +3,7 @@
 import os
 from pathlib import Path
 
-from vivado_build_layout import find_run, run_directories
+from vivado_build_layout import find_run, read_run, run_directories
 
 
 def dated_runs(folder: Path) -> list[Path]:
@@ -31,9 +31,9 @@ def resolve_latest_path(path: Path, selections: dict[Path, Path] | None = None) 
 
 def require_complete(folder: Path) -> None:
     try:
-        complete = ((folder / 'logs/status').read_text().strip() == 'complete'
-                    and (folder / 'logs/exit_code').read_text().strip() == '0')
-    except OSError:
+        config = read_run(folder)
+        complete = config.get('status') == 'complete' and config.get('exit_code') == 0
+    except (OSError, ValueError):
         complete = False
     if not complete:
         raise ValueError(f'Selected run is incomplete or unsuccessful: {folder}')

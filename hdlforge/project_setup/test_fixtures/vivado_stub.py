@@ -32,7 +32,8 @@ library.Tcl_GetStringResult.restype = ctypes.c_char_p
 interpreter = library.Tcl_CreateInterp()
 library.Tcl_Init(interpreter)
 for flag in ("-log", "-journal", "-messageDb"):
-    Path(sys.argv[sys.argv.index(flag) + 1]).write_text("stub\n")
+    if flag in sys.argv:
+        Path(sys.argv[sys.argv.index(flag) + 1]).write_text("stub\n")
 stub = r'''
 proc record {name args} {
     set handle [open calls.log a]

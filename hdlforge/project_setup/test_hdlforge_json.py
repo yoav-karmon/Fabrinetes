@@ -82,10 +82,10 @@ class ProjectJsonTest(unittest.TestCase):
         errors = lint(data, "vivado.build", self.project, "host", "user")
         self.assertTrue(any("run.tcl" in error for error in errors))
         self.assertTrue(any("impl.tcl" in error for error in errors))
-        self.assertTrue(any("bool" in error for error in errors))
+        self.assertTrue(any("not a supported build key" in error for error in errors))
         self.assertTrue(any("retired" in error for error in errors))
         run = data["vivado"]["non_project"]["runs"]["synth"]
-        run["enabled_on_all"] = False
+        run.pop("enabled_on_all")
         run["impl_runs"]["impl"].pop("part")
         for name in ("run.tcl", "source.sv", "impl.tcl"):
             (self.root / name).write_text("")

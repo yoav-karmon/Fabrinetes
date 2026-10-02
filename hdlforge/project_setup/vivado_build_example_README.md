@@ -4,9 +4,9 @@ Generated for `{{PROJECT}}`; run HDLForge from the project JSON directory.
 Replace placeholder sources, IP, XDC, part and top before building.
 
 ```bash
-hdlforge --project {{PROJECT_ARG}} vivado.build.synth.ip_example.continue
-hdlforge --project {{PROJECT_ARG}} vivado.build.synth.synth_example.continue --auto_impl impl_example
-hdlforge --project {{PROJECT_ARG}} vivado.build.impl.synth_example.latest.impl_example.new
+hdlforge --project {{PROJECT_ARG}} vivado.build.ip_example.run
+hdlforge --project {{PROJECT_ARG}} vivado.build.synth_example.run --auto_impl impl_example
+hdlforge --project {{PROJECT_ARG}} vivado.build.synth_example.latest.impl.impl_example.run
 ```
 
 The project JSON points to maintained scripts: `synth_example/run.tcl`,
@@ -15,28 +15,30 @@ HDLForge copies the selected script unchanged; it generates data, not run code.
 
 ```text
 {{OUTPUT_ROOT}}/synth_example/
-  run.tcl
-  impl_run_example.tcl
-  _<label>/
-    snapshot/
-      source/                 only declared inputs and literal RTL includes
-      scripts/
-        run.tcl               copy of the selected maintained script
-        run.json              shared synthesis configuration and attempt records
-        _hdlforge/            frozen runtime and vendored Tcllib JSON reader
-    logs/                     stdout, Vivado logs, status, stage events, provenance
+  run.tcl                     maintained synthesis Tcl
+  impl_run_example.tcl        initial implementation Tcl
+  _<attempt>/
+    snapshot/{{PROJECT}}.hdlforge.json  full project copy with original filename
+    manifest.json             resolved paths, inputs/hashes, status/result
+    build.log                 launcher, runner and Vivado console output
+    snapshot/{source,scripts}/
     artifacts/                checkpoints, reports, BIT/LTX/MMI
-    work/                     Vivado working directory
-    impl_runs/<implementation-name>/
-      _<label>/               same snapshot/logs/artifacts/work layout
+    work/                     temporary Vivado files
+    impl_runs/<implementation>/
+      snapshot/{source,scripts}/  prepared inputs copied from synthesis snapshot
+      _<attempt>/             own manifest, log, snapshot, artifacts and work
 ```
 
-All schema paths in generated `run.json` are relative to that JSON's directory.
-The maintained Tcl bootstrap resolves runtime paths before executing the body.
+Each attempt has its own atomic `manifest.json`; schema paths are relative to
+that attempt. Tcl emits events to the Python runner, which records design
+identity, stage times, tool version, status and exit code in the manifest.
+`build.log` is the single human-readable build log. Vivado auxiliary files stay
+in `work/`. `.manifest.lock` and the run lock are internal synchronization files.
+The global registry indexes attempts; it does not duplicate new run records.
+
 Each script declares part/top with `::hdlforge::design $top $part` and owns
 defines, parameters (including threads), file-read commands and properties.
-JSON is a launcher manifest: `script`, `sources`, `impl_runs` and
-`enabled_on_all`. IP producers add `kind: "ip"` for private working copies
+JSON is a launcher manifest: `script`, `sources` and `impl_runs`. IP producers add `kind: "ip"` for private working copies
 and freshness checks. Synthesis/implementation need no stage declaration.
 
 List every input and helper in one `sources` array. Tcl obtains its saved
@@ -45,29 +47,35 @@ input subdirectories in snapshot/source and does not infer dynamic Tcl/Python
 dependencies. Source properties and language options belong beside the Tcl
 read command.
 
-Implementations explicitly declare their own sources. Their parent DCP remains
-in the synthesis artifacts directory; Tcl uses
-`[dict get $::hdlforge_config input_dcp]`. HDLForge verifies its SHA-256 and
-checks the Tcl design identity against the selected synthesis. New attempts
-use the synthesis-frozen implementation definitions and inputs; use
-`--refresh_impl_inputs` to snapshot the current maintained files.
+Implementations use the selected synthesis checkpoint and verify its SHA-256.
+Synthesis saves the full project JSON and the implementation Tcl/XDC it declares.
+Before Vivado starts, every implementation gets its own prepared `snapshot/`.
+Only actual attempts get `work/` and `artifacts/` folders.
+Edit the prepared Tcl/XDC to try timing changes.
+Every `.run` creates a fresh implementation attempt and
+freezes the current Tcl and declared XDC inputs; previous attempt inputs and results stay intact.
+The synthesis checkpoint is shared and is never rebuilt by implementation.
 
-Directory labels start with `_` and carry no identity/time meaning.
-`run_id`, `created_at`, `timestamp`, and `launch_epoch` are authoritative JSON
-metadata. Rename generated synthesis/implementation folders freely, retaining
-the relative tree. Discovery and `latest` use metadata; completion offers stable
-IDs. A failed newest synthesis is not silently replaced with an older success.
+Rename completed attempt folders to useful labels, such as `baseline` or
+`timing_closed`; keep configured names such as `synth_example` unchanged.
+Completion shows actual attempt folder names. Stable identity and creation time
+remain in the manifest; `latest` uses creation time, not folder spelling.
+Discovery skips folders without valid run metadata. Implementation commands
+are available before synthesis finishes; launching without the checkpoint fails
+with its missing path. The saved synthesis project JSON defines implementations.
 
 ```bash
-hdlforge --project {{PROJECT_ARG}} vivado.build.synth.synth_example.rerun.<run-id>
-hdlforge --project {{PROJECT_ARG}} vivado.build.impl.synth_example.<synth-id>.impl_example.rerun.<impl-id>
-hdlforge --project {{PROJECT_ARG}} vivado.build.impl.synth_example.<synth-id>.impl_example.bitstream.<impl-id>
+hdlforge vivado.build.synth_example.baseline.impl.impl_example.run
+hdlforge vivado.build.synth_example.baseline.status
+hdlforge vivado.build.synth_example.baseline.impl.impl_example.timing_closed.status
+hdlforge vivado.build.synth_example.baseline.impl.impl_example.<attempt>.stop
+hdlforge vivado.build.synth_example.baseline.impl.impl_example.bitstream.timing_closed
 ```
 
-Bitstream-only runs reference the selected implementation's routed checkpoint,
-freeze its hash, copy its paired probes, and preserve its USERID timestamp.
-They live under `bitstream_runs/_<label>/` with the same run layout.
-A rerun preserves its frozen configuration and timestamp.
+There is no in-place rerun: use `.run` again for each timing experiment, including
+parallel attempts. Never edit an attempt's frozen snapshot to prepare the next
+one. Bitstream-only launches create a child attempt under `bitstream_runs/`,
+using the selected routed checkpoint and original USERID timestamp.
 
 Add `_*` once in the repository root `.gitignore`. HDLForge never creates
 per-run ignore files. Use `git add -f <run-directory>` to save a generated run;
@@ -80,11 +88,23 @@ hdlforge --project {{PROJECT_ARG}} vivado.build.clean_ignore_artifacts --dry-run
 hdlforge --project {{PROJECT_ARG}} vivado.build.status
 ```
 
-Historical old-format output folders are left intact and are not selected for
-new-format reruns or cleanup. Create a new synthesis to use the new format.
+Historical run folders are left intact and remain readable. Create a fresh
+synthesis to capture the original project JSON and the consolidated layout.
 
-One synthesis run.json contains implementation_configs and attempts keyed by
-run ID. Implementations and bitstream runs receive this JSON path and their run
-ID as Tcl arguments; they do not get separate JSON files. A child _run_id marker
-contains its identity for discovery after renaming. Metadata updates are locked
-and atomic. Synthesis reruns are blocked once implementation history exists.
+To preserve a timing result in Git, rename the completed synthesis and selected
+implementation attempt folders, then add the synthesis folder (which contains
+its checkpoint and the selected child) with `git add -f <synthesis-attempt>`.
+Review the staged files before committing; add only the attempts you intend to
+keep. A saved implementation needs its producing synthesis checkpoint.
+
+Each synthesis snapshot contains a full, unchanged copy of the selected
+`*.hdlforge.json`, preserving its filename. Source → synthesis copies the files
+declared by synthesis and its implementations. Synthesis → implementation uses
+only the selected implementation's `script` and `sources` from that saved JSON.
+The manifest records resolved paths and execution metadata; it does not choose
+the file list. Implementation never refreshes inputs from the live project.
+Synthesis prepares each `impl_runs/<impl>/snapshot/` with its own declared
+files. For timing experiments, edit that implementation's prepared Tcl/XDC;
+every `.run` copies those inputs into a fresh attempt. Source selection remains
+in the synthesis snapshot's project JSON and must reference that implementation's
+prepared inputs. Earlier attempts remain unchanged. Constraints stay in snapshots.

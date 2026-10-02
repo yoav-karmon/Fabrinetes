@@ -17,7 +17,7 @@ from uuid import uuid4
 from table_formatter import create_matrix_table_from_data
 from vivado_build_log import enrich
 from vivado_build_artifacts import cleanable
-from vivado_build_layout import descendant_runs, read_run, run_directories
+from vivado_build_layout import descendant_runs, read_run, run_directories, write_run
 from vivado_build_processes import alive, find_user_vivado, group_members, local_identity, probe_process, process_info, signal_process, thread_activity, vivado_engine
 
 
@@ -90,7 +90,53 @@ class BuildRegistry:
         with (self.root / "_run_registry.lock").open("a") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
             data = json.loads(self.path.read_text()) if self.path.exists() else {"version": 1, "runs": {}}
+            # The global file is an index; execution records live in manifests.
+            if data.get('version') == 2:
+                locations = {}
+                for definition in self.root.iterdir():
+                    if definition.is_dir() and not definition.is_symlink():
+                        for parent in run_directories(definition):
+                            for folder in descendant_runs(parent):
+                                record = read_run(folder)
+                                if record.get('launch_id'):
+                                    locations[record['launch_id']] = folder
+                records = {}
+                for launch_id, location in data['runs'].items():
+                    if isinstance(location, dict):
+                        records[launch_id] = location
+                        continue
+                    folder = locations.get(launch_id, self.root / location)
+                    try:
+                        record = read_run(folder)
+                        row = record['execution']
+                    except (OSError, ValueError, KeyError):
+                        continue
+                    row.update(output=str(folder), run_log=str(folder / 'build.log'),
+                               vivado_log=str(folder / 'build.log'), status_file=str(folder / 'manifest.json'))
+                    row['status'] = record.get('status', row.get('status'))
+                    row['exit_code'] = record.get('exit_code', row.get('exit_code'))
+                    row['finished_at'] = record.get('finished_at')
+                    records[launch_id] = row
+                data = {'version': 1, 'runs': records}
+            previous = json.loads(json.dumps(data['runs']))
             yield data
+            index = {}
+            for launch_id, row in data['runs'].items():
+                folder = Path(row['output'])
+                manifest = folder / 'manifest.json'
+                if not manifest.is_file():
+                    index[launch_id] = row  # Preserve read-only historical/unobservable launches.
+                    continue
+                if row != previous.get(launch_id):
+                    execution = {key: value for key, value in row.items()
+                                 if key not in {'status', 'exit_code', 'finished_at'}}
+                    values = {'execution': execution}
+                    for key in ('status', 'exit_code', 'finished_at'):
+                        if row.get(key) != previous.get(launch_id, {}).get(key):
+                            values[key] = row.get(key)
+                    write_run(folder, values)
+                index[launch_id] = os.path.relpath(folder, self.root)
+            data = {'version': 2, 'runs': index}
             temporary = None
             try:
                 with tempfile.NamedTemporaryFile(mode="w", dir=self.root, delete=False) as handle:
@@ -115,8 +161,8 @@ class BuildRegistry:
                 "launch_id": launch_id, "run_id": config["run_id"], "project": str(project.resolve()), "selector": config["selector"],
                 "stage": config["stage"], "synth_timestamp": config["synthesis_run_id"],
                 "build_selection": config.get('build_selection'),
-                "output": str(output), "run_log": str(output / "logs/runme.log"),
-                "vivado_log": str(output / "logs/vivado.log"), "status_file": str(output / "logs/status"),
+                "output": str(output), "run_log": str(output / "build.log"),
+                "vivado_log": str(output / "build.log"), "status_file": str(output / "manifest.json"),
                 "host": local_identity(), "launcher": process_info(os.getpid()), "process": None,
                 "pid": None, "pid_state": "not_started", "status": "starting", "exit_code": None,
                 "started_at": utc_now(), "finished_at": None, "stop_requested": False,
@@ -154,8 +200,15 @@ class BuildRegistry:
             for row in rows:
                 if row.get('run_id') in locations:
                     current = locations[row['run_id']]
-                    row.update(output=str(current), run_log=str(current / 'logs/runme.log'),
-                               vivado_log=str(current / 'logs/vivado.log'), status_file=str(current / 'logs/status'))
+                    config = read_run(current)
+                    modern = config.get('format_version') == 3
+                    row.update(output=str(current),
+                               run_log=str(current / ('build.log' if modern else 'logs/runme.log')),
+                               vivado_log=str(current / ('build.log' if modern else 'logs/vivado.log')),
+                               status_file=str(current / ('manifest.json' if modern else 'logs/status')))
+                    if not modern and row['host'] == local_identity():
+                        row['status'] = config.get('status', row['status'])
+                        row['exit_code'] = config.get('exit_code', row.get('exit_code'))
                 row["pid_state"] = probe_process(row.get("process"), row["host"])
                 engine = row.get('engine')
                 if not engine or not alive(probe_process(engine, row['host'])):
@@ -164,11 +217,6 @@ class BuildRegistry:
                 row['engine_pid'] = engine.get('pid') if engine else None
                 row['engine_state'] = probe_process(engine, row['host'])
                 row["launcher_state"] = probe_process(row.get("launcher"), row["host"])
-                if row["host"] == local_identity() and not row.get('finished_at'):
-                    # A rerun can replace this path; retain completed launch history.
-                    status = Path(row["status_file"])
-                    if status.is_file():
-                        row["status"] = status.read_text().strip()
                 active = alive(row["pid_state"]) or (alive(row["launcher_state"]) and
                          (not row.get("finished_at") or row.get("continuation_pending")))
                 row["active"] = active
@@ -280,7 +328,7 @@ class BuildRegistry:
                 print(f"{detail.get('LOG_PATH', '-')}: {detail['LOG_STAGE']}")
         print(f"Follow logs (paths relative to {Path.cwd()}):")
         for row in rows:
-            log = Path(row.get('run_log', str(Path(row['output']) / 'logs/runme.log')))
+            log = Path(row.get('run_log', str(Path(row['output']) / 'build.log')))
             command = shlex.join(['tail', '-n', '50', '-f', '--', os.path.relpath(log, Path.cwd())])
             print(f"  {run_selection(row)}:\n    {command}")
 
@@ -332,8 +380,10 @@ class BuildRegistry:
                 signal_process(member, row["host"], signal.SIGKILL)
             signal_process(row.get("launcher"), row["host"], signal.SIGKILL)
             self.update(row["launch_id"], status="stopped", finished_at=utc_now(), continuation_pending=False)
-            path = Path(row["status_file"])
-            if path.parent.is_dir():
-                path.write_text("stopped\n")
+            path = Path(row['output'])
+            if (path / 'manifest.json').is_file():
+                write_run(path, {'status': 'stopped', 'exit_code': 130, 'finished_at': utc_now()})
+            elif (path / 'logs').is_dir():
+                (path / 'logs/status').write_text('stopped\n')
         print(f"Stop requested for {len(rows)} registered launches")
         self.discover()  # Also report any remaining unregistered Vivado processes.

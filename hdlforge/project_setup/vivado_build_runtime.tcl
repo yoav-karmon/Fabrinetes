@@ -6,11 +6,16 @@ namespace eval ::hdlforge {
     variable design_declared 0
 }
 
-proc ::hdlforge::status {value} {
-    set handle [open [file join [dict get $::hdlforge_config output] logs status] w]
-    puts $handle $value
-    close $handle
+# The runner owns manifest writes. Encode fields to keep multiline Tcl values
+# on one stdout line without a second journal or a concurrent JSON writer.
+proc ::hdlforge::emit {kind args} {
+    set fields [list HDLFORGE_EVENT $kind]
+    foreach value $args {lappend fields [binary encode hex [encoding convertto utf-8 $value]]}
+    puts [join $fields "\t"]
+    flush stdout
 }
+
+proc ::hdlforge::status {value} {emit status $value}
 
 proc ::hdlforge::collect {} {
     variable copied
@@ -35,9 +40,7 @@ proc ::hdlforge::artifact_written {command code result operation} {
         set name [file tail [lindex $command end]]
         set output [dict get $::hdlforge_config output]
         if {[file isfile [file join $output artifacts $name]]} {
-            set handle [open [file join $output logs last_routed_checkpoint.txt] w]
-            puts $handle $name
-            close $handle
+            emit last_routed_checkpoint $name
         }
     }
 }
@@ -55,9 +58,7 @@ proc ::hdlforge::design {top part} {
             error "Implementation $key differs from the selected synthesis"
         }
         dict set ::hdlforge_config $key $value
-        set handle [open [file join [dict get $::hdlforge_config output] logs design_$key] w]
-        puts $handle $value
-        close $handle
+        emit $key $value
     }
     set design_declared 1
 }
@@ -72,9 +73,7 @@ proc ::hdlforge::source_path {name} {
 }
 
 proc ::hdlforge::event {event stage elapsed command} {
-    set handle [open [file join [dict get $::hdlforge_config output] logs stages.tsv] a]
-    puts $handle "[clock format [clock seconds] -gmt 1 -format %FT%TZ]\t$event\t$stage\t$elapsed\t[string map [list \t { } \n { }] $command]"
-    close $handle
+    emit stage [clock format [clock seconds] -gmt 1 -format %Y-%m-%dT%H:%M:%SZ] $event $stage $elapsed $command
     puts "HDLFORGE_STAGE_$event $stage: $command"
 }
 
@@ -89,9 +88,7 @@ proc ::hdlforge::stamp_bitstream {} {
     }
     set userid [format "0x%08X" $epoch]
     set_property BITSTREAM.CONFIG.USERID $userid [current_design]
-    set handle [open [file join [dict get $config output] logs bitstream_timestamp.json] w]
-    puts $handle [format {{"launch_epoch": %s, "userid": "%s"}} $epoch $userid]
-    close $handle
+    emit bitstream_timestamp $epoch $userid
     puts "Bitstream USERID timestamp: $userid"
 }
 
@@ -139,8 +136,8 @@ proc ::hdlforge::constraint_leave {command code result operation} {
 proc ::hdlforge::run {script arguments} {
     set base [file dirname $script]
     source [file join $base _hdlforge json json.tcl]
-    if {[llength $arguments] > 2} {error "Expected run.json path and optional run ID"}
-    set path [expr {[llength $arguments] ? [lindex $arguments 0] : [file join $base run.json]}]
+    if {[llength $arguments] > 2} {error "Expected manifest.json path and optional run ID"}
+    set path [expr {[llength $arguments] ? [lindex $arguments 0] : [file join $base .. .. manifest.json]}]
     set path [file normalize $path]
     set base [file dirname $path]
     set handle [open $path r]
@@ -150,7 +147,7 @@ proc ::hdlforge::run {script arguments} {
     if {[llength $arguments] == 2} {
         set identity [lindex $arguments 1]
         if {$identity ne [dict get $::hdlforge_config run_id]} {
-            set ::hdlforge_config [dict get $::hdlforge_config attempts $identity]
+            error "Manifest run identity does not match selected attempt"
         }
     }
     foreach key {script output output_root project_root input_dcp bitstream_source logs_dir artifacts_dir work_dir} {
@@ -210,14 +207,9 @@ proc ::hdlforge::run {script arguments} {
         }
     }
     cd [dict get $::hdlforge_config work_dir]
-    set handle [open [file join $output logs vivado_version.txt] w]
-    puts $handle [version]
-    close $handle
+    emit tool_version [version]
     set expected [dict get $::hdlforge_config vivado_version]
     if {$expected ne "" && [version -short] ne $expected} {error "Expected Vivado $expected; found [version -short]"}
-    set handle [open [file join $output logs stages.tsv] w]
-    puts $handle "utc\tevent\tstage\telapsed_seconds\tcommand"
-    close $handle
     foreach command {write_checkpoint generate_parallel_reports write_bitstream} {
         trace add execution $command leave ::hdlforge::artifact_written
     }
@@ -245,9 +237,8 @@ proc ::hdlforge::run {script arguments} {
 } result options]
 if {$code} {
     ::hdlforge::status failed
-    set handle [open [file join $output logs failure.txt] w]
-    puts $handle [dict get $options -errorinfo]
-    close $handle
+    emit failure [dict get $options -errorinfo]
+    puts stderr [dict get $options -errorinfo]
     puts stderr "HDLFORGE_BUILD_FAILED: $result"
     exit 1
 }

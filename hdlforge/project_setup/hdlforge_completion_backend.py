@@ -6,11 +6,12 @@ import os
 import re
 import subprocess
 import sys
+import textwrap
 from dataclasses import dataclass
 from pathlib import Path
 
 from table_formatter import create_matrix_table_from_data
-from vivado_build_selector import parse_selector, selector_choices
+from vivado_build_selector import first_path_component, parse_selector, selector_choices
 from vivado_build_config import ARTIFACT_FLAGS, build_names, synthesis_timestamps
 
 import hdlforge_command_tree as command_tree
@@ -213,7 +214,8 @@ def complete_dotted_paths(all_paths: list[str], cur: str) -> CompletionResult:
         parent_prefix = cur[:-1]
         base_prefix = f"{parent_prefix}." if parent_prefix else ""
     elif "." in cur:
-        parent_prefix = cur.rsplit(".", 1)[0]
+        partial_stamp = re.search(r"(_?\d{4}-\d{2}-\d{2}T\d{6}\.\d{0,6}Z?)$", cur)
+        parent_prefix = cur[:partial_stamp.start()].rstrip('.') if partial_stamp else cur.rsplit(".", 1)[0]
         base_prefix = f"{parent_prefix}."
 
     has_children: dict[str, bool] = {}
@@ -226,7 +228,7 @@ def complete_dotted_paths(all_paths: list[str], cur: str) -> CompletionResult:
             if not path.startswith(base_prefix):
                 continue
             remainder = path[len(base_prefix) :]
-            next_seg = remainder.split(".", 1)[0]
+            next_seg = first_path_component(remainder)
             if not next_seg:
                 continue
             candidate = f"{base_prefix}{next_seg}"
@@ -397,13 +399,22 @@ def completion_table(candidates: list[str], data: dict, columns: int) -> list[st
     """Render display-only choices with HDLForge's bundled table formatter."""
     columns = max(30, columns)
     labels = candidates
-    command_width = min(max(len("Command"), max(len(item) for item in labels)), (columns - 7) // 2)
+    command_width = max(len("Command"), max(len(item) for item in labels))
     description_width = columns - command_width - 7
     rows = [[label, completion_description(data, item)] for label, item in zip(labels, candidates)]
-    rendered = create_matrix_table_from_data(["Command", "Description"], rows,
-                                            col_wrapped_limits={0: command_width, 1: description_width})
+    # Command tokens must remain whole. On narrow terminals put descriptions
+    # below them instead of splitting folder names across table cells.
+    if description_width < 16:
+        lines = []
+        for label, description in rows:
+            lines.append(label)
+            lines.extend(textwrap.wrap('# ' + description, width=columns - 2,
+                                       initial_indent='  ', subsequent_indent='  '))
+    else:
+        rendered = create_matrix_table_from_data(["Command", "Description"], rows,
+                                                col_wrapped_limits={1: description_width})
+        lines = rendered.splitlines()
     # Readline must not arrange the rendered lines in multiple columns.
-    lines = rendered.splitlines()
     return [line.ljust(columns // 2 + 1) for line in lines]
 
 

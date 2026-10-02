@@ -173,8 +173,6 @@
     "#--lines": "Number of trailing log lines to display (default 8).",
     "--monitor": null,
     "#--monitor": "Monitor runs: status, timing-graph, tail, collection, and management. Use help for all actions.",
-    "--refresh_impl_inputs": null,
-    "#--refresh_impl_inputs": "New implementation: snapshot current XDC/Tcl/supporting files while retaining synthesis DCP and frozen IPs",
     "--build_stop_all": null,
     "#--build_stop_all": "Stop registered launches and cancel pending implementations; report unregistered Vivado processes",
     "--build_find_all_user_runs": null,
@@ -191,12 +189,6 @@
     "#--interval": "Interval",
     "--once": null,
     "#--once": "Once",
-    "--remove_lock": null,
-    "#--remove_lock": "Remove lock",
-    "--stop_run": null,
-    "#--stop_run": "Stop run",
-    "--force_run": null,
-    "#--force_run": "Force run",
     "--local-host": null,
     "#--local-host": "Local host",
     "--local-user": null,
@@ -403,358 +395,6 @@
         "commands": {
           "build": {
             "commands": {
-              "synth": {
-                "provider": "build_synth",
-                "dispatch": [
-                  "--tool",
-                  "vivado",
-                  "--build",
-                  "{value}"
-                ],
-                "flags": {
-                  "--clean_ignore_artifacts": {
-                    "arity": 0,
-                    "when": {
-                      "all": [
-                        {
-                          "equals": [
-                            "build_valid",
-                            true
-                          ]
-                        },
-                        {
-                          "equals": [
-                            "build_bitstream",
-                            false
-                          ]
-                        },
-                        {
-                          "not": {
-                            "present": "--clean_ignore_artifacts"
-                          }
-                        }
-                      ]
-                    }
-                  },
-                  "#--clean_ignore_artifacts": "Delete a run only when every descendant is untracked and ignored and no run lock is held; --dry-run previews candidates and skip reasons",
-                  "--remove_lock": {
-                    "arity": 0,
-                    "when": {
-                      "all": [
-                        {
-                          "equals": [
-                            "build_valid",
-                            true
-                          ]
-                        },
-                        {
-                          "equals": [
-                            "build_bitstream",
-                            false
-                          ]
-                        },
-                        {
-                          "not": {
-                            "present": "--clean_ignore_artifacts"
-                          }
-                        }
-                      ]
-                    }
-                  },
-                  "#--remove_lock": "Remove lock",
-                  "--stop_run": {
-                    "arity": 0,
-                    "when": {
-                      "all": [
-                        {
-                          "equals": [
-                            "build_valid",
-                            true
-                          ]
-                        },
-                        {
-                          "equals": [
-                            "build_bitstream",
-                            false
-                          ]
-                        },
-                        {
-                          "not": {
-                            "present": "--clean_ignore_artifacts"
-                          }
-                        }
-                      ]
-                    }
-                  },
-                  "#--stop_run": "Stop run",
-                  "--force_run": {
-                    "arity": 0,
-                    "when": {
-                      "all": [
-                        {
-                          "equals": [
-                            "build_valid",
-                            true
-                          ]
-                        },
-                        {
-                          "equals": [
-                            "build_bitstream",
-                            false
-                          ]
-                        },
-                        {
-                          "not": {
-                            "present": "--clean_ignore_artifacts"
-                          }
-                        }
-                      ]
-                    }
-                  },
-                  "#--force_run": "Force run",
-                  "--auto_impl": {
-                    "arity": 1,
-                    "repeatable": true,
-                    "provider": "auto_impl",
-                    "when": {
-                      "all": [
-                        {
-                          "equals": [
-                            "build_valid",
-                            true
-                          ]
-                        },
-                        {
-                          "equals": [
-                            "build_bitstream",
-                            false
-                          ]
-                        },
-                        {
-                          "not": {
-                            "present": "--clean_ignore_artifacts"
-                          }
-                        },
-                        {
-                          "equals": [
-                            "build_stage",
-                            "synth"
-                          ]
-                        }
-                      ]
-                    }
-                  },
-                  "#--auto_impl": "After synthesis succeeds run this implementation pinned to its stable run ID; repeatable, deduplicated",
-                  "--refresh_impl_inputs": {
-                    "arity": 0,
-                    "when": {
-                      "all": [
-                        {
-                          "equals": [
-                            "build_valid",
-                            true
-                          ]
-                        },
-                        {
-                          "equals": [
-                            "build_bitstream",
-                            false
-                          ]
-                        },
-                        {
-                          "not": {
-                            "present": "--clean_ignore_artifacts"
-                          }
-                        },
-                        {
-                          "equals": [
-                            "build_new_impl",
-                            true
-                          ]
-                        }
-                      ]
-                    }
-                  },
-                  "#--refresh_impl_inputs": "New implementation: snapshot current XDC/Tcl/supporting files while retaining synthesis DCP and frozen IPs"
-                }
-              },
-              "#synth": "Select a synth run and operation.",
-              "impl": {
-                "provider": "build_impl",
-                "dispatch": [
-                  "--tool",
-                  "vivado",
-                  "--build",
-                  "{value}"
-                ],
-                "flags": {
-                  "--clean_ignore_artifacts": {
-                    "arity": 0,
-                    "when": {
-                      "all": [
-                        {
-                          "equals": [
-                            "build_valid",
-                            true
-                          ]
-                        },
-                        {
-                          "equals": [
-                            "build_bitstream",
-                            false
-                          ]
-                        },
-                        {
-                          "not": {
-                            "present": "--clean_ignore_artifacts"
-                          }
-                        }
-                      ]
-                    }
-                  },
-                  "#--clean_ignore_artifacts": "Delete a run only when every descendant is untracked and ignored and no run lock is held; --dry-run previews candidates and skip reasons",
-                  "--remove_lock": {
-                    "arity": 0,
-                    "when": {
-                      "all": [
-                        {
-                          "equals": [
-                            "build_valid",
-                            true
-                          ]
-                        },
-                        {
-                          "equals": [
-                            "build_bitstream",
-                            false
-                          ]
-                        },
-                        {
-                          "not": {
-                            "present": "--clean_ignore_artifacts"
-                          }
-                        }
-                      ]
-                    }
-                  },
-                  "#--remove_lock": "Remove lock",
-                  "--stop_run": {
-                    "arity": 0,
-                    "when": {
-                      "all": [
-                        {
-                          "equals": [
-                            "build_valid",
-                            true
-                          ]
-                        },
-                        {
-                          "equals": [
-                            "build_bitstream",
-                            false
-                          ]
-                        },
-                        {
-                          "not": {
-                            "present": "--clean_ignore_artifacts"
-                          }
-                        }
-                      ]
-                    }
-                  },
-                  "#--stop_run": "Stop run",
-                  "--force_run": {
-                    "arity": 0,
-                    "when": {
-                      "all": [
-                        {
-                          "equals": [
-                            "build_valid",
-                            true
-                          ]
-                        },
-                        {
-                          "equals": [
-                            "build_bitstream",
-                            false
-                          ]
-                        },
-                        {
-                          "not": {
-                            "present": "--clean_ignore_artifacts"
-                          }
-                        }
-                      ]
-                    }
-                  },
-                  "#--force_run": "Force run",
-                  "--auto_impl": {
-                    "arity": 1,
-                    "repeatable": true,
-                    "provider": "auto_impl",
-                    "when": {
-                      "all": [
-                        {
-                          "equals": [
-                            "build_valid",
-                            true
-                          ]
-                        },
-                        {
-                          "equals": [
-                            "build_bitstream",
-                            false
-                          ]
-                        },
-                        {
-                          "not": {
-                            "present": "--clean_ignore_artifacts"
-                          }
-                        },
-                        {
-                          "equals": [
-                            "build_stage",
-                            "synth"
-                          ]
-                        }
-                      ]
-                    }
-                  },
-                  "#--auto_impl": "After synthesis succeeds run this implementation pinned to its stable run ID; repeatable, deduplicated",
-                  "--refresh_impl_inputs": {
-                    "arity": 0,
-                    "when": {
-                      "all": [
-                        {
-                          "equals": [
-                            "build_valid",
-                            true
-                          ]
-                        },
-                        {
-                          "equals": [
-                            "build_bitstream",
-                            false
-                          ]
-                        },
-                        {
-                          "not": {
-                            "present": "--clean_ignore_artifacts"
-                          }
-                        },
-                        {
-                          "equals": [
-                            "build_new_impl",
-                            true
-                          ]
-                        }
-                      ]
-                    }
-                  },
-                  "#--refresh_impl_inputs": "New implementation: snapshot current XDC/Tcl/supporting files while retaining synthesis DCP and frozen IPs"
-                }
-              },
-              "#impl": "Select a impl run and operation.",
               "init_build_example": {
                 "dispatch": [
                   "--tool",
@@ -903,6 +543,49 @@
                 "flags": {}
               },
               "#lint-json": "Validate required JSON keys, values and configured input paths."
+            },
+            "provider": "build_runs",
+            "dispatch": [
+              "--tool",
+              "vivado",
+              "--build",
+              "{value}"
+            ],
+            "flags": {
+              "--auto_impl": {
+                "arity": 1,
+                "repeatable": true,
+                "provider": "auto_impl",
+                "when": {
+                  "all": [
+                    {
+                      "equals": [
+                        "build_valid",
+                        true
+                      ]
+                    },
+                    {
+                      "equals": [
+                        "build_bitstream",
+                        false
+                      ]
+                    },
+                    {
+                      "equals": [
+                        "build_stage",
+                        "synth"
+                      ]
+                    },
+                    {
+                      "equals": [
+                        "build_action",
+                        "run"
+                      ]
+                    }
+                  ]
+                }
+              },
+              "#--auto_impl": "After synthesis succeeds run this implementation pinned to its stable run ID; repeatable, deduplicated"
             }
           },
           "#build": "Non-project synthesis and implementation commands.",

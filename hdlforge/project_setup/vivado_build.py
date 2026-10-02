@@ -1,5 +1,6 @@
 """Launch a non-project Vivado run described by the selected project JSON."""
 
+from contextlib import redirect_stdout, redirect_stderr
 import argparse
 import copy
 import glob
@@ -13,17 +14,16 @@ import shutil
 import signal
 import subprocess
 import sys
-import time
 
 from vivado_build_config import BUILD_HELP, ARTIFACT_FLAGS, build_names
-from vivado_build_artifacts import cleanable, manage_artifacts
+from vivado_build_artifacts import manage_artifacts
 from vivado_build_registry import BuildRegistry, BuildStopped, utc_now
-from vivado_build_paths import require_complete, resolve_latest_path
+from vivado_build_paths import resolve_latest_path
 from vivado_build_follow import background_follow
-from vivado_build_selector import parse_selector, resolve_rerun
-from vivado_build_snapshot import implementation_inputs, snapshot_inputs
+from vivado_build_selector import parse_selector, resolve_selector, selected_run_folder
+from vivado_build_snapshot import implementation_definition, snapshot_inputs
 from vivado_build_hash import record_source_hashes, hash_source
-from vivado_build_layout import CONFIG, find_run, read_run, write_run, new_identity, new_label, verify_checkpoint, map_paths, metadata_path
+from vivado_build_layout import CONFIG, find_run, read_run, write_run, new_identity, new_label, verify_checkpoint, metadata_path
 from vivado_build_bitstream import select_bitstream, lock_implementation, snapshot_bitstream
 from vivado_build_processes import group_members, local_identity, process_info, signal_process
 
@@ -47,16 +47,15 @@ def normalize_run(project: Path, run: dict, stage: str, selections: dict | None 
     ###########################################################################
     config = copy.deepcopy(run)
     selections = selections if selections is not None else {}
-    unknown = set(config) - {"script", "sources", "impl_runs", "enabled_on_all", "kind"}
+    unknown = set(config) - {"script", "sources", "impl_runs", "kind"}
     if unknown:
         raise ValueError(f"Unknown run settings: {sorted(unknown)}; design settings belong in run.tcl")
     config.pop("impl_runs", None)
-    if not isinstance(config.get("enabled_on_all", True), bool):
-        raise ValueError("enabled_on_all must be a boolean")
     if config.get("kind", "synth") not in {"synth", "ip"}:
         raise ValueError("kind must be synth or ip")
     if stage == "ip" and run.get("impl_runs"):
         raise ValueError("IP builds cannot have implementation runs")
+    config["script_name"] = config["script"]
     config["stage"] = stage
     config.pop("kind", None)
     root = project.parent
@@ -72,11 +71,13 @@ def normalize_run(project: Path, run: dict, stage: str, selections: dict | None 
     return config
 
 
-def select_run(project: Path, selector: str, timestamp: str | None = None, *, refresh_impl_inputs: bool = False) -> dict:
+def select_run(project: Path, selector: str, timestamp: str | None = None) -> dict:
     """Select immutable metadata independently of physical directory names."""
     project = project.resolve()
-    selector = resolve_rerun(project, selector)
+    selector = resolve_selector(project, selector)
     parsed = parse_selector(selector)
+    if not parsed or parsed['action'] != 'run':
+        raise ValueError('Select a fresh .run action; attempts cannot be rerun')
     if parsed and timestamp is not None:
         raise ValueError('Use the parent selection in the build selector, not --synth_timestamp as well')
     if parsed and parsed.get('bitstream'):
@@ -91,28 +92,20 @@ def select_run(project: Path, selector: str, timestamp: str | None = None, *, re
     if synthesis not in settings['runs']:
         raise ValueError(f'Unknown synthesis/IP run: {synthesis}')
     definition = settings['runs'][synthesis]
-    if parsed and parsed['synth'] != 'new' and (not implementation or parsed['attempt'] != 'new'):
-        parent = find_run(root / synthesis, parsed['synth'])
-        output = find_run(parent / 'impl_runs' / implementation, parsed['attempt'], f'{synthesis}.{implementation}') if implementation else parent
-        config = read_run(output)
-        config.update(output=str(output), output_root=str(root), rerun=True)
-        verify_checkpoint(config)
-        return config
     if implementation:
-        if implementation not in definition.get('impl_runs', {}):
-            raise ValueError(f'Unknown implementation: {implementation}')
-        parent = find_run(root / synthesis, timestamp or 'latest')
-        require_complete(parent)
+        parent = find_run(root / synthesis, timestamp or 'latest', synthesis)
         parent_config = read_run(parent)
-        # Freeze only the implementation's declared files, never all parent RTL.
-        child = definition['impl_runs'][implementation]
-        if not refresh_impl_inputs and implementation in parent_config.get('impl_json', {}):
-            path = Path(parent_config['impl_json'][implementation])
-            config = map_paths(json.loads(path.read_text()), path.parent, relative=False)
-        elif not refresh_impl_inputs and implementation in parent_config.get('implementation_configs', {}):
-            config = copy.deepcopy(parent_config['implementation_configs'][implementation])
-        else:
-            config = normalize_run(project, child, 'impl')
+        checkpoint = parent / 'artifacts' / f"{parent_config.get('top', 'top')}.dcp"
+        if not checkpoint.is_file():
+            raise ValueError(f'Missing synthesis checkpoint: {checkpoint}')
+        saved_project, selected = implementation_definition(parent, parent_config, synthesis, implementation)
+        config = normalize_run(saved_project, selected, 'impl')
+        saved_data = json.loads(saved_project.read_text())
+        declared = saved_data['vivado']['non_project']['runs'][synthesis]['impl_runs'][implementation]
+        config['script_name'] = declared['script']
+        for entry, name in zip(config['sources'], declared.get('sources', [])):
+            entry['name'] = name
+        config.update(project_file=str(saved_project), project_sha256=hash_source(saved_project))
         config.update(parent_top=parent_config['top'], parent_part=parent_config['part'])
         checkpoint = parent / 'artifacts' / f"{parent_config['top']}.dcp"
         config.update(input_dcp=str(checkpoint), input_dcp_sha256=hash_source(checkpoint),
@@ -120,20 +113,20 @@ def select_run(project: Path, selector: str, timestamp: str | None = None, *, re
         output = parent / 'impl_runs' / implementation / new_label()
     else:
         if timestamp not in (None, 'new'):
-            raise ValueError('Use RUN.rerun.ID to rerun a synthesis')
+            raise ValueError('Use RUN.run to create a synthesis attempt')
         config = normalize_run(project, definition, definition.get('kind', 'synth'))
         config['implementation_configs'] = {
             name: normalize_run(project, child, 'impl')
             for name, child in definition.get('impl_runs', {}).items()
         }
         output = root / synthesis / new_label()
-        config.update(input_dcp='')
+        config.update(input_dcp='', project_file=str(project), project_sha256=hash_source(project))
     config.update(new_identity())
     config.setdefault('synthesis_run_id', config['run_id'])
     config['timestamp'] = config['created_at']
     config.update(project_root=str(project.parent), output=str(output), output_root=str(root),
                   selector=synthesis + ('.' + implementation if implementation else ''),
-                  vivado_version=settings.get('vivado_version', ''))
+                  vivado_version=(saved_data['vivado']['non_project'] if implementation else settings).get('vivado_version', ''))
     return config
 
 
@@ -144,93 +137,73 @@ def execute(project: Path, config: dict, executable: str = "vivado") -> int:
     if config['stage'] == 'impl':
         parent = Path(config['input_dcp']).parent.parent
         with (parent.parent / f'_{read_run(parent)["run_id"]}.run.lock').open('a') as lock:
-            # The chosen date stays fixed; block parent reruns while using it.
+            # Keep the parent checkpoint protected from cleanup during use.
             fcntl.flock(lock, fcntl.LOCK_SH | fcntl.LOCK_NB)
-            require_complete(parent)
             return execute_attempt(project, config, executable)
     return execute_attempt(project, config, executable)
 
 
+class BuildLog:
+    """Tee launcher messages and tool output into one persistent attempt log."""
+    def __init__(self, stream, terminal):
+        self.stream, self.terminal = stream, terminal
+
+    def write(self, text):
+        self.stream.write(text)
+        self.stream.flush()
+        self.terminal.write(text)
+        return len(text)
+
+    def flush(self):
+        self.stream.flush()
+        self.terminal.flush()
+
+
 def execute_attempt(project: Path, config: dict, executable: str = "vivado") -> int:
-    """Lock an attempt before clearing only its generated outputs."""
+    """Claim a fresh attempt exactly once, preserving all previous attempts."""
     output = Path(config['output'])
     output.parent.mkdir(parents=True, exist_ok=True)
     with (output.parent / f'_{config["run_id"]}.run.lock').open('a') as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            if config.get('lock_action') in {'stop', 'force'}:
-                BuildRegistry(Path(config['output_root'])).stop_all(str(output))
-                deadline = time.monotonic() + 5
-                while True:
-                    try:
-                        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                        break
-                    except BlockingIOError:
-                        if time.monotonic() >= deadline:
-                            raise ValueError(f'Run lock still held: {lock.name}; owner could not be stopped') from None
-                        time.sleep(0.1)
-            else:
-                lock.seek(0)
-                raw_owner = lock.read().strip()
+            raise ValueError(f'Attempt already active: {output}') from None
+        if output.exists():
+            saved = read_run(output)
+            if saved.get('status') != 'queued' or saved['run_id'] != config['run_id']:
+                raise ValueError(f'Attempt already exists; use .run for a fresh attempt: {output}')
+        else:
+            output.mkdir()
+        write_run(output, dict(config, status='starting'))
+        with (output / 'build.log').open('a', buffering=1) as stream:
+            with redirect_stdout(BuildLog(stream, sys.stdout)), redirect_stderr(BuildLog(stream, sys.stderr)):
                 try:
-                    owner = json.loads(raw_owner)
-                except (ValueError, TypeError):
-                    owner = {}
-                pid = (owner.get('launcher') or {}).get('pid', 'unknown')
-                synthesis, _, implementation = config['selector'].partition('.')
-                selector = f"{synthesis}.rerun.{config['synthesis_run_id']}"
-                if implementation:
-                    selector = f"{synthesis}.{config['synthesis_run_id']}.{implementation}.rerun.{output.name}"
-                stage = 'impl' if implementation else 'synth'
-                command = shlex.join(['hdlforge', '--project', str(project), f'vivado.build.{stage}.' + selector])
-                raise ValueError(
-                    f"Run blocked: another launcher holds this run's lock.\n"
-                    f"Launcher PID: {pid}\nLock: {lock.name}\nLog: {output / 'logs/runme.log'}\n\n"
-                    f"Stop this run without rebuilding:\n  {command} --stop_run\n\n"
-                    f"Stop this run, then clear its outputs and rerun frozen inputs:\n  {command} --force_run\n\n"
-                    f"Clear stale metadata only after the run has stopped (no build):\n  {command} --remove_lock\n\n"
-                    "--remove_lock cannot release an active lock. A stopped process releases "
-                    "its lock automatically. The empty lock file stays in place to prevent races; "
-                    "do not delete it manually."
-                ) from None
-        if config.get('lock_action') in {'remove', 'stop'}:
-            lock.seek(0)
-            lock.truncate()
-            print(f'Run stopped / lock metadata cleared: {lock.name}; no build launched')
-            return 0
-        if config.get('rerun') and config['stage'] == 'synth':
-            implementations = output / 'impl_runs'
-            history = implementations.exists() and any(
-                not child.is_dir() or any(child.iterdir()) for child in implementations.iterdir()
-            )
-            recorded = json.loads(metadata_path(output).read_text()).get('attempts', {})
-            history = history or any(entry.get('stage') == 'impl' for entry in recorded.values())
-            legacy = output / 'impl'
-            if history or (legacy.exists() and any(legacy.iterdir())):
-                raise ValueError('Cannot rerun synthesis with implementation history; create a new synthesis run')
-        lock.seek(0)
-        lock.truncate()
-        json.dump({'launcher': process_info(os.getpid()), 'host': local_identity(),
-                   'output': str(output), 'log': str(output / 'logs/runme.log')}, lock)
-        lock.flush()
-        if config.get('rerun'):
-            if not shutil.which(executable):
-                raise ValueError(f'Vivado executable not found: {executable}')
-            if output.is_symlink():
-                raise ValueError(f'Refusing symlink run: {output}')
-            verify_checkpoint(config)
-            # Reruns preserve the immutable snapshot and JSON. Refuse to overwrite
-            # tracked or non-ignored outputs, using the same recursive cleanup gate.
-            allowed, reason = cleanable(output)
-            if not allowed:
-                raise ValueError(f'Refusing to overwrite {output}: {reason}')
-            config['_rerun_runtime'] = read_run(output)
-            for name in ('work', 'artifacts'):
-                directory = output / name
-                if directory.exists():
-                    shutil.rmtree(directory)
-        return execute_locked(project, config, executable)
+                    return execute_locked(project, config, executable)
+                except BaseException as error:
+                    write_run(output, {'status': 'failed', 'exit_code': 1, 'failure': str(error)})
+                    print(f'Build failed: {error}', flush=True)
+                    raise
+
+
+def runtime_event(line: str, config: dict) -> bool:
+    """Consume Tcl events; only this runner publishes tool metadata."""
+    if not line.startswith('HDLFORGE_EVENT\t'):
+        return False
+    _, kind, *fields = line.rstrip('\n').split('\t')
+    values = [bytes.fromhex(field).decode('utf-8') for field in fields]
+    if kind == 'stage':
+        time, event, stage, elapsed, command = values
+        config.setdefault('stages', []).append(dict(time=time, event=event, stage=stage,
+                                                    elapsed_seconds=float(elapsed) if elapsed else None, command=command))
+    elif kind == 'bitstream_timestamp':
+        config[kind] = dict(launch_epoch=int(values[0]), userid=values[1])
+    elif kind in {'status', 'top', 'part', 'last_routed_checkpoint', 'tool_version', 'failure'}:
+        config[kind] = values[0]
+    else:
+        raise ValueError(f'Unknown Tcl event: {kind}')
+    write_run(Path(config['output']), {key: config[key] for key in
+              ('status', 'top', 'part', 'last_routed_checkpoint', 'tool_version', 'failure', 'stages', 'bitstream_timestamp') if key in config})
+    return True
 
 
 def execute_locked(project: Path, config: dict, executable: str = "vivado") -> int:
@@ -242,12 +215,7 @@ def execute_locked(project: Path, config: dict, executable: str = "vivado") -> i
         raise ValueError(f"Vivado executable not found: {executable}")
     output = Path(config["output"])
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.mkdir(exist_ok=bool(config.get("rerun")))
-    # Initialize once; explicit user visibility changes on existing runs persist.
-    info = output / "logs"
-    info.mkdir(exist_ok=True)
-    status = info / "status"
-    status.write_text("starting\n")
+    output.mkdir(exist_ok=True)
     registry = BuildRegistry(Path(config["output_root"]))
     launch_id = None
     exit_code = 1
@@ -257,44 +225,22 @@ def execute_locked(project: Path, config: dict, executable: str = "vivado") -> i
         config["launch_id"] = launch_id
         for folder in ("work", "artifacts"):
             (output / folder).mkdir(exist_ok=True)
-        saved_project = project
-        if config['stage'] == 'bitstream':
-            saved_project = Path(config['bitstream_source']) / 'logs/project.json'
-        if not config.get("rerun"):
-            shutil.copyfile(saved_project, info / "project.json")
-        if config.get("refresh_impl_inputs"):
-            shutil.copyfile(project, info / "implementation_project.json")
-        rerun_runtime = config.pop("_rerun_runtime", None)
-        (info / "launch.json").write_text(json.dumps({"launch_id": launch_id, "started_at": utc_now()}, indent=2) + "\n")
-        if rerun_runtime is not None:
-            runtime_config = rerun_runtime
-        elif config['stage'] == 'bitstream':
-            runtime_config = snapshot_bitstream(config)
-        else:
-            runtime_config = implementation_inputs(config) if config["stage"] == "impl" else snapshot_inputs(config)
-        if config["stage"] == "ip" and not config.get('rerun'):
-            record_source_hashes(project, config)
+        runtime_config = (snapshot_bitstream(config) if config['stage'] == 'bitstream'
+                          else snapshot_inputs(config))
+        if config['stage'] == 'ip':
+            record_source_hashes(project, runtime_config)
         scripts = output / 'snapshot/scripts'
-        scripts.mkdir(parents=True, exist_ok=True)
-        if not config.get('rerun'):
-            helper = scripts / '_hdlforge'
-            helper.mkdir()
-            shutil.copyfile(Path(__file__).with_name('vivado_build_runtime.tcl'), helper / 'runtime.tcl')
-            shutil.copytree(Path(__file__).with_name('tcllib_json'), helper / 'json')
-            runtime_config.update(logs_dir=str(info), artifacts_dir=str(output / 'artifacts'),
-                                  work_dir=str(output / 'work'))
-            write_run(output, runtime_config)
-        elif config['stage'] in {'impl', 'bitstream'}:
-            write_run(output, runtime_config)
-        if config['stage'] == 'synth':
-            for name in runtime_config.get('implementation_configs', {}):
-                (output / 'impl_runs' / name).mkdir(parents=True, exist_ok=True)
+        helper = scripts / '_hdlforge'
+        helper.mkdir()
+        shutil.copyfile(Path(__file__).with_name('vivado_build_runtime.tcl'), helper / 'runtime.tcl')
+        shutil.copytree(Path(__file__).with_name('tcllib_json'), helper / 'json')
+        runtime_config.update(artifacts_dir=str(output / 'artifacts'), work_dir=str(output / 'work'))
+        write_run(output, runtime_config)
         verify_checkpoint(runtime_config)
         command = [program, "-m64", "-product", "Vivado", "-mode", "batch", "-notrace",
-                   "-messageDb", str(info / "vivado.pb"), "-log", str(info / "vivado.log"),
-                   "-journal", str(info / "vivado.jou"), "-source", runtime_config['script'],
+                   "-messageDb", str(output / "work/vivado.pb"), "-nolog", "-nojournal", "-source", runtime_config['script'],
                    "-tclargs", str(metadata_path(output)), runtime_config['run_id']]
-        (info / "invocation.txt").write_text(shlex.join(command) + "\n")
+        write_run(output, {'command': command})
         print(f"Build: {config['selector']}\nSynthesis run ID: {config['synthesis_run_id']}\nArtifacts: {output}", flush=True)
         snapshot_root = Path(runtime_config["project_root"]).parent
         if config['stage'] == 'bitstream':
@@ -303,7 +249,7 @@ def execute_locked(project: Path, config: dict, executable: str = "vivado") -> i
             f"Source mode: frozen input snapshot (not live project sources)\n"
             f"Input snapshot: {snapshot_root}\n"
             f"Snapshot project sources: {runtime_config['project_root']}\n"
-            f"Input manifest: {info / 'input_manifest.json'}\n"
+            f"Manifest: {output / 'manifest.json'}\n"
         )
         if config["stage"] == "impl":
             source_metadata += f"Synthesis checkpoint input: {runtime_config['input_dcp']}\n"
@@ -313,94 +259,81 @@ def execute_locked(project: Path, config: dict, executable: str = "vivado") -> i
                                 f"Original implementation timestamp (USERID epoch): {config['bitstream_epoch']}\n")
         elif config["stage"] == "ip":
             source_metadata += f"IP regeneration work copies (from snapshot): {output / 'work' / 'ip_sources'}\n"
-        with (output / "logs/runme.log").open("w") as log:
-            process = subprocess.Popen(command, cwd=output / "work", stdout=subprocess.PIPE,
-                                       stderr=subprocess.STDOUT, text=True, errors="replace", start_new_session=True)
-            try:
-                registry.attach(launch_id, process.pid)
-                metadata = (f"VIVADO_RUN_PID={process.pid}\n"
-                            f"VIVADO_RUN_ORIGIN={json.dumps(local_identity(), sort_keys=True)}\n"
-                            f"Build: {config['selector']}\n"
-                            f"Launch timestamp: {config['launch_timestamp']}\n"
-                            f"Synthesis timestamp: {config['synthesis_run_id']}\n"
-                            f"Artifacts: {output}\n"
-                            f"Working directory: {output / 'work'}\n"
-                            f"Run log: {output / 'logs/runme.log'}\n" + source_metadata)
-                log.write(metadata)
-                log.flush()
-                print(metadata, end="", flush=True)
-                for line in process.stdout:
-                    log.write(line)
-                    log.flush()
+        process = subprocess.Popen(command, cwd=output / "work", stdout=subprocess.PIPE,
+                                   stderr=subprocess.STDOUT, text=True, errors="replace", start_new_session=True)
+        try:
+            registry.attach(launch_id, process.pid)
+            metadata = (f"VIVADO_RUN_PID={process.pid}\n"
+                        f"VIVADO_RUN_ORIGIN={json.dumps(local_identity(), sort_keys=True)}\n"
+                        f"Build: {config['selector']}\n"
+                        f"Launch timestamp: {config['launch_timestamp']}\n"
+                        f"Synthesis timestamp: {config['synthesis_run_id']}\n"
+                        f"Artifacts: {output}\n"
+                        f"Working directory: {output / 'work'}\n"
+                        f"Run log: {output / 'build.log'}\n" + source_metadata)
+            print(metadata, end="", flush=True)
+            for line in process.stdout:
+                if not runtime_event(line, runtime_config):
                     print(line, end="", flush=True)
-                exit_code = process.wait()
-            except BaseException:
-                # Terminate the entire session, including Vivado's worker children.
-                previous = {sig: signal.signal(sig, signal.SIG_IGN) for sig in (signal.SIGTERM, signal.SIGINT)}
+            exit_code = process.wait()
+        except BaseException:
+            # Terminate the entire session, including Vivado's worker children.
+            previous = {sig: signal.signal(sig, signal.SIG_IGN) for sig in (signal.SIGTERM, signal.SIGINT)}
+            try:
+                host = local_identity()
+                members = group_members(process_info(process.pid), host)
                 try:
-                    host = local_identity()
-                    members = group_members(process_info(process.pid), host)
-                    try:
-                        os.killpg(process.pid, signal.SIGTERM)
-                    except ProcessLookupError:
-                        pass
-                    try:
-                        process.wait(timeout=10)
-                    except subprocess.TimeoutExpired:
-                        os.killpg(process.pid, signal.SIGKILL)
-                        process.wait()
-                    for member in members:
-                        signal_process(member, host, signal.SIGKILL)
-                finally:
-                    for sig, handler in previous.items():
-                        signal.signal(sig, handler)
-                raise
+                    os.killpg(process.pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+                try:
+                    process.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    os.killpg(process.pid, signal.SIGKILL)
+                    process.wait()
+                for member in members:
+                    signal_process(member, host, signal.SIGKILL)
             finally:
-                process.stdout.close()
+                for sig, handler in previous.items():
+                    signal.signal(sig, handler)
+            raise
+        finally:
+            process.stdout.close()
         # Tcl owns the design identity. Persist its validated result for DCP
         # selection, implementations and later bitstream-only launches.
         if exit_code == 0 and config["stage"] != "bitstream":
             exit_code = 1  # Missing/invalid Tcl metadata is a failed run.
             for key in ("top", "part"):
-                value = (info / ("design_" + key)).read_text().strip()
+                value = runtime_config.get(key, '')
                 if not re.fullmatch(r"[A-Za-z0-9_-]+", value):
                     raise ValueError(f"Invalid Tcl design {key}: {value!r}")
                 runtime_config[key] = value
                 config[key] = value
             write_run(output, runtime_config)
             exit_code = 0
-        if exit_code == 0 and status.read_text().strip() != "complete":
+        if exit_code == 0 and runtime_config.get("status") != "complete":
             exit_code = 1
     except (BuildStopped, KeyboardInterrupt):
         stopped = True
         exit_code = 130
     finally:
-        if exit_code != 0:
-            status.write_text("stopped\n" if stopped else "failed\n")
-        (info / "exit_code").write_text(f"{exit_code}\n")
+        status = 'complete' if exit_code == 0 else 'stopped' if stopped else 'failed'
+        write_run(output, {'status': status, 'exit_code': exit_code, 'finished_at': utc_now()})
         if launch_id:
-            registry.update(launch_id, status=status.read_text().strip(), exit_code=exit_code,
+            registry.update(launch_id, status=status, exit_code=exit_code,
                             finished_at=utc_now(), continuation_pending=exit_code == 0 and bool(config.get("auto_impl")))
     return exit_code
 
 
 def log_continuation(parent: dict, child: dict, selector: str, event: str, returncode: int | None = None) -> None:
-    """Record exact stage handoff separately from each Vivado worker log."""
-    info = Path(parent['output']) / 'logs'
-    entry = {
-        'time': utc_now(), 'event': event, 'selector': selector,
-        'synthesis_timestamp': parent['synthesis_run_id'],
-        'synthesis_log': str(Path(parent['output']) / 'logs/runme.log'),
-        'implementation_output': child['output'],
-        'implementation_log': str(Path(child['output']) / 'logs/runme.log'),
-        'returncode': returncode,
-    }
-    with (info / 'continuation.jsonl').open('a') as stream:
-        stream.write(json.dumps(entry) + '\n')
-    message = (f"[{entry['time']}] {event}: {selector}"
-               f" | synthesis={parent['timestamp']} | log={entry['implementation_log']}"
-               + (f" | returncode={returncode}" if returncode is not None else ''))
-    with (info / 'continuation.log').open('a') as stream:
+    """Keep automatic implementation handoffs in the synthesis log/manifest."""
+    output = Path(parent['output'])
+    record = read_run(output)
+    entry = dict(time=utc_now(), event=event, selector=selector,
+                 output=child['output'], returncode=returncode)
+    write_run(output, {'continuations': [*record.get('continuations', []), entry]})
+    message = f"[{entry['time']}] {event}: {selector} | log={Path(child['output']) / 'build.log'}"
+    with (output / 'build.log').open('a') as stream:
         stream.write(message + '\n')
     print(message, flush=True)
 
@@ -414,7 +347,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--project")
     parser.add_argument("--build", nargs="?", const="", help="synthesis or synthesis.implementation; omit for process actions")
     parser.add_argument("--synth_timestamp", help="synthesis run ID or folder label; default: newest metadata timestamp, which must be complete")
-    parser.add_argument("--refresh_impl_inputs", action="store_true", help="New implementation only: snapshot current XDC/Tcl/supporting files; retain synthesis DCP and frozen IPs")
     parser.add_argument("--auto_impl", action="append", default=[], help="After successful synthesis run this implementation; repeat for multiple runs")
     artifacts = parser.add_mutually_exclusive_group()
     artifacts.add_argument("--build_status", action="store_true", help="Probe the launch registry and report all non-dead registered processes")
@@ -424,16 +356,13 @@ def main(argv: list[str] | None = None) -> int:
     artifacts.add_argument("--save_this_run", action="store_true", help="Save the selected timestamp (newest by default); implementation also saves synthesis; do not build")
     artifacts.add_argument("--clean_ignore_artifacts", action="store_true", help="Delete explicitly ignored artifact folders; add --dry-run to preview")
     parser.add_argument('--dry-run', action='store_true', help='List cleanup candidates and skip reasons without deleting artifacts')
-    locks = parser.add_mutually_exclusive_group()
-    locks.add_argument('--remove_lock', action='store_true', help='Clear idle lock metadata only; never unlink a held lock')
-    locks.add_argument('--stop_run', action='store_true', help='Stop only this timestamped run; do not rebuild')
-    locks.add_argument('--force_run', action='store_true', help='Stop this run, acquire its lock, then rerun')
     parser.add_argument("--background_worker", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--prepared_run", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     try:
         if args.dry_run:
-            if (not args.clean_ignore_artifacts or args.auto_impl or args.refresh_impl_inputs
-                    or args.remove_lock or args.stop_run or args.force_run or args.background_worker):
+            if (not args.clean_ignore_artifacts or args.auto_impl
+                    or args.background_worker):
                 raise ValueError('--dry-run requires artifact cleanup without build or lock actions')
             print('Artifact cleanup dry-run: no files or folders will be deleted')
         if args.project:
@@ -475,11 +404,24 @@ def main(argv: list[str] | None = None) -> int:
                 return manage_artifacts(project, args.build, flag, args.synth_timestamp, dry_run=args.dry_run)
         parsed_build = parse_selector(args.build)
         base_build = parsed_build["run"] if parsed_build else args.build
-        if (not args.background_worker
-                and not args.remove_lock and not args.stop_run):
-            data = json.loads(project.read_text())
-            return background_follow(project, project.parent / data['vivado']['non_project']['output_root'],
-                                     list(argv if argv is not None else sys.argv[1:]))
+        if parsed_build and parsed_build['action'] in {'status', 'stop'}:
+            if args.auto_impl:
+                raise ValueError('Status/stop do not accept build modifiers')
+            folder = selected_run_folder(project, parsed_build)
+            config = read_run(folder)
+            registry = BuildRegistry(Path(config['output_root']))
+            registry.refresh()
+            config = read_run(folder)
+            if parsed_build['action'] == 'stop':
+                registry.stop_all(str(folder))
+            else:
+                print(json.dumps(dict(attempt=folder.name, status=config.get('status'),
+                                      exit_code=config.get('exit_code'), manifest=str(folder / CONFIG),
+                                      log=str(folder / 'build.log')), indent=2))
+            return 0
+        if not args.background_worker:
+            config = select_run(project, args.build, args.synth_timestamp)
+            return background_follow(project, config, list(argv if argv is not None else sys.argv[1:]))
         implementations = list(dict.fromkeys(args.auto_impl))
         if implementations:
             if (parsed_build and parsed_build["impl"]) or (not parsed_build and "." in args.build):
@@ -495,22 +437,16 @@ def main(argv: list[str] | None = None) -> int:
         previous = {sig: signal.signal(sig, stop_signal) for sig in (signal.SIGTERM, signal.SIGINT)}
         config = None
         try:
-            config = select_run(project, args.build, args.synth_timestamp, refresh_impl_inputs=args.refresh_impl_inputs)
-            if args.refresh_impl_inputs:
-                if config['stage'] != 'impl' or config.get('rerun'):
-                    raise ValueError('--refresh_impl_inputs requires a new implementation attempt')
-                config['refresh_impl_inputs'] = True
-            action = 'remove' if args.remove_lock else 'stop' if args.stop_run else 'force' if args.force_run else None
-            if action and (not config.get('rerun') or implementations):
-                raise ValueError('Lock actions require an existing explicit attempt timestamp and no --auto_impl')
-            config['lock_action'] = action
+            config = (read_run(Path(args.prepared_run)) if args.prepared_run else
+                      select_run(project, args.build, args.synth_timestamp))
+            config.pop('execution', None)
             config["auto_impl"] = implementations
             result = execute(project, config)
             if result:
                 return result
             for implementation in implementations:
                 # Always pin to THIS synthesis; another concurrent run may be newer.
-                child_selector = f"{base_build}.{config['synthesis_run_id']}.{implementation}.new"
+                child_selector = f"{base_build}.{config['synthesis_run_id']}.{implementation}.run"
                 child = select_run(project, child_selector)
                 child["parent_launch_id"] = config["launch_id"]
                 log_continuation(config, child, child_selector, 'synthesis passed; implementation starting')
@@ -533,6 +469,11 @@ def main(argv: list[str] | None = None) -> int:
         print("Build continuation stopped", file=sys.stderr)
         return 130
     except (OSError, ValueError, KeyError, TypeError, subprocess.CalledProcessError) as error:
+        if args.prepared_run:
+            folder = Path(args.prepared_run)
+            write_run(folder, {'status': 'failed', 'exit_code': 1, 'failure': str(error)})
+            with (folder / 'build.log').open('a') as stream:
+                stream.write(f'Build error: {error}\n')
         print(f"Build error: {error}", file=sys.stderr)
         return 1
 

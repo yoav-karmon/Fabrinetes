@@ -10,7 +10,7 @@ import subprocess
 
 from vivado_build_config import build_names
 from vivado_build_layout import descendant_runs, find_run, read_run, run_directories
-from vivado_build_selector import parse_selector, resolve_rerun
+from vivado_build_selector import parse_selector, resolve_selector
 
 def selected_folders(project: Path, selector: str, timestamp: str | None) -> list[Path]:
     data = json.loads(project.read_text())
@@ -73,7 +73,7 @@ def manage_artifacts(project: Path, selector: str, action: str, timestamp: str |
         raise ValueError('Use git add -f <run-directory> to save a run; HDLForge does not write .gitignore files')
     if action != '--clean_ignore_artifacts':
         raise ValueError(f'Unknown artifact action: {action}')
-    parsed = parse_selector(resolve_rerun(project, selector))
+    parsed = parse_selector(resolve_selector(project, selector))
     attempt = None
     if parsed:
         timestamp = parsed['synth']

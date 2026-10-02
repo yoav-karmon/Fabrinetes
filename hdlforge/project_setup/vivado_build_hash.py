@@ -27,25 +27,23 @@ def hash_source(path: Path) -> str:
 
 def record_source_hashes(project: Path, config: dict) -> None:
     """Record hashes of frozen inputs, before Vivado can modify its work copies."""
-    info = Path(config["output"]) / "logs"
-    copied = json.loads((info / "input_manifest.json").read_text())
-    data = json.loads((info / "project.json").read_text())
+    data = json.loads(project.read_text())
     selector = config["selector"]
-    run = data["vivado"]["non_project"]["runs"][selector]
-    record = {
+    config['source_hashes'] = {
         "version": 1, "project": str(project.resolve()), "run": selector,
-        "definition": run,
-        "sources": {source: hash_source(Path(saved)) for source, saved in copied.items()},
+        "definition": data["vivado"]["non_project"]["runs"][selector],
+        "sources": {entry['original']: entry['sha256'] for entry in config['inputs']},
     }
-    (info / "source_hashes.json").write_text(json.dumps(record, indent=2) + "\n")
 
 
 def verify_source_hashes(producer: Path) -> None:
     """Reject producer runs with missing metadata or changed producer inputs."""
-    manifest = producer / "logs/source_hashes.json"
-    if not manifest.is_file():
-        raise ValueError(f"Missing source hashes in {producer}; regenerate the producer IP")
-    record = json.loads(manifest.read_text())
+    manifest = producer / 'manifest.json'
+    if manifest.is_file():
+        record = json.loads(manifest.read_text()).get('source_hashes', {})
+    else:
+        manifest = producer / 'logs/source_hashes.json'
+        record = json.loads(manifest.read_text())
     if record.get("version") != 1 or not record.get("sources"):
         raise ValueError(f"Invalid source hashes: {manifest}; regenerate the producer IP")
     project = Path(record["project"])

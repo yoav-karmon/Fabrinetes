@@ -209,7 +209,6 @@ def initialize_run_defaults(project: Path, selector: str) -> None:
         if not run.get("script"):
             raise ValueError(f"{name}: supply required script; initialization will not invent design inputs")
         run.setdefault("sources", [])
-        run.setdefault("enabled_on_all", True)
     temporary = None
     try:
         with tempfile.NamedTemporaryFile(mode="w", dir=project.parent, delete=False) as handle:

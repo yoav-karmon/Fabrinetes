@@ -22,7 +22,7 @@ ENV = {"path": [], "path_import": [], "pythonpath": [], "pythonpath_import": [],
 TARGET = {"top_module": "", "python_file": "", "build_args": [], "lint_args": [],
           "defines": {}, "parameters": {}, "test_name": None, "post_sim_collect": True,
           "env": {"pythonpath": []}}
-RUN = {"script": "", "sources": [], "enabled_on_all": True}
+RUN = {"script": "", "sources": []}
 DEFAULTS = json.loads(Path(__file__).with_name("project_json_defaults.json").read_text())
 
 
@@ -164,7 +164,7 @@ def lint(data, scope, project, host, user):
         for name, run in objects(proposed["vivado"]["non_project"]["runs"], "runs"):
             for label, entry in [(name, run), *[(name + "." + k, v) for k, v in objects(run.get("impl_runs", {}), "impl_runs")]]:
                 types(entry, RUN, label, errors)
-                for key in entry.keys() - {"script", "sources", "enabled_on_all", "impl_runs", "kind"} - retired:
+                for key in entry.keys() - {"script", "sources", "impl_runs", "kind"} - retired:
                     errors.append(f"{label}.{key} is not a supported build key")
                 if entry.get("kind", "ip") != "ip":
                     errors.append(f"{label}.kind must be ip when provided")
