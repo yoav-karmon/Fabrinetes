@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 from ssh_config_cli import main
 from ssh_config_inventory import merge, parse_config, read_document, render, get_inventory, set_inventory
-from hdlforge_completion_backend import complete_llm
+from hdlforge_completion_backend import complete_classic
 
 
 class SSHInventoryTests(unittest.TestCase):
@@ -27,7 +27,7 @@ class SSHInventoryTests(unittest.TestCase):
     def run_cli(self, action, *arguments):
         output = io.StringIO()
         with redirect_stdout(output):
-            result = main([f"--sshconfig_{action}", "--json", str(self.project), "--ssh-config", str(self.config), "--local-host", "local", "--local-user", "owner", *arguments])
+            result = main([action, "--json", str(self.project), "--ssh-config", str(self.config), "--local-host", "local", "--local-user", "owner", *arguments])
         return result, output.getvalue()
 
     def test_structured_round_trip(self):
@@ -143,24 +143,23 @@ class SSHInventoryTests(unittest.TestCase):
         self.assertEqual(result, 1)
         self.assertIn("COLLISION: host lab: JSON vs SSH", output)
 
-    def test_wrapper_help_aliases_and_dry_run(self):
+    def test_wrapper_help_and_dry_run(self):
         wrapper = Path(__file__).with_name("hdlforge")
         for action in ("import", "export", "verify", "merge"):
-            for spelling in ("sshconfig", "sshcofnig"):
-                result = subprocess.run([str(wrapper), f"--{spelling}_{action}", "-h"], capture_output=True, text=True)
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertIn("--on-collision", result.stdout)
-        result = subprocess.run([str(wrapper), "--sshconfig_import", "--json", str(self.project), "--ssh-config", str(self.config), "--dry-run"], capture_output=True, text=True)
+            result = subprocess.run([str(wrapper), "--tool", "ssh", action, "-h"], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("--on-collision", result.stdout)
+        result = subprocess.run([str(wrapper), "--tool", "ssh", "import", "--json", str(self.project), "--ssh-config", str(self.config), "--dry-run"], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("DRY RUN", result.stdout)
         self.assertNotIn("ssh_config", self.project.read_text())
 
     def test_completion_actions_policies_and_files(self):
-        actions = complete_llm([], "--sshconfig_", self.root).completions
-        self.assertEqual(len(actions), 4)
-        policies = complete_llm(["--sshconfig_merge", "--on-collision"], "", self.root).completions
+        actions = complete_classic(["--tool", "ssh"], "", self.root).completions
+        self.assertTrue(set(("import", "export", "verify", "merge")).issubset(actions))
+        policies = complete_classic(["--tool", "ssh", "merge", "--on-collision"], "", self.root).completions
         self.assertEqual(policies, ["error", "keep", "incoming"])
-        files = complete_llm(["--sshconfig_import", "--ssh-config"], str(self.config), self.root).completions
+        files = complete_classic(["--tool", "ssh", "import", "--ssh-config"], str(self.config), self.root).completions
         self.assertIn(str(self.config), files)
 
     def test_new_files_permissions_symlinks_and_crlf(self):

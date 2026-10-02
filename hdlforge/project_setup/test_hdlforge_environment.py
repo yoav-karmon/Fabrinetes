@@ -139,7 +139,7 @@ class LauncherEnvironmentTest(unittest.TestCase):
             "export PATH=\"/wrong/path:$PATH\" # hdlforge-path\n"
         )
 
-        first = subprocess.run([str(self.wrapper), "--add-to-bashrc-path"],
+        first = subprocess.run([str(self.wrapper), "--tool", "path_manager", "install-shell"],
                                env=self.env, capture_output=True, text=True)
         self.assertEqual(first.returncode, 0, first.stderr)
         expected = (
@@ -150,14 +150,14 @@ class LauncherEnvironmentTest(unittest.TestCase):
         self.assertEqual(bashrc.read_text(), expected)
         self.assertIn("Repaired HDLForge PATH entry", first.stdout)
 
-        second = subprocess.run([str(self.wrapper), "--add-to-bashrc-path"],
+        second = subprocess.run([str(self.wrapper), "--tool", "path_manager", "install-shell"],
                                 env=self.env, capture_output=True, text=True)
         self.assertEqual(second.returncode, 0, second.stderr)
         self.assertEqual(bashrc.read_text(), expected)
         self.assertIn("already correct", second.stdout)
 
     def test_print_env_shows_path_provenance(self):
-        result = subprocess.run([str(self.wrapper), "--print-env"], cwd=self.project,
+        result = subprocess.run([str(self.wrapper), "--tool", "path_manager", "show"], cwd=self.project,
                                 env=self.env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("HDLForge selected environment", result.stdout)

@@ -8,23 +8,30 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 
 from table_formatter import create_matrix_table_from_data
 from vivado_build_selector import parse_selector, selector_choices
-from vivado_build_config import ARTIFACT_FLAGS, PROCESS_FLAGS, build_names, synthesis_timestamps
+from vivado_build_config import ARTIFACT_FLAGS, build_names, synthesis_timestamps
 
-NATIVE_HELP = json.loads(Path(__file__).with_name("native_command_help.json").read_text())
-CONSOLE_ACTIONS = {("help" if value == "--help" else value): NATIVE_HELP["project_console"]["#" + name]
+SCHEMA_ERROR = None
+try:
+    NATIVE_HELP = json.loads(Path(__file__).with_name("native_command_help.json").read_text())
+    if not isinstance(NATIVE_HELP, dict):
+        raise ValueError("Native completion catalog must be an object")
+    for required_group in ("tree", "flags", "values", "project_console", "monitor"):
+        if not isinstance(NATIVE_HELP.get(required_group), dict):
+            raise ValueError(f"Missing native completion group: {required_group}")
+    for required_group in ("tools", "flags"):
+        if not isinstance(NATIVE_HELP["tree"].get(required_group), dict):
+            raise ValueError(f"Missing tree group: {required_group}")
+except (OSError, ValueError, TypeError) as error:
+    SCHEMA_ERROR = str(error)
+    NATIVE_HELP = {"tree": {"tools": {}, "flags": {}}, "flags": {}, "values": {}, "project_console": {}, "monitor": {}}
+CONSOLE_ACTIONS = {("help" if value == "--help" else value): NATIVE_HELP["project_console"].get("#" + name, "")
                    for name, value in NATIVE_HELP["project_console"].items() if not name.startswith("#")}
 
-TOOLS = ["vivado", "Verilator", "network", "vcd_analyzer", "tsharkWrapper", "hw_server", "projects"]
-NETWORK_COMMANDS = ["send_raw", "send_arp", "send_icmp", "send_udp"]
-HW_SERVER_COMMANDS = ["program", "scan_ila", "scan_jtag", "read_dna"]
-VERILATOR_STEPS = ["build", "sim", "lint"]
-GLOBAL_ENV_FLAGS = ["--env-python", "--env-path", "--env-var"]
-SSH_ACTIONS = [f"--{prefix}_{action}" for prefix in ("sshconfig", "sshcofnig") for action in ("import", "export", "verify", "merge")]
-GLOBAL_FLAGS = [*GLOBAL_ENV_FLAGS, "--dry-run", "--no-print", "--print-env", "--print-env-all-host_and_user", "--add-to-bashrc-path", "--init-base-path", "--init-base-pythonpath"]
+TOOLS = [name for name in NATIVE_HELP["tree"]["tools"] if not name.startswith("#")]
+GLOBAL_FLAGS = [name for name in NATIVE_HELP["tree"]["flags"] if not name.startswith("#") and name not in {"--project", "--tool"}]
 GLOBAL_VALUE_FLAGS = {"--project", "--tool", "--cmd", "--env-python", "--env-path", "--env-var"}
 REPEATABLE_GLOBAL_ENV_FLAGS = {"--env-python", "--env-path", "--env-var"}
 
@@ -44,11 +51,6 @@ class ParsedState:
     cmd: str | None = None
     project_file: Path | None = None
     seen: set[str] | None = None
-    interactive: bool = False
-    chain_mode: bool = False
-    selected_vivado_action: str | None = None
-    has_vcdfile: bool = False
-    has_pcap: bool = False
     has_llm_path: bool = False
     llm_path: str | None = None
     eval_json: bool = False
@@ -140,59 +142,19 @@ def get_explicit_flag_values(tokens: list[str], flag: str) -> list[str]:
     return values
 
 
-def _project_file_from_dir(directory: Path) -> Path | None:
-    for suffix in ("*.hdlforge.json", "*.hdlforge.toml"):
-        matches = sorted(directory.glob(suffix))
-        if matches:
-            return matches[0].resolve()
-    return None
-
-
-def _project_file_from_source_path(raw_path: str, cwd: Path) -> Path | None:
-    first_path = raw_path.split(",", 1)[0].strip()
-    if not first_path:
-        return None
-
-    candidate = Path(os.path.expanduser(first_path))
-    if not candidate.is_absolute():
-        candidate = cwd / candidate
-
-    try:
-        resolved = candidate.resolve()
-    except OSError:
-        return None
-
-    search_dir = resolved if resolved.is_dir() else resolved.parent
-    for directory in [search_dir, *search_dir.parents]:
-        project_file = _project_file_from_dir(directory)
-        if project_file:
-            return project_file
-    return None
-
-
-def detect_project_file_from_selected_sources(tokens: list[str], cwd: Path) -> Path | None:
-    for flag in ("--lint-file", "--file"):
-        for raw_path in reversed(get_explicit_flag_values(tokens, flag)):
-            project_file = _project_file_from_source_path(raw_path, cwd)
-            if project_file:
-                return project_file
-    return None
-
-
 def detect_project_file(tokens: list[str], cwd: Path) -> Path | None:
     explicit = get_explicit_flag_values(tokens, "--project")
     if explicit:
         candidate = Path(os.path.expanduser(explicit[-1]))
-        if not candidate.is_absolute():
-            candidate = cwd / candidate
-        if candidate.is_file():
-            return candidate.resolve()
-
-    inferred = detect_project_file_from_selected_sources(tokens, cwd)
-    if inferred:
-        return inferred
-
-    return _project_file_from_dir(cwd)
+        candidate = candidate if candidate.is_absolute() else cwd / candidate
+        return candidate.resolve() if candidate.is_file() else None
+    for directory in (cwd, *cwd.parents):
+        candidates = sorted([*directory.glob("*.hdlforge.json"), *directory.glob("*.hdlforge.toml")])
+        if candidates:
+            return candidates[0].resolve() if len(candidates) == 1 else None
+        if (directory / ".git").exists():
+            break
+    return None
 
 
 def project_json_data(state: ParsedState) -> dict | None:
@@ -434,97 +396,28 @@ def is_deployment_program_file_path(dotted: str | None) -> bool:
 
 
 def parse_classic_state(tokens: list[str], cwd: Path) -> ParsedState:
-    state = ParsedState(tokens=tokens, cwd=cwd, seen=set())
-    state.project_file = detect_project_file(tokens, cwd)
-    idx = 0
-
-    while idx < len(tokens):
-        token = tokens[idx]
-        state.seen.add(token)
-
-        if token == "--tool" and idx + 1 < len(tokens):
-            state.tool = tokens[idx + 1]
-            state.seen.add(tokens[idx + 1])
-            idx += 2
-            continue
-
-        if token == "--cmd" and idx + 1 < len(tokens):
-            state.cmd = tokens[idx + 1]
-            state.seen.add(tokens[idx + 1])
-            idx += 2
-            continue
-
-        if token in {"-i", "--interactive"}:
-            state.interactive = True
-        elif token in {"-ic", "--interactive-chain"}:
-            state.chain_mode = True
-        elif token in {
-            "--build",
-            "--init_build_example",
-            "--init_build",
-            "--build_lint",
-        "--build_status", "--build_status_all",
-        "--build_stop_all", "--build_find_all_user_runs", "--build_clean_ignore_artifacts", "--build_create",
-            "--lint",
-            "--get_xpr_path",
-            "--project_console",
-
-            "--monitor",
-            "--generate_prj_with_external_tcl",
-            "--write_tcl",
-            "--file_add",
-            "--file_remove",
-            "--add_file_to_project_tcl",
-            "--remove_file_from_project_tcl",
-            "--add_run_to_project_tcl",
-            "--remove_run_from_project_tcl",
-            "--clean_logs",
-        } and state.selected_vivado_action is None:
-            state.selected_vivado_action = token
-        elif token == "--vcdfilename" and idx + 1 < len(tokens):
-            state.has_vcdfile = True
-            idx += 2
-            continue
-        elif token == "--pcap" and idx + 1 < len(tokens):
-            state.has_pcap = True
-            idx += 2
-            continue
-
-        idx += 1
-
-    return state
+    # Tool/value consumption belongs to tree_state; project lookup is read-only.
+    return ParsedState(tokens=tokens, cwd=cwd, seen=set(), project_file=detect_project_file(tokens, cwd))
 
 
-Handler = Callable[[str, ParsedState], CompletionResult]
 
 
 def complete_project_files(cur: str, _state: ParsedState) -> CompletionResult:
     return complete_path(cur, _state.cwd, suffixes=(".hdlforge.json", ".hdlforge.toml"))
 
 
-def complete_tools(cur: str, _state: ParsedState) -> CompletionResult:
-    return complete_words(cur, TOOLS)
 
 
-def complete_network_cmds(cur: str, _state: ParsedState) -> CompletionResult:
-    return complete_words(cur, NETWORK_COMMANDS)
 
 
-def complete_hw_server_cmds(cur: str, _state: ParsedState) -> CompletionResult:
-    return complete_words(cur, HW_SERVER_COMMANDS)
 
 
 def complete_interfaces(cur: str, _state: ParsedState) -> CompletionResult:
     return complete_words(cur, list_interfaces())
 
 
-def complete_static_words(words: list[str]) -> Handler:
-    return lambda cur, _state: complete_words(cur, words)
 
 
-def complete_project_management(cur: str, state: ParsedState) -> CompletionResult:
-    """Only static command names; discovery happens on explicit get_groups/get_runs."""
-    return complete_words(cur, list(CONSOLE_ACTIONS))
 
 
 def complete_sim_target_names(cur: str, state: ParsedState) -> CompletionResult:
@@ -562,313 +455,207 @@ def complete_synth_timestamps(cur: str, state: ParsedState) -> CompletionResult:
     return complete_words(cur, values)
 
 
-VALUE_HANDLER_TREE: dict[str, dict[str, Handler]] = {
-    "root": {
-        "--project": complete_project_files,
-        "--tool": complete_tools,
-        "--env-python": lambda _cur, _state: CompletionResult([]),
-        "--env-path": lambda _cur, _state: CompletionResult([]),
-        "--env-var": lambda _cur, _state: CompletionResult([]),
-    },
-    "tool:vivado": {
-        "--build": complete_builds,
-        "--init_build": lambda cur, state: complete_words(cur, ["all"] + build_names(project_json_data(state) or {})),
-        "--create": complete_static_words(["syth_imp_example"]),
-        "--auto_impl": complete_auto_impl,
-        "--synth_timestamp": complete_synth_timestamps,
-        "--monitor": complete_static_words([name for name in NATIVE_HELP['monitor'] if not name.startswith('#')]),
-        "--metric": lambda cur, state: complete_static_words(['elapsed_seconds', 'cpu_seconds', 'peak_memory_mb', 'wns_ns', 'tns_ns', 'whs_ns', 'ths_ns'] if 'performance' in state.tokens else ['all', 'wns', 'tns', 'whs', 'ths'])(cur, state),
-        "--files": lambda cur, state: complete_path(cur, state.cwd, suffixes=(".json",)),
-        "--kind": complete_static_words(['all', 'completed', 'intermediate']),
-        "--file": lambda cur, state: complete_path(cur, state.cwd, suffixes=(".json",)),
-        "--project_console": complete_project_management,
+def complete_environment_arrays(cur: str, state: ParsedState) -> CompletionResult:
+    """Offer data leaves without evaluating project commands."""
+    pending = [("", project_json_data(state) or {})]
+    choices = []
+    while pending:
+        path, value = pending.pop()
+        if isinstance(value, dict):
+            pending.extend((f"{path}.{key}" if path else key, child)
+                           for key, child in value.items() if not key.startswith("#"))
+        elif isinstance(value, list):
+            choices.append(path)
+    return complete_words(cur, sorted(choices))
 
-        "--group": lambda _cur, _state: CompletionResult([]),
-        "--run": lambda _cur, _state: CompletionResult([]),
-        "--json-file": lambda cur, _state: complete_path(cur, _state.cwd, suffixes=(".json",)),
-        "--key": lambda _cur, _state: CompletionResult([]),
-        "--output": lambda cur, _state: complete_path(cur, _state.cwd),
-        "--timeout": lambda _cur, _state: CompletionResult([]),
-        "--file_path": lambda cur, _state: complete_path(cur, _state.cwd),
-        "--project_tcl_json_file": lambda cur, _state: complete_path(cur, _state.cwd, suffixes=(".json",)),
-    },
-    "tool:Verilator": {
-        "--step": complete_static_words(VERILATOR_STEPS),
-        "--SimTargetName": complete_sim_target_names,
-        "--flags": complete_verilator_flags,
-        "--lint-file": lambda cur, _state: complete_path(
-            cur,
-            _state.cwd,
-            suffixes=(".sv", ".v", ".svh", ".vh"),
-        ),
-        "--file": lambda cur, _state: complete_path(
-            cur,
-            _state.cwd,
-            suffixes=(".sv", ".v", ".svh", ".vh"),
-        ),
-    },
-    "tool:network": {
-        "--cmd": complete_network_cmds,
-        "--interface": complete_interfaces,
-        "--arp_op": complete_static_words(["1", "2"]),
-        "--icmp_type": complete_static_words(["0", "8"]),
-        "--icmp_code": complete_static_words(["0"]),
-        "--src_ip": complete_static_words(["192.168.1.1", "192.168.1.2", "192.168.1.100"]),
-        "--dst_ip": complete_static_words(["192.168.1.1", "192.168.1.2", "192.168.1.100"]),
-        "--src_mac": complete_static_words(["FF:FF:FF:FF:FF:FF", "00:00:00:00:00:00"]),
-        "--dst_mac": complete_static_words(["FF:FF:FF:FF:FF:FF", "00:00:00:00:00:00"]),
-        "--eth_src_mac": complete_static_words(["FF:FF:FF:FF:FF:FF", "00:00:00:00:00:00"]),
-        "--eth_dst_mac": complete_static_words(["FF:FF:FF:FF:FF:FF", "00:00:00:00:00:00"]),
-        "--src_port": complete_static_words(["53", "80", "443", "8080", "12345"]),
-        "--dst_port": complete_static_words(["53", "80", "443", "8080", "12345"]),
-        "--identifier": complete_static_words(["0", "1"]),
-        "--sequence": complete_static_words(["0", "1"]),
-    },
-    "tool:vcd_analyzer": {
-        "--vcdfilename": lambda cur, _state: complete_path(cur, _state.cwd),
-    },
-    "tool:tsharkWrapper": {
-        "--pcap": lambda cur, _state: complete_path(cur, _state.cwd, suffixes=(".pcap",)),
-        "--format": complete_static_words(["to_plain_text"]),
-    },
-    "tool:hw_server": {
-        "--cmd": complete_hw_server_cmds,
-        "--server_ip": complete_static_words(["10.1.130.74", "192.168.1.100", "localhost"]),
-        "--bitstream": lambda cur, _state: complete_path(cur, _state.cwd, suffixes=(".bit",)),
-        "--probes": lambda cur, _state: complete_path(cur, _state.cwd, suffixes=(".ltx",)),
-        "--hw-config": lambda cur, _state: complete_path(cur, _state.cwd, suffixes=(".json",)),
-        "-c": lambda cur, _state: complete_path(cur, _state.cwd, suffixes=(".json",)),
-        "-ic": complete_static_words(["1", "2", "3", "program", "scan_ila", "scan_jtag", "i1", "i2", "v1", "v2", "s1", "w1", "c1", "q"]),
-        "--interactive-chain": complete_static_words(["1", "2", "3", "program", "scan_ila", "scan_jtag", "i1", "i2", "v1", "v2", "s1", "w1", "c1", "q"]),
-    },
+
+# -- Declarative state traversal -------------------------------------------
+PROVIDERS = {
+    "project_files": complete_project_files,
+    "sim_targets": complete_sim_target_names,
+    "builds": complete_builds,
+    "auto_impl": complete_auto_impl,
+    "synth_timestamps": complete_synth_timestamps,
+    "interfaces": complete_interfaces,
+    "verilator_flags": complete_verilator_flags,
+    "files": lambda cur, state: complete_path(cur, state.cwd),
+    "init_builds": lambda cur, state: complete_words(cur, ["all", *build_names(project_json_data(state) or {})]),
+    "environment_arrays": complete_environment_arrays,
 }
 
 
-def branch_keys(state: ParsedState) -> list[str]:
-    keys = ["root"]
+def build_selection_facts(value: str, state: ParsedState) -> dict:
+    parsed = parse_selector(value)
+    known = value in build_names(project_json_data(state) or {})
+    stage = "impl" if parsed and parsed.get("impl") else "synth"
+    return {"build_valid": bool(parsed or known), "build_stage": stage,
+            "build_bitstream": bool(parsed and parsed.get("bitstream")),
+            "build_new_impl": bool(parsed and parsed.get("impl") and parsed.get("attempt") == "new")}
+
+
+STATE_PROVIDERS = {"build_selection": build_selection_facts}
+
+
+def tree_entries(mapping: dict) -> dict:
+    return {key: value for key, value in mapping.items() if not key.startswith("#")}
+
+
+def validate_tree(node: dict) -> None:
+    """Reject undocumented choices and unknown completion providers."""
+    for group in ("flags", "tools", "actions", "values"):
+        entries = node.get(group, {})
+        if not isinstance(entries, dict):
+            raise ValueError(f"Completion {group} must be an object")
+        for name, spec in tree_entries(entries).items():
+            if not isinstance(spec, dict):
+                raise ValueError(f"Completion option must be an object: {name}")
+            if not isinstance(entries.get("#" + name), str) or not entries["#" + name].strip():
+                raise ValueError(f"Missing completion description: {name}")
+            if spec.get("provider") and spec["provider"] not in PROVIDERS:
+                raise ValueError(f"Unknown completion provider: {spec['provider']}")
+            if spec.get("state_provider") and spec["state_provider"] not in STATE_PROVIDERS:
+                raise ValueError(f"Unknown state provider: {spec['state_provider']}")
+            if spec.get("arity", 0) not in (0, 1, "?"):
+                raise ValueError(f"Invalid argument arity: {name}")
+            validate_tree(spec)
+    if "children" in node:
+        validate_tree(node["children"])
+
+
+def condition_matches(condition: dict, seen: set, values: dict) -> bool:
+    if not condition:
+        return True
+    if "all" in condition:
+        return all(condition_matches(item, seen, values) for item in condition["all"])
+    if "any" in condition:
+        return any(condition_matches(item, seen, values) for item in condition["any"])
+    if "not" in condition:
+        return not condition_matches(condition["not"], seen, values)
+    if "present" in condition:
+        return condition["present"] in seen
+    if "equals" in condition:
+        flag, value = condition["equals"]
+        return values.get(flag) == value
+    raise ValueError(f"Unknown completion condition: {condition}")
+
+
+def tree_state(state: ParsedState) -> tuple:
+    """Consume tokens once; values cannot accidentally select another anchor."""
+    tree = NATIVE_HELP["tree"]
+    nodes = [tree]
     if state.tool:
-        keys.append(f"tool:{state.tool}")
-        if state.tool == "network" and state.cmd:
-            keys.append(f"tool:network/cmd:{state.cmd}")
-        if state.tool == "hw_server":
-            if state.interactive:
-                keys.append("tool:hw_server/interactive")
-            if state.chain_mode:
-                keys.append("tool:hw_server/chain")
-            if state.cmd:
-                keys.append(f"tool:hw_server/cmd:{state.cmd}")
-    return keys
+        nodes.append(tree["tools"].get(state.tool, {}))
+    seen, values, exclusive = set(), {}, set()
+    pending = None
+    passthrough = False
+    action_selected = False
 
+    def flags():
+        allowed_globals = nodes[1].get("globals") if len(nodes) > 1 else None
+        return {key: value for index, node in enumerate(nodes)
+                for key, value in tree_entries(node.get("flags", {})).items()
+                if index != 0 or allowed_globals is None or key in allowed_globals}
 
-def resolve_value_handler(flag: str, state: ParsedState) -> Handler | None:
-    for key in reversed(branch_keys(state)):
-        handler = VALUE_HANDLER_TREE.get(key, {}).get(flag)
-        if handler:
-            return handler
-    return None
+    def consume(flag, spec, value):
+        nonlocal nodes
+        seen.add(flag)
+        values[flag] = value
+        if spec.get("state_provider"):
+            values.update(STATE_PROVIDERS[spec["state_provider"]](value, state))
+        if spec.get("exclusive"):
+            exclusive.add(spec["exclusive"])
+        if flag == "--tool":
+            state.tool = value
+            nodes = [tree, tree["tools"].get(value, {})]
+        if "children" in spec:
+            nodes.append(spec["children"])
+        if value in spec.get("values", {}):
+            nodes.append(spec["values"][value])
 
-
-def filter_single_use(flags: list[str], state: ParsedState, *, repeatable: set[str] | None = None) -> list[str]:
-    used = state.seen or set()
-    repeatable = (repeatable or set()) | REPEATABLE_GLOBAL_ENV_FLAGS
-    return [flag for flag in flags if flag in repeatable or flag not in used]
-
-
-def suggest_vivado_flags(state: ParsedState) -> list[str]:
-    actions = [
-        "--build",
-        "--init_build_example",
-            "--init_build",
-        "--build_lint",
-        "--build_status", "--build_status_all",
-        "--build_stop_all", "--build_find_all_user_runs", "--build_clean_ignore_artifacts", "--build_create",
-        "--lint",
-        "--get_xpr_path",
-        "--project_console",
-
-        "--monitor",
-        "--generate_prj_with_external_tcl",
-        "--write_tcl",
-        "--file_add",
-        "--file_remove",
-        "--add_file_to_project_tcl",
-        "--remove_file_from_project_tcl",
-        "--add_run_to_project_tcl",
-        "--remove_run_from_project_tcl",
-        "--clean_logs",
-    ]
-
-    selected = state.selected_vivado_action
-    if not selected:
-        return filter_single_use(actions + ["--project", *GLOBAL_FLAGS, "--verbose", "--help", "-h"], state)
-
-    modifiers: list[str]
-    if selected == "--build":
-        build = selected_build(state)
-        parsed = parse_selector(build)
-        valid = bool(parsed) or build in build_names(project_json_data(state) or {})
-        artifact_action = any(flag in state.tokens for flag in ARTIFACT_FLAGS)
-        modifiers = []
-        if valid and not artifact_action and not (parsed and parsed.get('bitstream')):
-            if parsed and parsed["impl"] and parsed["attempt"] == "new":
-                modifiers.append("--refresh_impl_inputs")
-            modifiers += [flag for flag in ARTIFACT_FLAGS if flag != '--save_this_run'] + ["--remove_lock", "--stop_run", "--force_run"]
-            if (parsed and not parsed["impl"] or "." not in build) and (project_json_data(state) or {}).get("vivado", {}).get("non_project", {}).get("runs", {}).get(parsed["run"] if parsed else build, {}).get("stage") == "synth":
-                modifiers.append("--auto_impl")
-        if not build and "--create" not in state.tokens and not any(flag in state.tokens for flag in PROCESS_FLAGS):
-            modifiers = []
-    elif selected == "--lint":
-        modifiers = ["--clean"]
-    elif selected == "--generate_prj_with_external_tcl":
-        modifiers = ["--clean", "--force"]
-    elif selected in {"--file_add", "--file_remove"}:
-        modifiers = ["--file_path"]
-    elif selected in {
-        "--add_file_to_project_tcl",
-        "--remove_file_from_project_tcl",
-        "--add_run_to_project_tcl",
-        "--remove_run_from_project_tcl",
-    }:
-        modifiers = ["--project_tcl_json", "--project_tcl_json_file"]
-    elif selected == "--clean_logs":
-        modifiers = ["--force", "--verbose"]
-    elif selected == "--monitor":
-        operation = next((state.tokens[index + 1] for index in range(len(state.tokens) - 1) if state.tokens[index] == selected), "")
-        modifiers = {'performance': ['--files', '--metric', '--stage', '--graph'], 'timing-graph': ['--run', '--file', '--metric', '--kind'],
-                     'tail': ['--run', '--lines', '--no-follow'],
-                     'collect': ['--run'],
-                     'install-json': ['--json-file', '--key', '--overwrite']}.get(operation, [])
-    elif selected in {"--project_console"}:
-        modifiers = ["--interval", "--once", "--property", "--value", "--cmd", "--file", "--output", "--raw", "--timeout", "--json-file", "--key", "--overwrite", "--run", "--group", "--json", "--jobs", "--verbose", "--force", "--reset", "--no-bitstream"]
-
-    else:
-        modifiers = []
-
-    return filter_single_use(
-        modifiers + ["--project", *GLOBAL_FLAGS, "--verbose", "--help", "-h"],
-        state, repeatable={"--auto_impl"} if selected == "--build" else set(),
-    )
-
-
-def suggest_verilator_flags(state: ParsedState) -> list[str]:
-    return filter_single_use(
-        ["--step", "--SimTargetName", "--clean", "--verbose", "--flags", "--lint-file", "--file", "--extra-env", "--project", *GLOBAL_FLAGS, "--help", "-h"],
-        state,
-        repeatable={"--step", "--flags", "--lint-file", "--file"},
-    )
-
-
-def suggest_network_flags(state: ParsedState) -> list[str]:
-    if not state.cmd:
-        return filter_single_use(["--cmd", "--verbose", "--project", *GLOBAL_FLAGS, "--help", "-h"], state)
-
-    per_cmd = {
-        "send_raw": ["--interface", "--data", "--verbose"],
-        "send_arp": ["--interface", "--arp_op", "--eth_dst_mac", "--eth_src_mac", "--src_mac", "--src_ip", "--dst_mac", "--dst_ip", "--verbose"],
-        "send_icmp": ["--interface", "--eth_dst_mac", "--eth_src_mac", "--src_ip", "--dst_ip", "--icmp_type", "--icmp_code", "--identifier", "--sequence", "--data", "--verbose"],
-        "send_udp": ["--interface", "--eth_dst_mac", "--eth_src_mac", "--src_ip", "--dst_ip", "--src_port", "--dst_port", "--data", "--verbose"],
-    }
-    return filter_single_use(per_cmd.get(state.cmd, []) + ["--project", *GLOBAL_FLAGS, "--help", "-h"], state)
-
-
-def suggest_vcd_flags(state: ParsedState) -> list[str]:
-    if not state.has_vcdfile:
-        return filter_single_use(["--vcdfilename", "--project", *GLOBAL_FLAGS, "--help", "-h"], state)
-
-    if "--get_values_pins" in (state.seen or set()) or "--get_values_all" in (state.seen or set()):
-        return filter_single_use(["--human", "--project", *GLOBAL_FLAGS, "--help", "-h"], state)
-
-    if "--get_modules_list" in (state.seen or set()):
-        return filter_single_use(["--project", *GLOBAL_FLAGS, "--help", "-h"], state)
-
-    return filter_single_use(
-        ["--get_modules_list", "--get_values_pins", "--get_values_all", "--project", *GLOBAL_FLAGS, "--help", "-h"],
-        state,
-    )
-
-
-def suggest_tshark_flags(state: ParsedState) -> list[str]:
-    if not state.has_pcap:
-        return filter_single_use(["--pcap", "--project", *GLOBAL_FLAGS, "--help", "-h"], state)
-
-    return filter_single_use(
-        [
-            "--format",
-            "--frame",
-            "--frame_start",
-            "--frame_end",
-            "--frame_list",
-            "--count",
-            "--skip",
-            "--tsharkArgsAppend",
-            "--disable_heuristics",
-            "--disable_protocols",
-            "--verbose",
-            "--project",
-            *GLOBAL_FLAGS,
-            "--help",
-            "-h",
-        ],
-        state,
-    )
-
-
-def suggest_hw_server_flags(state: ParsedState) -> list[str]:
-    if state.interactive:
-        return filter_single_use(["--hw-config", "-c", "--server_ip", "--bitstream", "--probes", "--debug", "--project", *GLOBAL_FLAGS, "--help", "-h"], state)
-
-    if state.chain_mode:
-        return filter_single_use(["--server_ip", "--hw-config", "-c", "--debug", "--project", *GLOBAL_FLAGS, "--help", "-h"], state)
-
-    if not state.cmd:
-        return filter_single_use(["--cmd", "-i", "--interactive", "-ic", "--interactive-chain", "--hw-config", "-c", "--server_ip", "--debug", "--project", *GLOBAL_FLAGS, "--help", "-h"], state)
-
-    per_cmd = {
-        "program": ["--server_ip", "--bitstream", "--probes", "--hw-config", "-c", "--debug"],
-        "scan_ila": ["--server_ip", "--probes", "--hw-config", "-c", "--debug"],
-        "scan_jtag": ["--server_ip", "--hw-config", "-c", "--debug"],
-        "read_dna": ["--server_ip", "--hw-config", "-c", "--debug"],
-    }
-    return filter_single_use(per_cmd.get(state.cmd, []) + ["--project", *GLOBAL_FLAGS, "--help", "-h"], state)
-
-
-def suggest_project_flags(state: ParsedState) -> list[str]:
-    return filter_single_use(["--list", *GLOBAL_FLAGS, "--help", "-h"], state)
-
-
-def suggest_root_flags(state: ParsedState) -> list[str]:
-    return filter_single_use(["--project", "--tool", *GLOBAL_FLAGS, "--verbose", "--help", "-h"], state)
+    for token in state.tokens:
+        if passthrough:
+            break
+        if pending:
+            flag, spec = pending
+            pending = None
+            if spec["arity"] != "?" or not token.startswith("-"):
+                consume(flag, spec, token)
+                continue
+            consume(flag, spec, "")
+        if token == "--":
+            passthrough = True
+            continue
+        flag, separator, value = token.partition("=")
+        available = flags()
+        if flag in available:
+            spec = available[flag]
+            if spec.get("arity", 0) and not separator:
+                pending = (flag, spec)
+            else:
+                consume(flag, spec, value)
+            continue
+        for node in list(nodes):
+            if token in node.get("actions", {}) and not action_selected:
+                nodes.append(node["actions"][token])
+                values["action"] = token
+                action_selected = True
+                break
+    state.seen = seen
+    return nodes, flags(), seen, values, exclusive, pending, passthrough, action_selected
 
 
 def suggest_flags(state: ParsedState) -> list[str]:
-    if state.tool == "vivado":
-        return suggest_vivado_flags(state)
-    if state.tool == "Verilator":
-        return suggest_verilator_flags(state)
-    if state.tool == "network":
-        return suggest_network_flags(state)
-    if state.tool == "vcd_analyzer":
-        return suggest_vcd_flags(state)
-    if state.tool == "tsharkWrapper":
-        return suggest_tshark_flags(state)
-    if state.tool == "hw_server":
-        return suggest_hw_server_flags(state)
-    if state.tool == "projects":
-        return suggest_project_flags(state)
-    return suggest_root_flags(state)
+    nodes, flags, seen, values, exclusive, pending, passthrough, action_selected = tree_state(state)
+    if passthrough:
+        return []
+    return [flag for flag, spec in flags.items()
+            if (flag not in seen or spec.get("repeatable"))
+            and (not spec.get("exclusive") or spec["exclusive"] not in exclusive)
+            and condition_matches(spec.get("when", {}), seen, values)]
+
+
+def filter_single_use(flags: list[str], state: ParsedState, *, repeatable: set[str] | None = None) -> list[str]:
+    repeatable = (repeatable or set()) | REPEATABLE_GLOBAL_ENV_FLAGS
+    return [flag for flag in flags if flag in repeatable or flag not in (state.seen or set())]
 
 
 def complete_classic(tokens_before_current: list[str], cur: str, cwd: Path) -> CompletionResult:
     state = parse_classic_state(tokens_before_current, cwd)
-    prev = tokens_before_current[-1] if tokens_before_current else ""
-    handler = resolve_value_handler(prev, state)
-    if handler:
-        return handler(cur, state)
+    nodes, flags, seen, values, exclusive, pending, passthrough, action_selected = tree_state(state)
+    if passthrough:
+        return CompletionResult([])
+    prefix = ""
+    if cur.startswith("--") and "=" in cur:
+        flag, cur = cur.split("=", 1)
+        if flag not in flags:
+            return CompletionResult([])
+        pending = (flag, flags[flag])
+        prefix = flag + "="
+    if pending and (pending[1].get("arity") != "?" or not cur.startswith("-")):
+        flag, spec = pending
+        if spec.get("anchor") == "tools":
+            result = complete_words(cur, list(tree_entries(NATIVE_HELP["tree"]["tools"])))
+        elif spec.get("provider"):
+            result = PROVIDERS[spec["provider"]](cur, state)
+        else:
+            result = complete_words(cur, list(tree_entries(spec.get("values", {}))))
+        result.completions = [prefix + item for item in result.completions]
+        return result
+    candidates = suggest_flags(state)
+    if not action_selected:
+        candidates += [name for node in nodes for name, spec in tree_entries(node.get("actions", {})).items()
+                       if condition_matches(spec.get("when", {}), seen, values)]
+    return complete_words(cur, unique(candidates))
 
-    if cur.startswith("-") or not cur:
-        return complete_words(cur, suggest_flags(state))
 
-    return CompletionResult([])
+def tree_descriptions(node: dict) -> dict:
+    descriptions = {}
+    for key, value in node.items():
+        if key.startswith("#") and isinstance(value, str):
+            descriptions[key[1:]] = value
+        elif isinstance(value, dict):
+            descriptions.update(tree_descriptions(value))
+    return descriptions
 
 
 def parse_llm_mode(tokens_before_current: list[str], cwd: Path) -> ParsedState:
@@ -906,15 +693,8 @@ def parse_llm_mode(tokens_before_current: list[str], cwd: Path) -> ParsedState:
 
 
 def complete_llm(tokens_before_current: list[str], cur: str, cwd: Path) -> CompletionResult:
-    if any(token in SSH_ACTIONS for token in tokens_before_current):
-        previous = tokens_before_current[-1]
-        if previous in {"--json", "--project", "--input", "--ssh-config"}:
-            return complete_path(cur, cwd)
-        if previous == "--on-collision":
-            return complete_words(cur, ["error", "keep", "incoming"])
-        if previous in {"--local-host", "--local-user"}:
-            return CompletionResult([])
-        return complete_words(cur, ["--json", "--input", "--ssh-config", "--local-host", "--local-user", "--on-collision", "--dry-run", "--force", "--help", "-h"])
+    if any(token == "--tool" or token.startswith("--tool=") for token in tokens_before_current):
+        return complete_classic(tokens_before_current, cur, cwd)
     if "--" in tokens_before_current:
         dd_index = tokens_before_current.index("--")
         passthrough_tokens = tokens_before_current[dd_index + 1 :]
@@ -941,7 +721,7 @@ def complete_llm(tokens_before_current: list[str], cur: str, cwd: Path) -> Compl
             return complete_words(cur, append_flags)
         return CompletionResult([])
 
-    llm_flags = filter_single_use(["--eval_json", "--cmd", "--project", "--tool", *GLOBAL_FLAGS, *SSH_ACTIONS, "--help", "-h"], state)
+    llm_flags = filter_single_use(["--eval_json", "--cmd", "--project", "--tool", *GLOBAL_FLAGS, "--help", "-h"], state)
 
     if (cur.startswith("-") or not cur) and not state.has_llm_path:
         merged = unique(complete_llm_path(state.project_file, cur).completions + [flag for flag in llm_flags if flag.startswith(cur)])
@@ -1016,6 +796,15 @@ def main() -> int:
     parser.add_argument("words", nargs=argparse.REMAINDER)
     args = parser.parse_args()
 
+    try:
+        if SCHEMA_ERROR:
+            raise ValueError(SCHEMA_ERROR)
+        validate_tree(NATIVE_HELP["tree"])
+    except ValueError as error:
+        if args.describe:
+            print(str(error), file=sys.stderr)
+        return 1
+
     words = args.words[1:] if args.words and args.words[0] == "--" else args.words
     comp_cword = args.comp_cword
     cwd = Path(args.cwd)
@@ -1027,14 +816,19 @@ def main() -> int:
     cur = words[comp_cword] if comp_cword < len(words) else ""
     tokens_before_current = words[1:comp_cword]
 
-    classic_mode = "--tool" in tokens_before_current
+    classic_mode = any(token == "--tool" or token.startswith("--tool=") for token in tokens_before_current)
     if os.environ.get("HDLFORGE_COMPLETION_DEBUG"):
         mode_name = "classic" if classic_mode else "llm_orch"
         print(
             f"[hdlforge completion] backend mode={mode_name} cwd={cwd} cur={cur!r}",
             file=sys.stderr,
         )
-    result = complete_classic(tokens_before_current, cur, cwd) if classic_mode else complete_llm(tokens_before_current, cur, cwd)
+    try:
+        result = complete_classic(tokens_before_current, cur, cwd) if classic_mode else complete_llm(tokens_before_current, cur, cwd)
+    except (ValueError, KeyError, TypeError) as error:
+        if args.describe:
+            print(f"Invalid completion tree: {error}", file=sys.stderr)
+        return 1
 
     print(f"__META__ filenames={1 if result.filenames else 0} nospace={1 if result.nospace else 0}")
     for item in result.completions:
@@ -1048,7 +842,11 @@ def main() -> int:
             native.update(CONSOLE_ACTIONS)
         if "--monitor" in tokens_before_current:
             native.update({name[1:]: value for name, value in NATIVE_HELP['monitor'].items() if name.startswith('#')})
+        native.update(tree_descriptions(NATIVE_HELP["tree"]))
         data = {**(data or {}), "__native_descriptions": native}
+        for item in result.completions:
+            if not completion_description(data, item):
+                native[item] = "Configured choice for " + (tokens_before_current[-1] if tokens_before_current else "this command")
         if args.describe:
             for item in result.completions:
                 description = completion_description(data or {}, item)

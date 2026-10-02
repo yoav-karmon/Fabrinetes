@@ -18,21 +18,14 @@ from ssh_config_inventory import get_inventory, merge, parse_config, read_docume
 
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(
-        prog="hdlforge", allow_abbrev=False,
+        prog="hdlforge --tool ssh", allow_abbrev=False,
         description="Import, export, verify or merge SSH inventories keyed by connection Host alias.",
         epilog="Writes show a diff and require approval unless --force. Every existing destination is backed up "
                "as <filename>.<UTC timestamp>.bak. Dry-run and verify never write or create backups. "
                "--force never resolves collisions: use --on-collision explicitly. "
                "Inventory path: settings.env.<local-host>.<local-user>.ssh_config. "
                "Only literal single-host blocks are supported; comments/formatting are not inventoried.")
-    actions = result.add_mutually_exclusive_group(required=True)
-    for action, help_text in {
-        "import": "Import SSH config into the JSON ssh_config inventory (replace inventory only)",
-        "export": "Export JSON ssh_config to SSH config (replace destination file)",
-        "verify": "Compare JSON inventory with SSH config and report duplicates/collisions; read-only",
-        "merge": "Merge inventories from JSON files into destination JSON; unrelated destination fields remain",
-    }.items():
-        actions.add_argument(f"--sshconfig_{action}", f"--sshcofnig_{action}", dest="action", action="store_const", const=action, help=help_text)
+    result.add_argument("action", choices=["import", "export", "verify", "merge"])
     result.add_argument("--json", "--project", dest="json_path", type=Path,
                         help="Destination/source repository JSON; default: exactly one *.hdlforge.json in cwd")
     result.add_argument("--ssh-config", type=Path, default=Path.home() / ".ssh/config", help="SSH config path (default: ~/.ssh/config)")

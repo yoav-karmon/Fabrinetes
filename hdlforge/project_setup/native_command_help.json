@@ -36,7 +36,7 @@
     "--project": null,
     "#--project": "Project file path",
     "--tool": null,
-    "#--tool": "Tool to execute: vivado, Verilator, network, vcd_analyzer, tsharkWrapper, hw_server, or projects (required)",
+    "#--tool": "Select an HDLForge tool",
     "--verbose": null,
     "#--verbose": "Enable verbose output",
     "--step": null,
@@ -53,44 +53,6 @@
     "#--lint-file": "Project-relative Verilator source file(s) for raw selected-file lint",
     "--extra-env": null,
     "#--extra-env": "Extra environment variables",
-    "--lint": null,
-    "#--lint": "Run lint",
-    "--generate_prj_with_external_tcl": null,
-    "#--generate_prj_with_external_tcl": "Generate Vivado project using external TCL script",
-    "--write_tcl": null,
-    "#--write_tcl": "Export Vivado project to TCL",
-    "--file_remove": null,
-    "#--file_remove": "Remove a file from the Vivado project",
-    "--file_add": null,
-    "#--file_add": "Add a file to the Vivado project",
-    "--file_path": null,
-    "#--file_path": "File path (required for file_remove and file_add)",
-    "--add_file_to_project_tcl": null,
-    "#--add_file_to_project_tcl": "Add file sections to the exported Vivado project Tcl",
-    "--remove_file_from_project_tcl": null,
-    "#--remove_file_from_project_tcl": "Remove file sections from the exported Vivado project Tcl",
-    "--remove_file_fom_project_tcl": null,
-    "#--remove_file_fom_project_tcl": "Remove file sections from the exported Vivado project Tcl",
-    "--add_run_to_project_tcl": null,
-    "#--add_run_to_project_tcl": "Add synth/implementation run sections to the exported Vivado project Tcl",
-    "--add_rrun_to_project_tcl": null,
-    "#--add_rrun_to_project_tcl": "Add synth/implementation run sections to the exported Vivado project Tcl",
-    "--add_run_fom_project_tcl": null,
-    "#--add_run_fom_project_tcl": "Add synth/implementation run sections to the exported Vivado project Tcl",
-    "--add_rrun_fom_project_tcl": null,
-    "#--add_rrun_fom_project_tcl": "Add synth/implementation run sections to the exported Vivado project Tcl",
-    "--remove_run_from_project_tcl": null,
-    "#--remove_run_from_project_tcl": "Remove synth/implementation run sections from the exported Vivado project Tcl",
-    "--remove_rrun_fom_project_tcl": null,
-    "#--remove_rrun_fom_project_tcl": "Remove synth/implementation run sections from the exported Vivado project Tcl",
-    "--remove_run_fom_project_tcl": null,
-    "#--remove_run_fom_project_tcl": "Remove synth/implementation run sections from the exported Vivado project Tcl",
-    "--project_tcl_json": null,
-    "#--project_tcl_json": "Inline JSON dictionary for project Tcl edits",
-    "--project_tcl_json_file": null,
-    "#--project_tcl_json_file": "JSON file for project Tcl edits",
-    "--clean_logs": null,
-    "#--clean_logs": "Clean Vivado log files from current directory",
     "-f": null,
     "#-f": "Skip confirmation prompts for the selected operation.",
     "--force": null,
@@ -204,23 +166,13 @@
     "--get_xpr_path": null,
     "#--get_xpr_path": "Print the absolute configured XPR path without starting Vivado; works before project creation.",
     "--project_console": null,
-    "#--project_console": "Manage the persistent Vivado console; select an action. Use help for options.",
+    "#--project_console": "Persistent Vivado Tcl console, interactive commands and inspection",
     "--eval_json": null,
     "#--eval_json": "Execute a command from the selected project's JSON key.",
     "--append": null,
     "#--append": "Append arguments to the selected project shortcut or shell command.",
     "--no-print": null,
     "#--no-print": "Suppress HDLForge wrapper status output.",
-    "--print-env": null,
-    "#--print-env": "Print prepared PATH and PYTHONPATH entries with their source layer.",
-    "--print-env-all-host_and_user": null,
-    "#--print-env-all-host_and_user": "List known host/user environment mappings and the selected pair.",
-    "--add-to-bashrc-path": null,
-    "#--add-to-bashrc-path": "Install the HDLForge launcher and Bash completion in ~/.bashrc.",
-    "--init-base-path": null,
-    "#--init-base-path": "Print a shell export that captures the current PATH as HDLForge's base path.",
-    "--init-base-pythonpath": null,
-    "#--init-base-pythonpath": "Print a shell export that captures the current PYTHONPATH as HDLForge's base Python path.",
     "--dry-run": null,
     "#--dry-run": "Preview artifact cleanup candidates and skip reasons without deleting; for other commands, resolve without executing.",
     "--env-python": null,
@@ -231,16 +183,10 @@
     "#--env-var": "Set environment variables for the launched command from a JSON array or project JSON key.",
     "#--group": "Synthesis group from get_groups; process synthesis and enabled implementations.",
     "--group": null,
-    "#--reset": "With build_run/build_group, reset the target before its full build.",
-    "--reset": null,
     "--lines": null,
     "#--lines": "Number of trailing log lines to display (default 8).",
-    "--no-bitstream": null,
-    "#--no-bitstream": "Stop implementation at route_design instead of write_bitstream.",
     "--monitor": null,
     "#--monitor": "Monitor runs: status, timing-graph, tail, collection, and management. Use help for all actions.",
-    "--save_this_run": null,
-    "#--save_this_run": "Save selected/newest run from cleanup; implementation also saves synthesis; no build",
     "--refresh_impl_inputs": null,
     "#--refresh_impl_inputs": "New implementation: snapshot current XDC/Tcl/supporting files while retaining synthesis DCP and frozen IPs",
     "--build_stop_all": null,
@@ -252,7 +198,31 @@
     ],
     "#--build_create": "Create synthesis, nested implementation, and IP regeneration JSON examples and run.tcl folders; no builds or overwrites",
     "--build_clean_ignore_artifacts": null,
-    "#--build_clean_ignore_artifacts": "Delete ignored timestamp artifacts across all runs; --dry-run lists candidates and skip reasons without deleting; no PID/status checks"
+    "#--build_clean_ignore_artifacts": "Delete ignored timestamp artifacts across all runs; --dry-run lists candidates and skip reasons without deleting; no PID/status checks",
+    "--init_build": null,
+    "#--init_build": "Init build",
+    "--interval": null,
+    "#--interval": "Interval",
+    "--once": null,
+    "#--once": "Once",
+    "--value": null,
+    "#--value": "Value",
+    "--remove_lock": null,
+    "#--remove_lock": "Remove lock",
+    "--stop_run": null,
+    "#--stop_run": "Stop run",
+    "--force_run": null,
+    "#--force_run": "Force run",
+    "--local-host": null,
+    "#--local-host": "Local host",
+    "--local-user": null,
+    "#--local-user": "Local user",
+    "--ssh-config": null,
+    "#--ssh-config": "Ssh config",
+    "--input": null,
+    "#--input": "Input",
+    "--on-collision": null,
+    "#--on-collision": "On collision"
   },
   "#values": "Descriptions for native tool and command choices.",
   "values": {
@@ -301,20 +271,14 @@
     "#follow": "Select active runs once from the console, then follow only their logs and logged PIDs. Optional --group SYNTH --interval 5 --once. Ctrl-C stops only the display.",
     "set_run_property": "set_run_property",
     "#set_run_property": "Edit a run with --run NAME --property PROPERTY --value VALUE and read it back. Without --property, list its properties.",
-    "incremental_on": "incremental_on",
-    "#incremental_on": "Enable automatic incremental compilation for --run NAME, clearing a manual reference checkpoint.",
-    "incremental_off": "incremental_off",
-    "#incremental_off": "Disable incremental compilation for --run NAME and clear its reference checkpoint.",
     "close_project": "close_project",
-    "#close_project": "Close the open project and keep the Tcl console alive. Prompt to export first; --force skips the prompt. Active runs are protected.",
-    "regenerate_project": "regenerate_project",
-    "#regenerate_project": "Close, regenerate from the configured Tcl, and reopen. Preserve the old project directory. Use --force to skip export confirmation; active runs are protected.",
+    "#close_project": "Close an explicitly opened project and keep the console alive; active runs are protected.",
     "status": "status",
-    "#status": "Show persistent console liveness, open project name, full XPR path and directory.",
+    "#status": "Show console liveness and the currently open design or project.",
     "start": "start",
-    "#start": "Start or reuse the persistent Tcl console; open the configured XPR if present.",
+    "#start": "Start or reuse the persistent Tcl console without creating or opening a project.",
     "restart": "restart",
-    "#restart": "Restart the persistent console. Ask before closing an open project; --force skips confirmation.",
+    "#restart": "Terminate and restart this managed Tcl console without opening a project.",
     "stop": "stop",
     "#stop": "Kill the console targeted by this HDLForge JSON immediately. No close_project command or export prompt.",
     "get_runs": "get_runs",
@@ -329,36 +293,8 @@
     "#group_info": "Show configuration and stage settings for each run in --group SYNTH; --verbose adds all other properties.",
     "group_status": "group_status",
     "#group_status": "Show live status and timing for --group SYNTH.",
-    "build_run": "build_run",
-    "#build_run": "Launch --run NAME in the open Tcl console; optional --jobs N, --reset, --no-bitstream.",
-    "build_group": "build_group",
-    "#build_group": "Launch --group SYNTH and its enabled implementation children through Vivado.",
-    "build_bitstream": "build_bitstream",
-    "#build_bitstream": "Launch --run IMPL through write_bitstream; optional --jobs N.",
-    "stop_run": "stop_run",
-    "#stop_run": "Stop --run NAME using Vivado stop_runs.",
-    "stop_group": "stop_group",
-    "#stop_group": "Stop --group SYNTH and its implementation children.",
-    "reset_run": "reset_run",
-    "#reset_run": "Reset --run NAME through Vivado reset_run.",
-    "reset_group": "reset_group",
-    "#reset_group": "Reset --group SYNTH and invalidate dependent implementations.",
     "reuse_status": "reuse_status",
     "#reuse_status": "Show --run NAME refresh requirement and incremental checkpoint settings.",
-    "clear_refresh": "clear_refresh",
-    "#clear_refresh": "Explicitly clear NEEDS_REFRESH for --run NAME; does not validate existing results.",
-    "enable_run": "enable_run",
-    "#enable_run": "Enable --run NAME for console launches.",
-    "disable_run": "disable_run",
-    "#disable_run": "Disable --run NAME for console launches without stopping active work.",
-    "enable_group": "enable_group",
-    "#enable_group": "Enable --group SYNTH and its children.",
-    "disable_group": "disable_group",
-    "#disable_group": "Disable --group SYNTH and its children without stopping active work.",
-    "export_open_project_to_tcl": "export_open_project_to_tcl",
-    "#export_open_project_to_tcl": "Export current project settings; optional --output PATH.",
-    "generate_project_from_tcl": "generate_project_from_tcl",
-    "#generate_project_from_tcl": "Source configured project Tcl in the console; preserve old directory. Ask to export/close an open project, or --force to skip export/prompt.",
     "interactive": "interactive",
     "#interactive": "Attach to the persistent Tcl terminal; detach with Ctrl-b d.",
     "send": "send",
@@ -394,11 +330,11 @@
     "help-verbose": "help-verbose",
     "#help-verbose": "Show the full monitor guide: discovery, PID checks, stale status, remote execution, and collection.",
     "restart": "restart",
-    "#restart": "Restart only the monitor and reload configuration. Vivado builds continue untouched.",
+    "#restart": "Terminate and restart this managed Tcl console without opening a project.",
     "scan": "scan",
     "#scan": "Discover all runs from the targeted HDLForge JSON, check logs/PIDs, update status, and dispatch lifecycle tasks.",
     "start": "start",
-    "#start": "Start one background monitor for the targeted HDLForge JSON. Logs/state go beside it under _vivado_monitor/<JSON filename>/; repeated starts reuse it.",
+    "#start": "Start or reuse the persistent Tcl console without creating or opening a project.",
     "stop": "stop",
     "#stop": "Stop only the monitor daemon. Does not stop Vivado builds or collection workers already launched.",
     "print-hdlforge-json-commands": "print-hdlforge-json-commands",
@@ -410,5 +346,1861 @@
     "performance": "performance",
     "#performance": "List collected stage performance files and arguments. Append --files FILE [FILE ...] to compare; --metric elapsed_seconds|cpu_seconds|peak_memory_mb|wns_ns|tns_ns|whs_ns|ths_ns, --stage TEXT, --graph."
   },
-  "#monitor": "Monitor actions shared with project JSON shortcuts."
+  "#monitor": "Monitor actions shared with project JSON shortcuts.",
+  "tree": {
+    "flags": {
+      "--project": {
+        "arity": 1,
+        "provider": "project_files"
+      },
+      "#--project": "Project file path",
+      "--tool": {
+        "arity": 1,
+        "values": {
+          "vivado": {},
+          "Verilator": {},
+          "network": {},
+          "vcd_analyzer": {},
+          "tsharkWrapper": {},
+          "hw_server": {},
+          "projects": {},
+          "#vivado": "Create, inspect, and build Vivado projects; manage consoles and run databases.",
+          "#Verilator": "Build, run, or lint HDL simulations using Verilator.",
+          "#network": "Send raw Ethernet, ARP, ICMP, or UDP packets.",
+          "#vcd_analyzer": "Inspect modules and signal transitions in VCD waveform files.",
+          "#tsharkWrapper": "Decode and filter packets from capture files with tshark.",
+          "#hw_server": "Program and inspect FPGA hardware through Vivado hardware server.",
+          "#projects": "Discover HDLForge project files."
+        },
+        "anchor": "tools"
+      },
+      "#--tool": "Tool to execute: vivado, Verilator, network, vcd_analyzer, tsharkWrapper, hw_server, or projects (required)",
+      "--env-path": {
+        "arity": 1,
+        "repeatable": true,
+        "provider": "environment_arrays"
+      },
+      "#--env-path": "Add executable search paths from a JSON array or project JSON key.",
+      "--env-python": {
+        "arity": 1,
+        "repeatable": true,
+        "provider": "environment_arrays"
+      },
+      "#--env-python": "Add Python paths from a JSON array or project JSON key.",
+      "--env-var": {
+        "arity": 1,
+        "repeatable": true,
+        "provider": "environment_arrays"
+      },
+      "#--env-var": "Set environment variables for the launched command from a JSON array or project JSON key.",
+      "--no-print": {
+        "arity": 0
+      },
+      "#--no-print": "Suppress HDLForge wrapper status output.",
+      "--dry-run": {
+        "arity": 0
+      },
+      "#--dry-run": "Preview artifact cleanup candidates and skip reasons without deleting; for other commands, resolve without executing.",
+      "--help": {
+        "arity": 0
+      },
+      "#--help": "Show help message",
+      "-h": {
+        "arity": 0
+      },
+      "#-h": "Show help message"
+    },
+    "tools": {
+      "vivado": {
+        "flags": {
+          "--build": {
+            "arity": "?",
+            "provider": "builds",
+            "exclusive": "vivado_action",
+            "children": {
+              "flags": {
+                "--clean_ignore_artifacts": {
+                  "arity": 0,
+                  "when": {
+                    "all": [
+                      {
+                        "equals": [
+                          "build_valid",
+                          true
+                        ]
+                      },
+                      {
+                        "equals": [
+                          "build_bitstream",
+                          false
+                        ]
+                      },
+                      {
+                        "not": {
+                          "present": "--clean_ignore_artifacts"
+                        }
+                      }
+                    ]
+                  }
+                },
+                "#--clean_ignore_artifacts": "Delete a run only when every descendant is untracked and ignored and no run lock is held; --dry-run previews candidates and skip reasons",
+                "--remove_lock": {
+                  "arity": 0,
+                  "when": {
+                    "all": [
+                      {
+                        "equals": [
+                          "build_valid",
+                          true
+                        ]
+                      },
+                      {
+                        "equals": [
+                          "build_bitstream",
+                          false
+                        ]
+                      },
+                      {
+                        "not": {
+                          "present": "--clean_ignore_artifacts"
+                        }
+                      }
+                    ]
+                  }
+                },
+                "#--remove_lock": "Remove lock",
+                "--stop_run": {
+                  "arity": 0,
+                  "when": {
+                    "all": [
+                      {
+                        "equals": [
+                          "build_valid",
+                          true
+                        ]
+                      },
+                      {
+                        "equals": [
+                          "build_bitstream",
+                          false
+                        ]
+                      },
+                      {
+                        "not": {
+                          "present": "--clean_ignore_artifacts"
+                        }
+                      }
+                    ]
+                  }
+                },
+                "#--stop_run": "Stop run",
+                "--force_run": {
+                  "arity": 0,
+                  "when": {
+                    "all": [
+                      {
+                        "equals": [
+                          "build_valid",
+                          true
+                        ]
+                      },
+                      {
+                        "equals": [
+                          "build_bitstream",
+                          false
+                        ]
+                      },
+                      {
+                        "not": {
+                          "present": "--clean_ignore_artifacts"
+                        }
+                      }
+                    ]
+                  }
+                },
+                "#--force_run": "Force run",
+                "--auto_impl": {
+                  "arity": 1,
+                  "repeatable": true,
+                  "provider": "auto_impl",
+                  "when": {
+                    "all": [
+                      {
+                        "equals": [
+                          "build_valid",
+                          true
+                        ]
+                      },
+                      {
+                        "equals": [
+                          "build_bitstream",
+                          false
+                        ]
+                      },
+                      {
+                        "not": {
+                          "present": "--clean_ignore_artifacts"
+                        }
+                      },
+                      {
+                        "equals": [
+                          "build_stage",
+                          "synth"
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "#--auto_impl": "After synthesis succeeds run this implementation pinned to its stable run ID; repeatable, deduplicated",
+                "--refresh_impl_inputs": {
+                  "arity": 0,
+                  "when": {
+                    "all": [
+                      {
+                        "equals": [
+                          "build_valid",
+                          true
+                        ]
+                      },
+                      {
+                        "equals": [
+                          "build_bitstream",
+                          false
+                        ]
+                      },
+                      {
+                        "not": {
+                          "present": "--clean_ignore_artifacts"
+                        }
+                      },
+                      {
+                        "equals": [
+                          "build_new_impl",
+                          true
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "#--refresh_impl_inputs": "New implementation: snapshot current XDC/Tcl/supporting files while retaining synthesis DCP and frozen IPs"
+              }
+            },
+            "state_provider": "build_selection"
+          },
+          "#--build": "Run a JSON synth, synth.impl, IP, or SYNTH.latest.IMPL.bitstream.ID selector; use --help for portable run.json and artifact layout",
+          "--init_build_example": {
+            "arity": 0,
+            "exclusive": "vivado_action",
+            "children": {
+              "flags": {
+                "--verbose": {
+                  "arity": 0
+                },
+                "#--verbose": "Enable verbose output"
+              }
+            }
+          },
+          "#--init_build_example": "Alias for creating all three build examples and their Tcl folders",
+          "--init_build": {
+            "arity": 1,
+            "exclusive": "vivado_action",
+            "children": {
+              "flags": {
+                "--verbose": {
+                  "arity": 0
+                },
+                "#--verbose": "Enable verbose output"
+              }
+            },
+            "provider": "init_builds"
+          },
+          "#--init_build": "Init build",
+          "--build_lint": {
+            "arity": 0,
+            "exclusive": "vivado_action",
+            "children": {
+              "flags": {
+                "--verbose": {
+                  "arity": 0
+                },
+                "#--verbose": "Enable verbose output"
+              }
+            }
+          },
+          "#--build_lint": "Check build configuration and input paths without starting Vivado",
+          "--build_status": {
+            "arity": 0,
+            "exclusive": "vivado_action",
+            "children": {
+              "flags": {
+                "--verbose": {
+                  "arity": 0
+                },
+                "#--verbose": "Enable verbose output"
+              }
+            }
+          },
+          "#--build_status": "Probe the output-root launch registry and report non-dead registered processes",
+          "--build_status_all": {
+            "arity": 0,
+            "exclusive": "vivado_action",
+            "children": {
+              "flags": {
+                "--verbose": {
+                  "arity": 0
+                },
+                "#--verbose": "Enable verbose output"
+              }
+            }
+          },
+          "#--build_status_all": "Show all registered builds, including completed, failed, stopped, and dead runs",
+          "--build_stop_all": {
+            "arity": 0,
+            "exclusive": "vivado_action",
+            "children": {
+              "flags": {
+                "--verbose": {
+                  "arity": 0
+                },
+                "#--verbose": "Enable verbose output"
+              }
+            }
+          },
+          "#--build_stop_all": "Stop registered launches and cancel pending implementations; report unregistered Vivado processes",
+          "--build_find_all_user_runs": {
+            "arity": 0,
+            "exclusive": "vivado_action",
+            "children": {
+              "flags": {
+                "--verbose": {
+                  "arity": 0
+                },
+                "#--verbose": "Enable verbose output"
+              }
+            }
+          },
+          "#--build_find_all_user_runs": "Discover all visible current-user Vivado processes, including unregistered launches",
+          "--build_clean_ignore_artifacts": {
+            "arity": 0,
+            "exclusive": "vivado_action",
+            "children": {
+              "flags": {
+                "--verbose": {
+                  "arity": 0
+                },
+                "#--verbose": "Enable verbose output"
+              }
+            }
+          },
+          "#--build_clean_ignore_artifacts": "Delete ignored timestamp artifacts across all runs; --dry-run lists candidates and skip reasons without deleting; no PID/status checks",
+          "--build_create": {
+            "arity": 0,
+            "exclusive": "vivado_action",
+            "children": {
+              "flags": {
+                "--verbose": {
+                  "arity": 0
+                },
+                "#--verbose": "Enable verbose output"
+              }
+            }
+          },
+          "#--build_create": "Create synthesis, nested implementation, and IP regeneration JSON examples and run.tcl folders; no builds or overwrites",
+          "--get_xpr_path": {
+            "arity": 0,
+            "exclusive": "vivado_action",
+            "children": {
+              "flags": {
+                "--verbose": {
+                  "arity": 0
+                },
+                "#--verbose": "Enable verbose output"
+              }
+            }
+          },
+          "#--get_xpr_path": "Print the absolute configured XPR path without starting Vivado; works before project creation.",
+          "--project_console": {
+            "arity": 1,
+            "values": {
+              "follow": {
+                "flags": {
+                  "--group": {
+                    "arity": 1
+                  },
+                  "#--group": "Synthesis group from get_groups; process synthesis and enabled implementations.",
+                  "--interval": {
+                    "arity": 1
+                  },
+                  "#--interval": "Interval",
+                  "--once": {
+                    "arity": 0
+                  },
+                  "#--once": "Once",
+                  "--json": {
+                    "arity": 0
+                  },
+                  "#--json": "Print machine-readable run inventory or saved values."
+                }
+              },
+              "set_run_property": {
+                "flags": {
+                  "--run": {
+                    "arity": 1
+                  },
+                  "#--run": "Run name passed directly to Vivado; Vivado handles dependencies and rejection.",
+                  "--property": {
+                    "arity": 1
+                  },
+                  "#--property": "Select one property of the specified saved run.",
+                  "--value": {
+                    "arity": 1
+                  },
+                  "#--value": "Value",
+                  "--timeout": {
+                    "arity": 1
+                  },
+                  "#--timeout": "Maximum seconds to wait for the console or command lock (default: 180)",
+                  "--json": {
+                    "arity": 0
+                  },
+                  "#--json": "Print machine-readable run inventory or saved values.",
+                  "--raw": {
+                    "arity": 0
+                  },
+                  "#--raw": "Print Tcl output without table formatting"
+                }
+              },
+              "close_project": {
+                "flags": {
+                  "--timeout": {
+                    "arity": 1
+                  },
+                  "#--timeout": "Maximum seconds to wait for the console or command lock (default: 180)",
+                  "--json": {
+                    "arity": 0
+                  },
+                  "#--json": "Print machine-readable run inventory or saved values.",
+                  "--raw": {
+                    "arity": 0
+                  },
+                  "#--raw": "Print Tcl output without table formatting"
+                }
+              },
+              "status": {
+                "flags": {
+                  "--timeout": {
+                    "arity": 1
+                  },
+                  "#--timeout": "Maximum seconds to wait for the console or command lock (default: 180)",
+                  "--json": {
+                    "arity": 0
+                  },
+                  "#--json": "Print machine-readable run inventory or saved values.",
+                  "--raw": {
+                    "arity": 0
+                  },
+                  "#--raw": "Print Tcl output without table formatting"
+                }
+              },
+              "start": {
+                "flags": {
+                  "--timeout": {
+                    "arity": 1
+                  },
+                  "#--timeout": "Maximum seconds to wait for the console or command lock (default: 180)",
+                  "--json": {
+                    "arity": 0
+                  },
+                  "#--json": "Print machine-readable run inventory or saved values.",
+                  "--raw": {
+                    "arity": 0
+                  },
+                  "#--raw": "Print Tcl output without table formatting"
+                }
+              },
+              "restart": {
+                "flags": {
+                  "--timeout": {
+                    "arity": 1
+                  },
+                  "#--timeout": "Maximum seconds to wait for the console or command lock (default: 180)",
+                  "--json": {
+                    "arity": 0
+                  },
+                  "#--json": "Print machine-readable run inventory or saved values.",
+                  "--raw": {
+                    "arity": 0
+                  },
+                  "#--raw": "Print Tcl output without table formatting"
+                }
+              },
+              "stop": {
+                "flags": {
+                  "--timeout": {
+                    "arity": 1
+                  },
+                  "#--timeout": "Maximum seconds to wait for the console or command lock (default: 180)"
+                }
+              },
+              "get_runs": {
+                "flags": {
+                  "--run": {
+                    "arity": 1
+                  },
+                  "#--run": "Run name passed directly to Vivado; Vivado handles dependencies and rejection.",
+                  "--group": {
+                    "arity": 1
+                  },
+                  "#--group": "Synthesis group from get_groups; process synthesis and enabled implementations.",
+                  "--verbose": {
+                    "arity": 0
+                  },
+                  "#--verbose": "Enable verbose output",
+                  "--raw": {
+                    "arity": 0
+                  },
+                  "#--raw": "Print Tcl output without table formatting",
+                  "--json": {
+                    "arity": 0
+                  },
+                  "#--json": "Print machine-readable run inventory or saved values.",
+                  "--timeout": {
+                    "arity": 1
+                  },
+                  "#--timeout": "Maximum seconds to wait for the console or command lock (default: 180)"
+                }
+              },
+              "get_groups": {
+                "flags": {
+                  "--run": {
+                    "arity": 1
+                  },
+                  "#--run": "Run name passed directly to Vivado; Vivado handles dependencies and rejection.",
+                  "--group": {
+                    "arity": 1
+                  },
+                  "#--group": "Synthesis group from get_groups; process synthesis and enabled implementations.",
+                  "--verbose": {
+                    "arity": 0
+                  },
+                  "#--verbose": "Enable verbose output",
+                  "--raw": {
+                    "arity": 0
+                  },
+                  "#--raw": "Print Tcl output without table formatting",
+                  "--json": {
+                    "arity": 0
+                  },
+                  "#--json": "Print machine-readable run inventory or saved values.",
+                  "--timeout": {
+                    "arity": 1
+                  },
+                  "#--timeout": "Maximum seconds to wait for the console or command lock (default: 180)"
+                }
+              },
+              "run_info": {
+                "flags": {
+                  "--run": {
+                    "arity": 1
+                  },
+                  "#--run": "Run name passed directly to Vivado; Vivado handles dependencies and rejection.",
+                  "--group": {
+                    "arity": 1
+                  },
+                  "#--group": "Synthesis group from get_groups; process synthesis and enabled implementations.",
+                  "--verbose": {
+                    "arity": 0
+                  },
+                  "#--verbose": "Enable verbose output",
+                  "--raw": {
+                    "arity": 0
+                  },
+                  "#--raw": "Print Tcl output without table formatting",
+                  "--json": {
+                    "arity": 0
+                  },
+                  "#--json": "Print machine-readable run inventory or saved values.",
+                  "--timeout": {
+                    "arity": 1
+                  },
+                  "#--timeout": "Maximum seconds to wait for the console or command lock (default: 180)"
+                }
+              },
+              "run_status": {
+                "flags": {
+                  "--run": {
+                    "arity": 1
+                  },
+                  "#--run": "Run name passed directly to Vivado; Vivado handles dependencies and rejection.",
+                  "--group": {
+                    "arity": 1
+                  },
+                  "#--group": "Synthesis group from get_groups; process synthesis and enabled implementations.",
+                  "--verbose": {
+                    "arity": 0
+                  },
+                  "#--verbose": "Enable verbose output",
+                  "--raw": {
+                    "arity": 0
+                  },
+                  "#--raw": "Print Tcl output without table formatting",
+                  "--json": {
+                    "arity": 0
+                  },
+                  "#--json": "Print machine-readable run inventory or saved values.",
+                  "--timeout": {
+                    "arity": 1
+                  },
+                  "#--timeout": "Maximum seconds to wait for the console or command lock (default: 180)"
+                }
+              },
+              "group_info": {
+                "flags": {
+                  "--run": {
+                    "arity": 1
+                  },
+                  "#--run": "Run name passed directly to Vivado; Vivado handles dependencies and rejection.",
+                  "--group": {
+                    "arity": 1
+                  },
+                  "#--group": "Synthesis group from get_groups; process synthesis and enabled implementations.",
+                  "--verbose": {
+                    "arity": 0
+                  },
+                  "#--verbose": "Enable verbose output",
+                  "--raw": {
+                    "arity": 0
+                  },
+                  "#--raw": "Print Tcl output without table formatting",
+                  "--json": {
+                    "arity": 0
+                  },
+                  "#--json": "Print machine-readable run inventory or saved values.",
+                  "--timeout": {
+                    "arity": 1
+                  },
+                  "#--timeout": "Maximum seconds to wait for the console or command lock (default: 180)"
+                }
+              },
+              "group_status": {
+                "flags": {
+                  "--run": {
+                    "arity": 1
+                  },
+                  "#--run": "Run name passed directly to Vivado; Vivado handles dependencies and rejection.",
+                  "--group": {
+                    "arity": 1
+                  },
+                  "#--group": "Synthesis group from get_groups; process synthesis and enabled implementations.",
+                  "--verbose": {
+                    "arity": 0
+                  },
+                  "#--verbose": "Enable verbose output",
+                  "--raw": {
+                    "arity": 0
+                  },
+                  "#--raw": "Print Tcl output without table formatting",
+                  "--json": {
+                    "arity": 0
+                  },
+                  "#--json": "Print machine-readable run inventory or saved values.",
+                  "--timeout": {
+                    "arity": 1
+                  },
+                  "#--timeout": "Maximum seconds to wait for the console or command lock (default: 180)"
+                }
+              },
+              "reuse_status": {
+                "flags": {
+                  "--run": {
+                    "arity": 1
+                  },
+                  "#--run": "Run name passed directly to Vivado; Vivado handles dependencies and rejection.",
+                  "--group": {
+                    "arity": 1
+                  },
+                  "#--group": "Synthesis group from get_groups; process synthesis and enabled implementations.",
+                  "--verbose": {
+                    "arity": 0
+                  },
+                  "#--verbose": "Enable verbose output",
+                  "--raw": {
+                    "arity": 0
+                  },
+                  "#--raw": "Print Tcl output without table formatting",
+                  "--json": {
+                    "arity": 0
+                  },
+                  "#--json": "Print machine-readable run inventory or saved values.",
+                  "--timeout": {
+                    "arity": 1
+                  },
+                  "#--timeout": "Maximum seconds to wait for the console or command lock (default: 180)"
+                }
+              },
+              "interactive": {
+                "flags": {
+                  "--timeout": {
+                    "arity": 1
+                  },
+                  "#--timeout": "Maximum seconds to wait for the console or command lock (default: 180)"
+                }
+              },
+              "send": {
+                "flags": {
+                  "--cmd": {
+                    "arity": 1
+                  },
+                  "#--cmd": "Execute a shell command, or select the chosen native tool's command.",
+                  "--raw": {
+                    "arity": 0
+                  },
+                  "#--raw": "Print Tcl output without table formatting",
+                  "--json": {
+                    "arity": 0
+                  },
+                  "#--json": "Print machine-readable run inventory or saved values.",
+                  "--timeout": {
+                    "arity": 1
+                  },
+                  "#--timeout": "Maximum seconds to wait for the console or command lock (default: 180)"
+                }
+              },
+              "source": {
+                "flags": {
+                  "--file": {
+                    "arity": 1,
+                    "provider": "files"
+                  },
+                  "#--file": "Project-relative Verilator source file(s) for dependency-aware lint",
+                  "--raw": {
+                    "arity": 0
+                  },
+                  "#--raw": "Print Tcl output without table formatting",
+                  "--json": {
+                    "arity": 0
+                  },
+                  "#--json": "Print machine-readable run inventory or saved values.",
+                  "--timeout": {
+                    "arity": 1
+                  },
+                  "#--timeout": "Maximum seconds to wait for the console or command lock (default: 180)"
+                }
+              },
+              "list_consoles": {
+                "flags": {}
+              },
+              "console_output": {
+                "flags": {}
+              },
+              "install-json": {
+                "flags": {
+                  "--json-file": {
+                    "arity": 1,
+                    "provider": "files"
+                  },
+                  "#--json-file": "Existing JSON file for install-json; update-json detects its own selected file",
+                  "--key": {
+                    "arity": 1
+                  },
+                  "#--key": "Dotted parent key for installation, e.g. LLM_orch.vivado; replace its project_console group entirely",
+                  "--overwrite": {
+                    "arity": 0
+                  },
+                  "#--overwrite": "Allow install-json to replace an existing project_console group; update-json always replaces it"
+                }
+              },
+              "update-json": {
+                "flags": {}
+              },
+              "print-json": {
+                "flags": {}
+              },
+              "help": {
+                "flags": {}
+              },
+              "#follow": "Select active runs once from the console, then follow only their logs and logged PIDs. Optional --group SYNTH --interval 5 --once. Ctrl-C stops only the display.",
+              "#set_run_property": "Edit a run with --run NAME --property PROPERTY --value VALUE and read it back. Without --property, list its properties.",
+              "#close_project": "Close an explicitly opened project and keep the console alive; active runs are protected.",
+              "#status": "Show console liveness and the currently open design or project.",
+              "#start": "Start or reuse the persistent Tcl console without creating or opening a project.",
+              "#restart": "Terminate and restart this managed Tcl console without opening a project.",
+              "#stop": "Kill the console targeted by this HDLForge JSON immediately. No close_project command or export prompt.",
+              "#get_runs": "List live runs grouped by synthesis and implementation children.",
+              "#get_groups": "List synthesis groups and their implementation children.",
+              "#run_info": "Show run configuration and stage settings for --run NAME; --verbose adds all other properties.",
+              "#run_status": "Show Vivado status, progress, elapsed time and timing for --run NAME.",
+              "#group_info": "Show configuration and stage settings for each run in --group SYNTH; --verbose adds all other properties.",
+              "#group_status": "Show live status and timing for --group SYNTH.",
+              "#reuse_status": "Show --run NAME refresh requirement and incremental checkpoint settings.",
+              "#interactive": "Attach to the persistent Tcl terminal; detach with Ctrl-b d.",
+              "#send": "Execute --cmd TCL in the console without opening or changing its project.",
+              "#source": "Source --file PATH in the console without changing its project.",
+              "#list_consoles": "List managed console sessions.",
+              "#console_output": "Print recent console terminal output.",
+              "#install-json": "Install project_console shortcuts with --json-file FILE --key PARENT; optional --overwrite.",
+              "#update-json": "Update this project console shortcut group, retaining unrelated settings.",
+              "#print-json": "Print the project_console shortcut definitions.",
+              "#help": "List actions and available arguments."
+            },
+            "exclusive": "vivado_action"
+          },
+          "#--project_console": "Manage the persistent Vivado console; select an action. Use help for options.",
+          "--monitor": {
+            "arity": 1,
+            "values": {
+              "tail": {
+                "flags": {
+                  "--run": {
+                    "arity": 1
+                  },
+                  "#--run": "Run name passed directly to Vivado; Vivado handles dependencies and rejection.",
+                  "--lines": {
+                    "arity": 1
+                  },
+                  "#--lines": "Number of trailing log lines to display (default 8).",
+                  "--no-follow": {
+                    "arity": 0
+                  },
+                  "#--no-follow": "No follow"
+                }
+              },
+              "timing-graph": {
+                "flags": {
+                  "--run": {
+                    "arity": 1
+                  },
+                  "#--run": "Run name passed directly to Vivado; Vivado handles dependencies and rejection.",
+                  "--file": {
+                    "arity": 1,
+                    "provider": "files"
+                  },
+                  "#--file": "Project-relative Verilator source file(s) for dependency-aware lint",
+                  "--metric": {
+                    "arity": 1
+                  },
+                  "#--metric": "Metric",
+                  "--kind": {
+                    "arity": 1
+                  },
+                  "#--kind": "Kind"
+                }
+              },
+              "clear": {},
+              "collect": {
+                "flags": {
+                  "--run": {
+                    "arity": 1
+                  },
+                  "#--run": "Run name passed directly to Vivado; Vivado handles dependencies and rejection."
+                }
+              },
+              "help": {},
+              "help-slack": {},
+              "help-verbose": {},
+              "restart": {},
+              "scan": {},
+              "start": {},
+              "stop": {},
+              "print-hdlforge-json-commands": {},
+              "install-json": {
+                "flags": {
+                  "--json-file": {
+                    "arity": 1,
+                    "provider": "files"
+                  },
+                  "#--json-file": "Existing JSON file for install-json; update-json detects its own selected file",
+                  "--key": {
+                    "arity": 1
+                  },
+                  "#--key": "Dotted parent key for installation, e.g. LLM_orch.vivado; replace its project_console group entirely",
+                  "--overwrite": {
+                    "arity": 0
+                  },
+                  "#--overwrite": "Allow install-json to replace an existing project_console group; update-json always replaces it"
+                }
+              },
+              "update-json": {},
+              "performance": {
+                "flags": {
+                  "--files": {
+                    "arity": 1,
+                    "provider": "files"
+                  },
+                  "#--files": "Files",
+                  "--metric": {
+                    "arity": 1
+                  },
+                  "#--metric": "Metric",
+                  "--stage": {
+                    "arity": 1
+                  },
+                  "#--stage": "Stage",
+                  "--graph": {
+                    "arity": 0
+                  },
+                  "#--graph": "Graph"
+                }
+              },
+              "#tail": "tail",
+              "#timing-graph": "timing-graph",
+              "#clear": "clear",
+              "#collect": "collect",
+              "#help": "help",
+              "#help-slack": "help-slack",
+              "#help-verbose": "help-verbose",
+              "#restart": "Terminate and restart this managed Tcl console without opening a project.",
+              "#scan": "scan",
+              "#start": "Start or reuse the persistent Tcl console without creating or opening a project.",
+              "#stop": "stop",
+              "#print-hdlforge-json-commands": "print-hdlforge-json-commands",
+              "#install-json": "install-json",
+              "#update-json": "update-json",
+              "#performance": "performance"
+            },
+            "exclusive": "vivado_action",
+            "children": {
+              "flags": {
+                "--verbose": {
+                  "arity": 0
+                },
+                "#--verbose": "Enable verbose output"
+              }
+            }
+          },
+          "#--monitor": "Monitor runs: status, timing-graph, tail, collection, and management. Use help for all actions.",
+          "--verbose": {
+            "arity": 0,
+            "exclusive": "vivado_action",
+            "children": {
+              "flags": {}
+            }
+          },
+          "#--verbose": "Enable verbose output"
+        }
+      },
+      "#vivado": "Create, inspect, and build Vivado projects; manage consoles and run databases.",
+      "Verilator": {
+        "flags": {
+          "--step": {
+            "arity": 1,
+            "repeatable": true,
+            "values": {
+              "build": {},
+              "sim": {},
+              "lint": {},
+              "#build": "Build the selected simulation target.",
+              "#sim": "Run the selected simulation target.",
+              "#lint": "Lint the selected HDL sources or simulation target."
+            }
+          },
+          "#--step": "Verilator step (build, sim, lint)",
+          "--SimTargetName": {
+            "arity": 1,
+            "provider": "sim_targets"
+          },
+          "#--SimTargetName": "Simulation target name",
+          "--clean": {
+            "arity": 0
+          },
+          "#--clean": "Clean before building",
+          "--verbose": {
+            "arity": 0
+          },
+          "#--verbose": "Enable verbose output",
+          "--flags": {
+            "arity": 1,
+            "repeatable": true,
+            "provider": "verilator_flags"
+          },
+          "#--flags": "Additional Verilator flags; may be repeated",
+          "--lint-file": {
+            "arity": 1,
+            "repeatable": true,
+            "provider": "files"
+          },
+          "#--lint-file": "Project-relative Verilator source file(s) for raw selected-file lint",
+          "--file": {
+            "arity": 1,
+            "provider": "files"
+          },
+          "#--file": "Project-relative Verilator source file(s) for dependency-aware lint",
+          "--extra-env": {
+            "arity": 1
+          },
+          "#--extra-env": "Extra environment variables"
+        }
+      },
+      "#Verilator": "Build, run, or lint HDL simulations using Verilator.",
+      "network": {
+        "flags": {
+          "--cmd": {
+            "arity": 1,
+            "values": {
+              "send_raw": {
+                "flags": {
+                  "--interface": {
+                    "arity": 1,
+                    "provider": "interfaces"
+                  },
+                  "#--interface": "Network interface name",
+                  "--data": {
+                    "arity": 1
+                  },
+                  "#--data": "Raw data as hex string",
+                  "--verbose": {
+                    "arity": 0
+                  },
+                  "#--verbose": "Enable verbose output"
+                }
+              },
+              "send_arp": {
+                "flags": {
+                  "--interface": {
+                    "arity": 1,
+                    "provider": "interfaces"
+                  },
+                  "#--interface": "Network interface name",
+                  "--arp_op": {
+                    "arity": 1,
+                    "values": {
+                      "1": {},
+                      "2": {},
+                      "#1": "1",
+                      "#2": "2"
+                    }
+                  },
+                  "#--arp_op": "ARP operation: 1=request, 2=reply",
+                  "--eth_dst_mac": {
+                    "arity": 1,
+                    "values": {
+                      "FF:FF:FF:FF:FF:FF": {},
+                      "00:00:00:00:00:00": {},
+                      "#FF:FF:FF:FF:FF:FF": "FF:FF:FF:FF:FF:FF",
+                      "#00:00:00:00:00:00": "00:00:00:00:00:00"
+                    }
+                  },
+                  "#--eth_dst_mac": "Ethernet destination MAC address (default: FF:FF:FF:FF:FF:FF for requests)",
+                  "--eth_src_mac": {
+                    "arity": 1,
+                    "values": {
+                      "FF:FF:FF:FF:FF:FF": {},
+                      "00:00:00:00:00:00": {},
+                      "#FF:FF:FF:FF:FF:FF": "FF:FF:FF:FF:FF:FF",
+                      "#00:00:00:00:00:00": "00:00:00:00:00:00"
+                    }
+                  },
+                  "#--eth_src_mac": "Ethernet source MAC address",
+                  "--src_mac": {
+                    "arity": 1,
+                    "values": {
+                      "FF:FF:FF:FF:FF:FF": {},
+                      "00:00:00:00:00:00": {},
+                      "#FF:FF:FF:FF:FF:FF": "FF:FF:FF:FF:FF:FF",
+                      "#00:00:00:00:00:00": "00:00:00:00:00:00"
+                    }
+                  },
+                  "#--src_mac": "ARP source MAC address",
+                  "--src_ip": {
+                    "arity": 1,
+                    "values": {
+                      "192.168.1.1": {},
+                      "192.168.1.2": {},
+                      "192.168.1.100": {},
+                      "#192.168.1.1": "192.168.1.1",
+                      "#192.168.1.2": "192.168.1.2",
+                      "#192.168.1.100": "192.168.1.100"
+                    }
+                  },
+                  "#--src_ip": "Source IP address",
+                  "--dst_mac": {
+                    "arity": 1,
+                    "values": {
+                      "FF:FF:FF:FF:FF:FF": {},
+                      "00:00:00:00:00:00": {},
+                      "#FF:FF:FF:FF:FF:FF": "FF:FF:FF:FF:FF:FF",
+                      "#00:00:00:00:00:00": "00:00:00:00:00:00"
+                    }
+                  },
+                  "#--dst_mac": "ARP destination MAC address",
+                  "--dst_ip": {
+                    "arity": 1,
+                    "values": {
+                      "192.168.1.1": {},
+                      "192.168.1.2": {},
+                      "192.168.1.100": {},
+                      "#192.168.1.1": "192.168.1.1",
+                      "#192.168.1.2": "192.168.1.2",
+                      "#192.168.1.100": "192.168.1.100"
+                    }
+                  },
+                  "#--dst_ip": "Destination IP address",
+                  "--verbose": {
+                    "arity": 0
+                  },
+                  "#--verbose": "Enable verbose output"
+                }
+              },
+              "send_icmp": {
+                "flags": {
+                  "--interface": {
+                    "arity": 1,
+                    "provider": "interfaces"
+                  },
+                  "#--interface": "Network interface name",
+                  "--eth_dst_mac": {
+                    "arity": 1,
+                    "values": {
+                      "FF:FF:FF:FF:FF:FF": {},
+                      "00:00:00:00:00:00": {},
+                      "#FF:FF:FF:FF:FF:FF": "FF:FF:FF:FF:FF:FF",
+                      "#00:00:00:00:00:00": "00:00:00:00:00:00"
+                    }
+                  },
+                  "#--eth_dst_mac": "Ethernet destination MAC address (default: FF:FF:FF:FF:FF:FF for requests)",
+                  "--eth_src_mac": {
+                    "arity": 1,
+                    "values": {
+                      "FF:FF:FF:FF:FF:FF": {},
+                      "00:00:00:00:00:00": {},
+                      "#FF:FF:FF:FF:FF:FF": "FF:FF:FF:FF:FF:FF",
+                      "#00:00:00:00:00:00": "00:00:00:00:00:00"
+                    }
+                  },
+                  "#--eth_src_mac": "Ethernet source MAC address",
+                  "--src_ip": {
+                    "arity": 1,
+                    "values": {
+                      "192.168.1.1": {},
+                      "192.168.1.2": {},
+                      "192.168.1.100": {},
+                      "#192.168.1.1": "192.168.1.1",
+                      "#192.168.1.2": "192.168.1.2",
+                      "#192.168.1.100": "192.168.1.100"
+                    }
+                  },
+                  "#--src_ip": "Source IP address",
+                  "--dst_ip": {
+                    "arity": 1,
+                    "values": {
+                      "192.168.1.1": {},
+                      "192.168.1.2": {},
+                      "192.168.1.100": {},
+                      "#192.168.1.1": "192.168.1.1",
+                      "#192.168.1.2": "192.168.1.2",
+                      "#192.168.1.100": "192.168.1.100"
+                    }
+                  },
+                  "#--dst_ip": "Destination IP address",
+                  "--icmp_type": {
+                    "arity": 1,
+                    "values": {
+                      "0": {},
+                      "8": {},
+                      "#0": "0",
+                      "#8": "8"
+                    }
+                  },
+                  "#--icmp_type": "ICMP type: 8=echo request, 0=echo reply",
+                  "--icmp_code": {
+                    "arity": 1,
+                    "values": {
+                      "0": {},
+                      "#0": "0"
+                    }
+                  },
+                  "#--icmp_code": "ICMP code",
+                  "--identifier": {
+                    "arity": 1,
+                    "values": {
+                      "0": {},
+                      "1": {},
+                      "#0": "0",
+                      "#1": "1"
+                    }
+                  },
+                  "#--identifier": "ICMP identifier",
+                  "--sequence": {
+                    "arity": 1,
+                    "values": {
+                      "0": {},
+                      "1": {},
+                      "#0": "0",
+                      "#1": "1"
+                    }
+                  },
+                  "#--sequence": "ICMP sequence number",
+                  "--data": {
+                    "arity": 1
+                  },
+                  "#--data": "Raw data as hex string",
+                  "--verbose": {
+                    "arity": 0
+                  },
+                  "#--verbose": "Enable verbose output"
+                }
+              },
+              "send_udp": {
+                "flags": {
+                  "--interface": {
+                    "arity": 1,
+                    "provider": "interfaces"
+                  },
+                  "#--interface": "Network interface name",
+                  "--eth_dst_mac": {
+                    "arity": 1,
+                    "values": {
+                      "FF:FF:FF:FF:FF:FF": {},
+                      "00:00:00:00:00:00": {},
+                      "#FF:FF:FF:FF:FF:FF": "FF:FF:FF:FF:FF:FF",
+                      "#00:00:00:00:00:00": "00:00:00:00:00:00"
+                    }
+                  },
+                  "#--eth_dst_mac": "Ethernet destination MAC address (default: FF:FF:FF:FF:FF:FF for requests)",
+                  "--eth_src_mac": {
+                    "arity": 1,
+                    "values": {
+                      "FF:FF:FF:FF:FF:FF": {},
+                      "00:00:00:00:00:00": {},
+                      "#FF:FF:FF:FF:FF:FF": "FF:FF:FF:FF:FF:FF",
+                      "#00:00:00:00:00:00": "00:00:00:00:00:00"
+                    }
+                  },
+                  "#--eth_src_mac": "Ethernet source MAC address",
+                  "--src_ip": {
+                    "arity": 1,
+                    "values": {
+                      "192.168.1.1": {},
+                      "192.168.1.2": {},
+                      "192.168.1.100": {},
+                      "#192.168.1.1": "192.168.1.1",
+                      "#192.168.1.2": "192.168.1.2",
+                      "#192.168.1.100": "192.168.1.100"
+                    }
+                  },
+                  "#--src_ip": "Source IP address",
+                  "--dst_ip": {
+                    "arity": 1,
+                    "values": {
+                      "192.168.1.1": {},
+                      "192.168.1.2": {},
+                      "192.168.1.100": {},
+                      "#192.168.1.1": "192.168.1.1",
+                      "#192.168.1.2": "192.168.1.2",
+                      "#192.168.1.100": "192.168.1.100"
+                    }
+                  },
+                  "#--dst_ip": "Destination IP address",
+                  "--src_port": {
+                    "arity": 1,
+                    "values": {
+                      "53": {},
+                      "80": {},
+                      "443": {},
+                      "8080": {},
+                      "12345": {},
+                      "#53": "53",
+                      "#80": "80",
+                      "#443": "443",
+                      "#8080": "8080",
+                      "#12345": "12345"
+                    }
+                  },
+                  "#--src_port": "Source UDP port",
+                  "--dst_port": {
+                    "arity": 1,
+                    "values": {
+                      "53": {},
+                      "80": {},
+                      "443": {},
+                      "8080": {},
+                      "12345": {},
+                      "#53": "53",
+                      "#80": "80",
+                      "#443": "443",
+                      "#8080": "8080",
+                      "#12345": "12345"
+                    }
+                  },
+                  "#--dst_port": "Destination UDP port",
+                  "--data": {
+                    "arity": 1
+                  },
+                  "#--data": "Raw data as hex string",
+                  "--verbose": {
+                    "arity": 0
+                  },
+                  "#--verbose": "Enable verbose output"
+                }
+              },
+              "#send_raw": "send raw",
+              "#send_arp": "send arp",
+              "#send_icmp": "send icmp",
+              "#send_udp": "send udp"
+            }
+          },
+          "#--cmd": "Execute a shell command, or select the chosen native tool's command.",
+          "--verbose": {
+            "arity": 0
+          },
+          "#--verbose": "Enable verbose output"
+        }
+      },
+      "#network": "Send raw Ethernet, ARP, ICMP, or UDP packets.",
+      "vcd_analyzer": {
+        "flags": {
+          "--vcdfilename": {
+            "arity": 1,
+            "provider": "files",
+            "children": {
+              "flags": {
+                "--get_modules_list": {
+                  "arity": 0
+                },
+                "#--get_modules_list": "List all modules in the design",
+                "--get_values_pins": {
+                  "arity": 0
+                },
+                "#--get_values_pins": "Module path to list value changes for pins only (excludes sub-modules)",
+                "--get_values_all": {
+                  "arity": 0
+                },
+                "#--get_values_all": "Module path to list value changes for all signals (excludes sub-modules)"
+              }
+            }
+          },
+          "#--vcdfilename": "VCD file to analyze"
+        }
+      },
+      "#vcd_analyzer": "Inspect modules and signal transitions in VCD waveform files.",
+      "tsharkWrapper": {
+        "flags": {
+          "--pcap": {
+            "arity": 1,
+            "provider": "files",
+            "children": {
+              "flags": {
+                "--format": {
+                  "arity": 1,
+                  "values": {
+                    "to_plain_text": {},
+                    "#to_plain_text": "Render decoded packets as plain text."
+                  }
+                },
+                "#--format": "Output format (default: to_plain_text)",
+                "--frame": {
+                  "arity": 1
+                },
+                "#--frame": "Display only this frame number",
+                "--frame_start": {
+                  "arity": 1
+                },
+                "#--frame_start": "Start frame number for range (requires --frame_end)",
+                "--frame_end": {
+                  "arity": 1
+                },
+                "#--frame_end": "End frame number for range (requires --frame_start)",
+                "--frame_list": {
+                  "arity": 1
+                },
+                "#--frame_list": "Comma-separated list of frame numbers to display",
+                "--count": {
+                  "arity": 1
+                },
+                "#--count": "Number of packets to display (use with --skip for pagination)",
+                "--skip": {
+                  "arity": 1
+                },
+                "#--skip": "Skip this many packets before displaying",
+                "--tsharkArgsAppend": {
+                  "arity": 1
+                },
+                "#--tsharkArgsAppend": "Additional raw tshark arguments to append",
+                "--disable_heuristics": {
+                  "arity": 1
+                },
+                "#--disable_heuristics": "Disable UDP heuristic protocol dissectors",
+                "--disable_protocols": {
+                  "arity": 1
+                },
+                "#--disable_protocols": "Comma-separated list of protocols to disable (e.g., mndp,ssdp)",
+                "--verbose": {
+                  "arity": 0
+                },
+                "#--verbose": "Enable verbose output"
+              }
+            }
+          },
+          "#--pcap": "PCAP file to analyze"
+        }
+      },
+      "#tsharkWrapper": "Decode and filter packets from capture files with tshark.",
+      "hw_server": {
+        "flags": {
+          "--cmd": {
+            "arity": 1,
+            "values": {
+              "program": {
+                "flags": {
+                  "--server_ip": {
+                    "arity": 1,
+                    "values": {
+                      "10.1.130.74": {},
+                      "192.168.1.100": {},
+                      "localhost": {},
+                      "#10.1.130.74": "10.1.130.74",
+                      "#192.168.1.100": "192.168.1.100",
+                      "#localhost": "localhost"
+                    }
+                  },
+                  "#--server_ip": "Hardware server IP (default: localhost)",
+                  "--bitstream": {
+                    "arity": 1,
+                    "provider": "files"
+                  },
+                  "#--bitstream": "Path to bitstream file (.bit file)",
+                  "--probes": {
+                    "arity": 1,
+                    "provider": "files"
+                  },
+                  "#--probes": "Path to probes file (.ltx file)",
+                  "--hw-config": {
+                    "arity": 1,
+                    "provider": "files"
+                  },
+                  "#--hw-config": "Config JSON file for hw_server (auto-detected from invoke location if not provided)",
+                  "-c": {
+                    "arity": 1,
+                    "provider": "files"
+                  },
+                  "#-c": "Config JSON file for hw_server (auto-detected from invoke location if not provided)",
+                  "--debug": {
+                    "arity": 0
+                  },
+                  "#--debug": "Enable debug output showing TCL commands and inputs"
+                }
+              },
+              "scan_ila": {
+                "flags": {
+                  "--server_ip": {
+                    "arity": 1,
+                    "values": {
+                      "10.1.130.74": {},
+                      "192.168.1.100": {},
+                      "localhost": {},
+                      "#10.1.130.74": "10.1.130.74",
+                      "#192.168.1.100": "192.168.1.100",
+                      "#localhost": "localhost"
+                    }
+                  },
+                  "#--server_ip": "Hardware server IP (default: localhost)",
+                  "--probes": {
+                    "arity": 1,
+                    "provider": "files"
+                  },
+                  "#--probes": "Path to probes file (.ltx file)",
+                  "--hw-config": {
+                    "arity": 1,
+                    "provider": "files"
+                  },
+                  "#--hw-config": "Config JSON file for hw_server (auto-detected from invoke location if not provided)",
+                  "-c": {
+                    "arity": 1,
+                    "provider": "files"
+                  },
+                  "#-c": "Config JSON file for hw_server (auto-detected from invoke location if not provided)",
+                  "--debug": {
+                    "arity": 0
+                  },
+                  "#--debug": "Enable debug output showing TCL commands and inputs"
+                }
+              },
+              "scan_jtag": {
+                "flags": {
+                  "--server_ip": {
+                    "arity": 1,
+                    "values": {
+                      "10.1.130.74": {},
+                      "192.168.1.100": {},
+                      "localhost": {},
+                      "#10.1.130.74": "10.1.130.74",
+                      "#192.168.1.100": "192.168.1.100",
+                      "#localhost": "localhost"
+                    }
+                  },
+                  "#--server_ip": "Hardware server IP (default: localhost)",
+                  "--hw-config": {
+                    "arity": 1,
+                    "provider": "files"
+                  },
+                  "#--hw-config": "Config JSON file for hw_server (auto-detected from invoke location if not provided)",
+                  "-c": {
+                    "arity": 1,
+                    "provider": "files"
+                  },
+                  "#-c": "Config JSON file for hw_server (auto-detected from invoke location if not provided)",
+                  "--debug": {
+                    "arity": 0
+                  },
+                  "#--debug": "Enable debug output showing TCL commands and inputs"
+                }
+              },
+              "read_dna": {
+                "flags": {
+                  "--server_ip": {
+                    "arity": 1,
+                    "values": {
+                      "10.1.130.74": {},
+                      "192.168.1.100": {},
+                      "localhost": {},
+                      "#10.1.130.74": "10.1.130.74",
+                      "#192.168.1.100": "192.168.1.100",
+                      "#localhost": "localhost"
+                    }
+                  },
+                  "#--server_ip": "Hardware server IP (default: localhost)",
+                  "--hw-config": {
+                    "arity": 1,
+                    "provider": "files"
+                  },
+                  "#--hw-config": "Config JSON file for hw_server (auto-detected from invoke location if not provided)",
+                  "-c": {
+                    "arity": 1,
+                    "provider": "files"
+                  },
+                  "#-c": "Config JSON file for hw_server (auto-detected from invoke location if not provided)",
+                  "--debug": {
+                    "arity": 0
+                  },
+                  "#--debug": "Enable debug output showing TCL commands and inputs"
+                }
+              },
+              "#program": "program",
+              "#scan_ila": "scan ila",
+              "#scan_jtag": "scan jtag",
+              "#read_dna": "read dna"
+            }
+          },
+          "#--cmd": "Execute a shell command, or select the chosen native tool's command.",
+          "-i": {
+            "arity": 0
+          },
+          "#-i": "Interactive mode for hw_server (keep console open)",
+          "--interactive": {
+            "arity": 0
+          },
+          "#--interactive": "Interactive mode for hw_server (keep console open)",
+          "-ic": {
+            "arity": 1,
+            "values": {
+              "1": {},
+              "2": {},
+              "3": {},
+              "program": {},
+              "scan_ila": {},
+              "scan_jtag": {},
+              "i1": {},
+              "i2": {},
+              "v1": {},
+              "v2": {},
+              "s1": {},
+              "w1": {},
+              "c1": {},
+              "q": {},
+              "#1": "1",
+              "#2": "2",
+              "#3": "3",
+              "#program": "Program the selected FPGA bitstream and probes.",
+              "#scan_ila": "List available ILA debug cores.",
+              "#scan_jtag": "Scan devices on the JTAG chain.",
+              "#i1": "i1",
+              "#i2": "i2",
+              "#v1": "v1",
+              "#v2": "v2",
+              "#s1": "s1",
+              "#w1": "w1",
+              "#c1": "c1",
+              "#q": "q"
+            }
+          },
+          "#-ic": "Run commands then exit for hw_server (e.g., -ic 2 i1)",
+          "--interactive-chain": {
+            "arity": 1,
+            "values": {
+              "1": {},
+              "2": {},
+              "3": {},
+              "program": {},
+              "scan_ila": {},
+              "scan_jtag": {},
+              "i1": {},
+              "i2": {},
+              "v1": {},
+              "v2": {},
+              "s1": {},
+              "w1": {},
+              "c1": {},
+              "q": {},
+              "#1": "1",
+              "#2": "2",
+              "#3": "3",
+              "#program": "Program the selected FPGA bitstream and probes.",
+              "#scan_ila": "List available ILA debug cores.",
+              "#scan_jtag": "Scan devices on the JTAG chain.",
+              "#i1": "i1",
+              "#i2": "i2",
+              "#v1": "v1",
+              "#v2": "v2",
+              "#s1": "s1",
+              "#w1": "w1",
+              "#c1": "c1",
+              "#q": "q"
+            }
+          },
+          "#--interactive-chain": "Run commands then exit for hw_server (e.g., -ic 2 i1)",
+          "--hw-config": {
+            "arity": 1,
+            "provider": "files"
+          },
+          "#--hw-config": "Config JSON file for hw_server (auto-detected from invoke location if not provided)",
+          "-c": {
+            "arity": 1,
+            "provider": "files"
+          },
+          "#-c": "Config JSON file for hw_server (auto-detected from invoke location if not provided)",
+          "--server_ip": {
+            "arity": 1,
+            "values": {
+              "10.1.130.74": {},
+              "192.168.1.100": {},
+              "localhost": {},
+              "#10.1.130.74": "10.1.130.74",
+              "#192.168.1.100": "192.168.1.100",
+              "#localhost": "localhost"
+            }
+          },
+          "#--server_ip": "Hardware server IP (default: localhost)",
+          "--debug": {
+            "arity": 0
+          },
+          "#--debug": "Enable debug output showing TCL commands and inputs"
+        }
+      },
+      "#hw_server": "Program and inspect FPGA hardware through Vivado hardware server.",
+      "projects": {
+        "flags": {
+          "--list": {
+            "arity": 0
+          },
+          "#--list": "List all available projects recursively from current directory"
+        }
+      },
+      "#projects": "Discover HDLForge project files.",
+      "ssh": {
+        "flags": {
+          "--project": {
+            "arity": 1,
+            "provider": "project_files"
+          },
+          "#--project": "Project file path",
+          "--help": {
+            "arity": 0
+          },
+          "#--help": "Show help message",
+          "-h": {
+            "arity": 0
+          },
+          "#-h": "Show help message"
+        },
+        "actions": {
+          "import": {
+            "flags": {
+              "--json": {
+                "arity": 1,
+                "provider": "files"
+              },
+              "#--json": "Print machine-readable run inventory or saved values.",
+              "--local-host": {
+                "arity": 1
+              },
+              "#--local-host": "Local host",
+              "--local-user": {
+                "arity": 1
+              },
+              "#--local-user": "Local user",
+              "--ssh-config": {
+                "arity": 1,
+                "provider": "files"
+              },
+              "#--ssh-config": "Ssh config",
+              "--dry-run": {
+                "arity": 0
+              },
+              "#--dry-run": "Preview artifact cleanup candidates and skip reasons without deleting; for other commands, resolve without executing.",
+              "--force": {
+                "arity": 0
+              },
+              "#--force": "Skip confirmation prompts for the selected operation.",
+              "-f": {
+                "arity": 0
+              },
+              "#-f": "Skip confirmation prompts for the selected operation."
+            }
+          },
+          "#import": "Import SSH inventory",
+          "export": {
+            "flags": {
+              "--json": {
+                "arity": 1,
+                "provider": "files"
+              },
+              "#--json": "Print machine-readable run inventory or saved values.",
+              "--local-host": {
+                "arity": 1
+              },
+              "#--local-host": "Local host",
+              "--local-user": {
+                "arity": 1
+              },
+              "#--local-user": "Local user",
+              "--ssh-config": {
+                "arity": 1,
+                "provider": "files"
+              },
+              "#--ssh-config": "Ssh config",
+              "--dry-run": {
+                "arity": 0
+              },
+              "#--dry-run": "Preview artifact cleanup candidates and skip reasons without deleting; for other commands, resolve without executing.",
+              "--force": {
+                "arity": 0
+              },
+              "#--force": "Skip confirmation prompts for the selected operation.",
+              "-f": {
+                "arity": 0
+              },
+              "#-f": "Skip confirmation prompts for the selected operation."
+            }
+          },
+          "#export": "Export SSH inventory",
+          "verify": {
+            "flags": {
+              "--json": {
+                "arity": 1,
+                "provider": "files"
+              },
+              "#--json": "Print machine-readable run inventory or saved values.",
+              "--local-host": {
+                "arity": 1
+              },
+              "#--local-host": "Local host",
+              "--local-user": {
+                "arity": 1
+              },
+              "#--local-user": "Local user",
+              "--ssh-config": {
+                "arity": 1,
+                "provider": "files"
+              },
+              "#--ssh-config": "Ssh config"
+            }
+          },
+          "#verify": "Verify SSH inventory",
+          "merge": {
+            "flags": {
+              "--json": {
+                "arity": 1,
+                "provider": "files"
+              },
+              "#--json": "Print machine-readable run inventory or saved values.",
+              "--local-host": {
+                "arity": 1
+              },
+              "#--local-host": "Local host",
+              "--local-user": {
+                "arity": 1
+              },
+              "#--local-user": "Local user",
+              "--input": {
+                "arity": 1,
+                "provider": "files",
+                "repeatable": true
+              },
+              "#--input": "Input",
+              "--on-collision": {
+                "arity": 1,
+                "values": {
+                  "error": {},
+                  "#error": "Reject collisions",
+                  "keep": {},
+                  "#keep": "Keep the first value",
+                  "incoming": {},
+                  "#incoming": "Use the incoming value"
+                }
+              },
+              "#--on-collision": "On collision",
+              "--dry-run": {
+                "arity": 0
+              },
+              "#--dry-run": "Preview artifact cleanup candidates and skip reasons without deleting; for other commands, resolve without executing.",
+              "--force": {
+                "arity": 0
+              },
+              "#--force": "Skip confirmation prompts for the selected operation.",
+              "-f": {
+                "arity": 0
+              },
+              "#-f": "Skip confirmation prompts for the selected operation."
+            }
+          },
+          "#merge": "Merge SSH inventory"
+        },
+        "globals": [
+          "--project",
+          "--tool",
+          "--no-print",
+          "--help",
+          "-h"
+        ]
+      },
+      "#ssh": "Manage SSH configuration inventories",
+      "path_manager": {
+        "actions": {
+          "show": {
+            "flags": {}
+          },
+          "#show": "Show environment configuration",
+          "show-all": {
+            "flags": {}
+          },
+          "#show-all": "Show all environment configuration",
+          "init-base-path": {
+            "flags": {}
+          },
+          "#init-base-path": "Init base path environment configuration",
+          "init-base-pythonpath": {
+            "flags": {}
+          },
+          "#init-base-pythonpath": "Init base pythonpath environment configuration",
+          "install-shell": {
+            "flags": {}
+          },
+          "#install-shell": "Install shell environment configuration",
+          "update-repo": {
+            "flags": {}
+          },
+          "#update-repo": "Update repo environment configuration"
+        },
+        "globals": [
+          "--project",
+          "--tool",
+          "--no-print",
+          "--help",
+          "-h"
+        ]
+      },
+      "#path_manager": "Inspect and initialize environment paths"
+    }
+  },
+  "#tree": "Native CLI states: flags declare arity, providers and anchors; actions select child states."
 }

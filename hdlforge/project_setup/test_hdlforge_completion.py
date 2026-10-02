@@ -8,7 +8,7 @@ import subprocess
 import tempfile
 import unittest
 
-from hdlforge_completion_backend import NATIVE_HELP, ParsedState, TOOLS, completion_description, complete_llm_path, complete_json_path, is_llm_leaf, suggest_flags
+from hdlforge_completion_backend import NATIVE_HELP, ParsedState, TOOLS, completion_description, complete_llm_path, complete_json_path, is_llm_leaf, suggest_flags, validate_tree
 
 
 class CompletionDisplayTest(unittest.TestCase):
@@ -19,7 +19,8 @@ class CompletionDisplayTest(unittest.TestCase):
                     self.assertTrue(tree.get("#" + name), name)
                     if isinstance(value, dict):
                         check(value)
-        check(NATIVE_HELP)
+        check({key: value for key, value in NATIVE_HELP.items() if key != "tree"})
+        validate_tree(NATIVE_HELP["tree"])
         for tool in TOOLS:
             for flag in suggest_flags(ParsedState([], Path.cwd(), tool=tool)):
                 self.assertTrue(NATIVE_HELP["flags"].get("#" + flag), (tool, flag))
@@ -33,7 +34,7 @@ class CompletionDisplayTest(unittest.TestCase):
         self.assertIn("without starting Vivado", result.stdout)
 
     def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory()
+        self.temporary = tempfile.TemporaryDirectory(dir=Path.home())
         self.addCleanup(self.temporary.cleanup)
         self.project = Path(self.temporary.name) / "sample.hdlforge.json"
         self.project.write_text(json.dumps({
@@ -89,7 +90,7 @@ printf '%s\\0' "${COMPREPLY[@]}"
     def test_table_completion_works_without_the_fpga_repository(self):
         standalone = self.project.parent / "standalone_hdlforge"
         standalone.mkdir()
-        for filename in ("hdlforge_completion_backend.py", "table_formatter.py", "native_command_help.json", "vivado_build_config.py"):
+        for filename in ("hdlforge_completion_backend.py", "table_formatter.py", "native_command_help.json", "vivado_build_config.py", "vivado_build_selector.py", "vivado_build_layout.py", "vivado_build_hash.py"):
             shutil.copyfile(Path(__file__).with_name(filename), standalone / filename)
         shutil.copytree(Path(__file__).with_name("vivado_console"), standalone / "vivado_console", ignore=shutil.ignore_patterns("__pycache__"))
         result = subprocess.run(["python3", "-E", "-s", str(standalone / "hdlforge_completion_backend.py"),
