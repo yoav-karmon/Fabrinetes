@@ -9,9 +9,6 @@ if {![info exists ::hdlforge_config]} {
 ## HDLForge supplies USERID from the source implementation's launch epoch.
 ## No synthesis, placement, routing, or optimization commands are executed.
 ##############################################################################
-dict for {name value} [dict get $::hdlforge_config parameters] {
-    ::hdlforge::apply_parameter $name $value
-}
 open_checkpoint [dict get $::hdlforge_config input_dcp]
 set top [dict get $::hdlforge_config top]
 set ::ACTIVE_STEP write_bitstream

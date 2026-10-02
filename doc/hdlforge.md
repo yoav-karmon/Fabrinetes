@@ -128,13 +128,13 @@ placement, routing, physical optimization or current-source/XDC reload occurs.
 Original implementation outputs remain intact. Regeneration uses the normal
 background launcher, `runme.log`, `vivado.build.status`, Ctrl-C detach and
 `vivado.build.stop_all`. No extra JSON setting or project Tcl helper is required.
-New runs record the final checkpoint in `info/last_routed_checkpoint.txt`.
+New runs record the final checkpoint in `logs/last_routed_checkpoint.txt`.
 Legacy examples use `<top>_postroute_physopt.dcp` or `<top>_routed.dcp`.
 
 Non-project implementation bitstream identity:
   The shared runtime sets BITSTREAM.CONFIG.USERID immediately before write_bitstream
   from launch_epoch (UTC Unix seconds), fixed for that implementation launch.
-  New launches and reruns get new values. The run log and info/bitstream_timestamp.json
+  New launches and reruns get new values. The run log and logs/bitstream_timestamp.json
   record the value. Source XDC files are not rewritten; USR_ACCESS/version remains
   design-controlled. Existing bitstreams and saved runtime snapshots are unchanged.
 
@@ -195,6 +195,34 @@ nested launches. Equal values are quiet. Reserved launcher variables remain
 protected even with the flag. First-launch repository/project/CLI precedence
 is unchanged.
 
+## Maintained build definitions
+
+Keep run code in `compilation/<run>/run.tcl` and declare `output_root:
+"compilation"`. New attempts live in `<run>/_<timestamp>/`; only generated
+attempts match the root `_*` ignore rule. Existing historical output stays in
+place.
+
+A synthesis or implementation definition contains `script`, one `sources`
+array, optional `enabled_on_all`, and (for synthesis) `impl_runs`. IP producers
+use `kind: "ip"` so the launcher creates private writable IP inputs and records
+freshness hashes. The manifest has no part, top, defines or Vivado property maps.
+
+The maintained Tcl owns all design choices, including threads:
+`set_param general.maxThreads 8`, `create_project -in_memory -part $part`,
+language/read options and properties. Declare the identity with
+`::hdlforge::design $top $part`; resolve each snapshotted input with
+`::hdlforge::source_path <declared-path>`. JSON lists RTL, IP, constraints,
+Tcl and other helper files together under `sources`; it does not choose how
+Vivado reads them. Input directories are preserved under `snapshot/source`.
+Declare dynamic dependencies explicitly.
+
+Implementations declare all their inputs, including IPs. The parent checkpoint
+is supplied as `input_dcp` in runtime metadata and verified by hash. Tcl's design
+identity must match the parent. New attempts use synthesis-frozen implementation
+definitions unless `--refresh_impl_inputs` requests current inputs. Reruns use
+their frozen script and inputs. Generated metadata records stage, part and top
+for artifact discovery; those are runtime results, not project configuration.
+
 ## Persistent Vivado Tcl console
 
 ```bash
@@ -224,15 +252,6 @@ Each response retains native output, Tcl results, errors and structured records.
 All managed synthesis, implementation and bitstream generation uses the
 non-project build commands documented above.
 
-LLM_orch:
-  hdlforge <shortcut.path>
-  hdlforge <shortcut.path> --append '<extra flags>'
-  hdlforge eval-cmd '<shell command>'
-  hdlforge --no-print eval-cmd '<shell command>'
-  hdlforge eval-cmd '<shell command>' --append '<extra flags>'
-  hdlforge --env-python '["sources/tests"]' --cmd 'python3 -m package.tool'
-  hdlforge eval-cmd 'my_tool --flag value' --env-path '["tools"]'
-
 ## Environment initialization
 
 `hdlforge_environment.bash` owns project selection, startup and overlays.
@@ -240,6 +259,26 @@ LLM_orch:
 finds the selected working directory's Git root and reads the root JSON's
 `settings.env.<host>.<user>` through jq before clearing caller exports.
 Select host/user with `HOST_MACHINE` and `HDLFORGE_HOST_USER` before launch.
+
+Every launch must start inside a Git repository. Nested calls cannot reuse
+another repository's environment. The root must contain exactly one
+`.hdlforge.json` and an entry for the selected host/user with all six keys:
+`path`, `path_import`, `pythonpath`, `pythonpath_import`, `variables`,
+`variables_import`. Path/import fields are arrays; variables is an object.
+Empty arrays/objects are valid. Missing entries or invalid types fail before
+the command executes. Use `path_manager.update-repo` to initialize missing
+keys before normal startup; help and initialization do not load tool settings.
+
+Imports name same-typed leaves in that root JSON, for example
+`"path_import": ["settings.env.shared.base.path"]`. Dotted host/user names
+are matched as complete JSON keys. A referenced leaf's sibling `*_import`
+list is expanded recursively, then its local values apply. Imports run in
+listed order before the selected host/user's local values. Missing references
+and cycles fail before changing the environment. Variable replacements warn
+with the name only. Paths use the existing prepend/deduplication helpers:
+later additions take precedence, and duplicates retain their existing place.
+Repository imports run once per initialized chain; project/CLI overlays keep
+the normal nested overwrite protection.
 
 The fresh environment retains login identity, terminal/display access, locale,
 timezone, temporary-directory settings and SSH-agent access. Arbitrary caller

@@ -3,6 +3,7 @@ namespace eval ::hdlforge {
     variable copied [dict create]
     variable ran 0
     variable routed 0
+    variable design_declared 0
 }
 
 proc ::hdlforge::status {value} {
@@ -41,106 +42,33 @@ proc ::hdlforge::artifact_written {command code result operation} {
     }
 }
 
-proc ::hdlforge::properties {settings objects} {
-    if {[dict exists $settings properties]} {
-        dict for {name value} [dict get $settings properties] {
-            foreach object $objects {
-                set current [get_property $name $object]
-                if {$current eq $value} {continue}
-                if {[string is boolean -strict $current] && [string is boolean -strict $value]} {
-                    if {[expr {!!$current}] == [expr {!!$value}]} {continue}
-                }
-                set_property $name $value $object
-            }
-        }
+# Run scripts declare the design; JSON carries only launch/snapshot inputs.
+proc ::hdlforge::design {top part} {
+    variable design_declared
+    foreach value [list $top $part] {
+        if {![regexp {^[A-Za-z0-9_-]+$} $value]} {error "Invalid design identity: $value"}
     }
+    foreach key {top part} {
+        set value [set $key]
+        if {[dict exists $::hdlforge_config parent_$key] &&
+            [dict get $::hdlforge_config parent_$key] ne $value} {
+            error "Implementation $key differs from the selected synthesis"
+        }
+        dict set ::hdlforge_config $key $value
+        set handle [open [file join [dict get $::hdlforge_config output] logs design_$key] w]
+        puts $handle $value
+        close $handle
+    }
+    set design_declared 1
 }
 
-proc ::hdlforge::load_files {} {
-    set config $::hdlforge_config
-    set stage [dict get $config stage]
-    if {$stage eq "synth"} {
-        foreach entry [dict get $config sources] {
-            set path [dict get $entry path]
-            set extension [file extension $path]
-            set library [get_property default_lib [current_project]]
-            if {[dict exists $entry library]} {set library [dict get $entry library]}
-            if {$extension in {.vhd .vhdl}} {
-                set arguments [list -library $library]
-                if {[dict exists $entry language] && [dict get $entry language] eq "vhdl2008"} {lappend arguments -vhdl2008}
-                read_vhdl {*}$arguments $path
-            } else {
-                set arguments [list -library $library]
-                if {$extension eq ".sv"} {lappend arguments -sv}
-                read_verilog {*}$arguments $path
-            }
-            properties $entry [get_files $path]
-        }
-    } elseif {$stage eq "impl"} {
-        add_files -quiet [dict get $config input_dcp]
+# Resolve a declared logical input to its frozen file, including producer latest
+# selections. The caller chooses read_verilog/read_ip/read_xdc/source and options.
+proc ::hdlforge::source_path {name} {
+    foreach entry [dict get $::hdlforge_config sources] {
+        if {[dict get $entry name] eq $name} {return [dict get $entry path]}
     }
-    foreach entry [dict get $config ips] {
-        set path [dict get $entry path]
-        read_ip $path
-        set ip [get_ips -quiet [file rootname [file tail $path]]]
-        if {[llength $ip] != 1} {error "Cannot resolve imported IP: $path"}
-        if {[dict exists $entry file_properties]} {
-            set ip [get_ips -quiet [file rootname [file tail $path]]]
-            if {[llength $ip] != 1} {error "Cannot resolve imported IP: $path"}
-            set files [get_files -quiet -all -of_objects $ip]
-            dict for {relative overrides} [dict get $entry file_properties] {
-                set matches {}
-                foreach candidate $files {
-                    if {[string match "*/$relative" $candidate]} {lappend matches $candidate}
-                }
-                if {![llength $matches]} {error "Missing IP constraint $relative in $path"}
-                dict for {name value} $overrides {set_property $name $value $matches}
-            }
-        }
-        if {[dict exists $entry properties]} {
-            # IP settings belong to the XCI configuration, including when the
-            # on-disk source is an XCIX container. Use Vivado's IP_FILE mapping.
-            set configuration [get_files -all [get_property IP_FILE $ip]]
-            if {[llength $configuration] != 1} {error "Cannot resolve IP configuration for $path"}
-            if {[catch {properties $entry $configuration} message options]} {
-                catch {report_ip_status -file [file join [dict get $config output] artifacts ip_status_failed.rpt]}
-                return -options $options $message
-            }
-        }
-    }
-    if {[dict size [dict get $config checkpoint_properties]]} {
-        foreach dcp [get_files -quiet -all -filter {file_type == "Design Checkpoint"}] {
-            dict for {name value} [dict get $config checkpoint_properties] {set_property $name $value $dcp}
-        }
-    }
-    foreach entry [dict get $config constraints] {
-        set path [dict get $entry path]
-        read_xdc $path
-        dict for {name value} [dict get $config constraint_properties] {set_property $name $value [get_files $path]}
-        properties $entry [get_files $path]
-    }
-}
-
-##############################################################################
-## Preserve the whitespace used by Vivado-generated launchOptions settings.
-## Without it, Vivado interprets a value beginning with -jobs as an option to
-## set_param itself. This also handles existing frozen JSON configurations.
-##############################################################################
-proc ::hdlforge::apply_parameter {name value} {
-    if {$name eq "runs.launchOptions"} {
-        set value " $value "
-    }
-    set_param $name $value
-}
-
-proc ::hdlforge::initialize_design {} {
-    set config $::hdlforge_config
-    dict for {name value} [dict get $config parameters] {apply_parameter $name $value}
-    create_project -in_memory -part [dict get $config part]
-    dict for {name value} [dict get $config project_properties] {set_property $name $value [current_project]}
-    dict for {name value} [dict get $config fileset_properties] {set_property $name $value [current_fileset]}
-    load_files
-    dict for {name value} [dict get $config post_load_parameters] {apply_parameter $name $value}
+    error "Undeclared snapshot source: $name"
 }
 
 proc ::hdlforge::event {event stage elapsed command} {
@@ -230,7 +158,7 @@ proc ::hdlforge::run {script arguments} {
             dict set ::hdlforge_config $key [file normalize [file join $base [dict get $::hdlforge_config $key]]]
         }
     }
-    foreach key {sources ips constraints} {
+    foreach key {sources} {
         set entries {}
         foreach entry [dict get $::hdlforge_config $key] {
             dict set entry path [file normalize [file join $base [dict get $entry path]]]
@@ -238,7 +166,7 @@ proc ::hdlforge::run {script arguments} {
         }
         dict set ::hdlforge_config $key $entries
     }
-    foreach key {input_files bitstream_probes} {
+    foreach key {bitstream_probes} {
         if {![dict exists $::hdlforge_config $key]} {continue}
         set entries {}
         foreach entry [dict get $::hdlforge_config $key] {
@@ -253,8 +181,12 @@ proc ::hdlforge::run {script arguments} {
     if {[dict get $::hdlforge_config stage] eq "ip"} {
         set entries {}
         set index 0
-        foreach entry [dict get $::hdlforge_config ips] {
+        foreach entry [dict get $::hdlforge_config sources] {
             set original [dict get $entry path]
+            if {[file extension $original] ni {.xci .xcix}} {
+                lappend entries $entry
+                continue
+            }
             set destination [file join $output work ip_sources $index]
             file mkdir $destination
             if {[file extension $original] eq ".xci"} {
@@ -267,7 +199,7 @@ proc ::hdlforge::run {script arguments} {
             lappend entries $entry
             incr index
         }
-        dict set ::hdlforge_config ips $entries
+        dict set ::hdlforge_config sources $entries
     }
     # Also enforce the frozen hash when a snapshot is launched without Python.
     if {[dict get $::hdlforge_config stage] in {impl bitstream}} {
@@ -299,6 +231,9 @@ proc ::hdlforge::run {script arguments} {
     }
     set errors_before_run [get_msg_config -count -severity ERROR]
     uplevel #0 [list source $script]
+    if {[dict get $::hdlforge_config stage] ne "bitstream" && !$::hdlforge::design_declared} {
+        error "Run Tcl must declare its identity with ::hdlforge::design TOP PART"
+    }
     # synth_ip can catch a failed nested synth_design and still return success.
     # An IP with those errors must never be advertised as a completed producer.
     if {[dict get $::hdlforge_config stage] eq "ip" &&

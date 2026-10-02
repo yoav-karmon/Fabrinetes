@@ -32,19 +32,25 @@ HDLForge copies the selected script unchanged; it generates data, not run code.
 ```
 
 All schema paths in generated `run.json` are relative to that JSON's directory.
-The maintained Tcl bootstrap loads this JSON and resolves paths before executing
-the script body. `::hdlforge::initialize_design` reads the selected inputs.
-Commands, directives, reports and checkpoint writes stay in Tcl; the JSON holds
-inputs, defines, parameters and property maps. Declare extra dependencies in
-`input_files`; HDLForge does not infer dynamic Tcl/Python dependencies.
+The maintained Tcl bootstrap resolves runtime paths before executing the body.
+Each script declares part/top with `::hdlforge::design $top $part` and owns
+defines, parameters (including threads), file-read commands and properties.
+JSON is a launcher manifest: `script`, `sources`, `impl_runs` and
+`enabled_on_all`. IP producers add `kind: "ip"` for private working copies
+and freshness checks. Synthesis/implementation need no stage declaration.
 
-Implementation snapshots contain only the implementation's declared files.
-If `ips` is omitted, the selected synthesis's frozen IP list is inherited;
-an explicit empty list means no IPs. The DCP remains in the parent synthesis's
-`artifacts/`. Its relative path, SHA-256 and parent run ID are recorded in JSON.
-A missing or changed DCP refuses launch/rerun; a new implementation gets a new
-configuration. New implementation attempts copy declared Tcl/XDC
-and support files from the synthesis snapshot; reruns use only their frozen snapshots.
+List every input and helper in one `sources` array. Tcl obtains its saved
+location with `::hdlforge::source_path <declared-path>`. HDLForge preserves
+input subdirectories in snapshot/source and does not infer dynamic Tcl/Python
+dependencies. Source properties and language options belong beside the Tcl
+read command.
+
+Implementations explicitly declare their own sources. Their parent DCP remains
+in the synthesis artifacts directory; Tcl uses
+`[dict get $::hdlforge_config input_dcp]`. HDLForge verifies its SHA-256 and
+checks the Tcl design identity against the selected synthesis. New attempts
+use the synthesis-frozen implementation definitions and inputs; use
+`--refresh_impl_inputs` to snapshot the current maintained files.
 
 Directory labels start with `_` and carry no identity/time meaning.
 `run_id`, `created_at`, `timestamp`, and `launch_epoch` are authoritative JSON
@@ -54,8 +60,8 @@ IDs. A failed newest synthesis is not silently replaced with an older success.
 
 ```bash
 hdlforge --project {{PROJECT_ARG}} vivado.build.synth.synth_example.rerun.<run-id>
-hdlforge --project {{PROJECT_ARG}} vivado.build.synth.synth_example.<synth-id>.impl_example.rerun.<impl-id>
-hdlforge --project {{PROJECT_ARG}} vivado.build.synth.synth_example.<synth-id>.impl_example.bitstream.<impl-id>
+hdlforge --project {{PROJECT_ARG}} vivado.build.impl.synth_example.<synth-id>.impl_example.rerun.<impl-id>
+hdlforge --project {{PROJECT_ARG}} vivado.build.impl.synth_example.<synth-id>.impl_example.bitstream.<impl-id>
 ```
 
 Bitstream-only runs reference the selected implementation's routed checkpoint,

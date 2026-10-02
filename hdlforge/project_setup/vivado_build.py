@@ -47,53 +47,28 @@ def normalize_run(project: Path, run: dict, stage: str, selections: dict | None 
     ###########################################################################
     config = copy.deepcopy(run)
     selections = selections if selections is not None else {}
-    unknown = set(config) - {"stage", "script", "part", "top", "sources", "ips", "constraints",
-                             "defines", "impl_runs", "parameters", "post_load_parameters", "input_files", "enabled_on_all",
-                             "project_properties", "fileset_properties", "checkpoint_properties", "constraint_properties"}
+    unknown = set(config) - {"script", "sources", "impl_runs", "enabled_on_all", "kind"}
     if unknown:
-        raise ValueError(f"Unknown run settings: {sorted(unknown)}")
+        raise ValueError(f"Unknown run settings: {sorted(unknown)}; design settings belong in run.tcl")
     config.pop("impl_runs", None)
     if not isinstance(config.get("enabled_on_all", True), bool):
         raise ValueError("enabled_on_all must be a boolean")
-    for field in ("parameters", "post_load_parameters", "project_properties", "fileset_properties",
-                  "checkpoint_properties", "constraint_properties"):
-        settings = config.setdefault(field, {})
-        if not isinstance(settings, dict):
-            raise ValueError(f"{field} must be an object mapping names to values")
-        for name, value in settings.items():
-            if not isinstance(name, str) or not name or not (
-                isinstance(value, (str, int, float, bool))
-                or isinstance(value, list) and all(isinstance(item, (str, int, float, bool)) for item in value)
-            ):
-                raise ValueError(f"Invalid {field} entry: {name}")
+    if config.get("kind", "synth") not in {"synth", "ip"}:
+        raise ValueError("kind must be synth or ip")
+    if stage == "ip" and run.get("impl_runs"):
+        raise ValueError("IP builds cannot have implementation runs")
+    config["stage"] = stage
+    config.pop("kind", None)
     root = project.parent
-    if stage not in {"synth", "impl", "ip"} or config.get("stage") != stage:
-        raise ValueError(f"Expected stage={stage}")
-    if stage == "ip" and (not config.get("ips") or config.get("impl_runs") or run.get("impl_runs")):
-        raise ValueError("IP builds require IP inputs and cannot have implementation runs")
-    for field in (("part",) if stage == "ip" else ("part", "top")):
-        if not isinstance(config.get(field), str) or not re.fullmatch(r"[A-Za-z0-9_-]+", config[field]):
-            raise ValueError(f"Missing or invalid {field}")
     config["script"] = file_path(root, config["script"], selections)
-    config["input_files"] = [file_path(root, path, selections) for path in config.get("input_files", [])]
-    for field in ("sources", "ips", "constraints"):
-        entries = []
-        for entry in config.get(field, []):
-            item = {"path": entry} if isinstance(entry, str) else dict(entry)
-            allowed = {"path", "properties"}
-            if field == "sources":
-                allowed.update({"language", "library"})
-            if field == "ips":
-                allowed.add("file_properties")
-            if set(item) - allowed:
-                raise ValueError(f"Unknown {field} settings: {sorted(set(item) - allowed)}")
-            item["path"] = file_path(root, item["path"], selections)
-            extensions = {"sources": {".sv", ".v", ".vhd", ".vhdl"}, "ips": {".xci", ".xcix"}, "constraints": {".xdc"}}
-            if Path(item["path"]).suffix.lower() not in extensions[field]:
-                raise ValueError(f"Unsupported {field} file: {item['path']}")
-            entries.append(item)
-        config[field] = entries
-    config.setdefault("defines", [])
+    if not isinstance(config.get("sources", []), list):
+        raise ValueError("sources must be an array of snapshot file paths")
+    entries = []
+    for source in config.get("sources", []):
+        if not isinstance(source, str) or not source:
+            raise ValueError("sources entries must be nonempty file paths; read options belong in run.tcl")
+        entries.append({"name": source, "path": file_path(root, source, selections)})
+    config["sources"] = entries
     return config
 
 
@@ -130,7 +105,7 @@ def select_run(project: Path, selector: str, timestamp: str | None = None, *, re
         require_complete(parent)
         parent_config = read_run(parent)
         # Freeze only the implementation's declared files, never all parent RTL.
-        child = {'ips': parent_config.get('ips', []), **definition['impl_runs'][implementation]}
+        child = definition['impl_runs'][implementation]
         if not refresh_impl_inputs and implementation in parent_config.get('impl_json', {}):
             path = Path(parent_config['impl_json'][implementation])
             config = map_paths(json.loads(path.read_text()), path.parent, relative=False)
@@ -138,8 +113,7 @@ def select_run(project: Path, selector: str, timestamp: str | None = None, *, re
             config = copy.deepcopy(parent_config['implementation_configs'][implementation])
         else:
             config = normalize_run(project, child, 'impl')
-        if (config['part'], config['top']) != (parent_config['part'], parent_config['top']):
-            raise ValueError('Implementation part/top must match the selected synthesis')
+        config.update(parent_top=parent_config['top'], parent_part=parent_config['part'])
         checkpoint = parent / 'artifacts' / f"{parent_config['top']}.dcp"
         config.update(input_dcp=str(checkpoint), input_dcp_sha256=hash_source(checkpoint),
                       parent_run_id=parent_config['run_id'], synthesis_run_id=parent_config['run_id'])
@@ -147,9 +121,9 @@ def select_run(project: Path, selector: str, timestamp: str | None = None, *, re
     else:
         if timestamp not in (None, 'new'):
             raise ValueError('Use RUN.rerun.ID to rerun a synthesis')
-        config = normalize_run(project, definition, definition.get('stage', 'synth'))
+        config = normalize_run(project, definition, definition.get('kind', 'synth'))
         config['implementation_configs'] = {
-            name: normalize_run(project, {'ips': definition.get('ips', []), **child}, 'impl')
+            name: normalize_run(project, child, 'impl')
             for name, child in definition.get('impl_runs', {}).items()
         }
         output = root / synthesis / new_label()
@@ -383,6 +357,18 @@ def execute_locked(project: Path, config: dict, executable: str = "vivado") -> i
                 raise
             finally:
                 process.stdout.close()
+        # Tcl owns the design identity. Persist its validated result for DCP
+        # selection, implementations and later bitstream-only launches.
+        if exit_code == 0 and config["stage"] != "bitstream":
+            exit_code = 1  # Missing/invalid Tcl metadata is a failed run.
+            for key in ("top", "part"):
+                value = (info / ("design_" + key)).read_text().strip()
+                if not re.fullmatch(r"[A-Za-z0-9_-]+", value):
+                    raise ValueError(f"Invalid Tcl design {key}: {value!r}")
+                runtime_config[key] = value
+                config[key] = value
+            write_run(output, runtime_config)
+            exit_code = 0
         if exit_code == 0 and status.read_text().strip() != "complete":
             exit_code = 1
     except (BuildStopped, KeyboardInterrupt):
@@ -499,7 +485,7 @@ def main(argv: list[str] | None = None) -> int:
             if (parsed_build and parsed_build["impl"]) or (not parsed_build and "." in args.build):
                 raise ValueError("--auto_impl applies to synthesis builds only")
             data = json.loads(project.read_text())
-            if data["vivado"]["non_project"]["runs"].get(base_build, {}).get("stage") != "synth":
+            if data["vivado"]["non_project"]["runs"].get(base_build, {}).get("kind", "synth") != "synth":
                 raise ValueError("--auto_impl applies to synthesis builds only")
             names = build_names(data)
             for implementation in implementations:

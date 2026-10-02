@@ -42,7 +42,7 @@ def lint_run(project: Path, selector: str, run: dict, stage: str) -> list[str]:
     ###########################################################################
     errors = []
     paths = [("script", run.get("script"))]
-    for field in ("sources", "ips", "constraints"):
+    for field in ("sources",):
         for index, entry in enumerate(run.get(field, [])):
             paths.append((f"{field}[{index}]", entry if isinstance(entry, str) else entry.get("path")))
     for location, value in paths:
@@ -59,24 +59,15 @@ def lint_run(project: Path, selector: str, run: dict, stage: str) -> list[str]:
         config = normalize_run(project, run, stage)
     except (KeyError, ValueError, TypeError, AttributeError) as error:
         return [f"{selector}: {error}"]
-    for entry in config["ips"]:
+    for entry in config["sources"]:
         path = Path(entry["path"])
-        overrides = entry.get("file_properties", {})
         if path.suffix.lower() == ".xcix":
             try:
                 with zipfile.ZipFile(path) as archive:
-                    members = archive.namelist()
-                if not any(name.endswith(".xci") for name in members):
-                    errors.append(f"{selector}: no XCI in {path}")
-                for relative in overrides:
-                    if not any(name == relative or name.endswith("/" + relative) for name in members):
-                        errors.append(f"{selector}: missing IP member {relative} in {path}")
+                    if not any(name.endswith(".xci") for name in archive.namelist()):
+                        errors.append(f"{selector}: no XCI in {path}")
             except (OSError, zipfile.BadZipFile) as error:
                 errors.append(f"{selector}: invalid XCIX {path}: {error}")
-        else:
-            for relative in overrides:
-                if not (path.parent / relative).is_file():
-                    errors.append(f"{selector}: missing IP file: {path.parent / relative}")
     return errors
 
 
@@ -102,14 +93,14 @@ def lint_project(project: Path) -> list[str]:
         try:
             if output_root is not None:
                 errors.extend(lint_layout(project, output_root, name, synthesis))
-            errors.extend(lint_run(project, name, synthesis, synthesis.get("stage", "synth")))
+            errors.extend(lint_run(project, name, synthesis, synthesis.get("kind", "synth")))
             for child, implementation in synthesis.get("impl_runs", {}).items():
                 if not RUN_NAME.fullmatch(child):
                     errors.append(f"Invalid implementation run name: {child}")
                     continue
                 if output_root is not None:
                     errors.extend(lint_layout(project, output_root, f"{name}.{child}", implementation))
-                errors.extend(lint_run(project, f"{name}.{child}", {"ips": synthesis.get("ips", []), **implementation}, "impl"))
+                errors.extend(lint_run(project, f"{name}.{child}", implementation, "impl"))
         except (AttributeError, TypeError, KeyError) as error:
             errors.append(f"{name}: malformed run configuration: {error}")
     return errors
@@ -130,17 +121,17 @@ def initialize_example(project: Path) -> None:
         if key != "runs":
             config.setdefault(key, value)
     sample = copy.deepcopy(example["runs"]["synth_example"])
-    sample["constraints"][-1] = str(Path(config["output_root"]) / "synth_example/ip_keep_hierarchy.xdc")
-    latest_ip = str(Path(config["output_root"]) / "ip_example/latest/work/ip_sources/0/example.xcix")
-    sample["ips"][0]["path"] = latest_ip
-    # Place every example script under the selected output_root.
-    for name, run in [("synth_example", sample),
-                      ("synth_example/impl_example", sample["impl_runs"]["impl_example"])]:
-        folder = Path(config["output_root"]) / name
-        run["script"] = str(Path(config["output_root"]) / "synth_example" / "impl_run_example.tcl") if run["stage"] == "impl" else str(folder / "run.tcl")
+    # Rebase example snapshot inputs and Tcl references to the chosen root.
+    def rebase(run):
+        run["script"] = run["script"].replace("compilation/", str(config["output_root"]) + "/", 1)
+        run["sources"] = [path.replace("compilation/", str(config["output_root"]) + "/", 1)
+                          if path.startswith("compilation/") else path for path in run["sources"]]
+        for child in run.get("impl_runs", {}).values():
+            rebase(child)
+    rebase(sample)
     runs["synth_example"] = sample
     ip_sample = copy.deepcopy(example["runs"]["ip_example"])
-    ip_sample["script"] = str(Path(config["output_root"]) / "ip_example" / "run.tcl")
+    rebase(ip_sample)
     runs["ip_example"] = ip_sample
     destination = project.parent / config["output_root"] / "synth_example"
     ip_destination = destination.parent / "ip_example"
@@ -167,7 +158,8 @@ def initialize_example(project: Path) -> None:
             script = destination / "impl_run_example.tcl" if stage == "impl" else folder / "run.tcl"
             with script.open("x") as handle:
                 created_files.append(script)
-                handle.write(Path(__file__).with_name(f"vivado_build_example_{stage}.tcl").read_text())
+                handle.write(Path(__file__).with_name(f"vivado_build_example_{stage}.tcl").read_text()
+                             .replace("compilation/", str(config["output_root"]) + "/"))
             readme = folder / "README.md"
             content = Path(__file__).with_name("vivado_build_example_README.md").read_text()
             for token, value in {"STAGE": stage, "PROJECT": project.name,
@@ -201,8 +193,6 @@ def initialize_run_defaults(project: Path, selector: str) -> None:
     original = project.read_text()
     data = json.loads(original)
     runs = data["vivado"]["non_project"]["runs"]
-    example = json.loads(Path(__file__).with_name("vivado_build_example.json").read_text())["runs"]
-    templates = {"synth": example["synth_example"], "impl": example["synth_example"]["impl_runs"]["impl_example"], "ip": example["ip_example"]}
     selected = {}
     for name, run in runs.items():
         selected[name] = run
@@ -215,29 +205,11 @@ def initialize_run_defaults(project: Path, selector: str) -> None:
         if selector not in selected:
             raise ValueError(f"Unknown run: {selector}")
         selected = {selector: selected[selector]}
-    def fill(target, defaults):
-        for key, value in defaults.items():
-            if key not in target:
-                target[key] = copy.deepcopy(value)
-            elif isinstance(value, dict) and isinstance(target[key], dict):
-                fill(target[key], value)
     for name, run in selected.items():
-        stage = run.get("stage")
-        if stage not in templates:
-            raise ValueError(f"{name}: missing or invalid stage")
-        for required in (("script", "part") if stage == "ip" else ("script", "part", "top")):
-            if not run.get(required):
-                raise ValueError(f"{name}: supply required {required}; initialization will not invent design inputs")
-        defaults = {key: value for key, value in templates[stage].items()
-                    if key not in {"stage", "script", "part", "top", "sources", "ips", "constraints", "input_files", "defines", "impl_runs"}}
-        defaults.update({key: [] for key in ("sources", "ips", "constraints", "input_files", "defines")})
-        if stage == "impl":
-            defaults.pop("ips", None)  # Omission inherits the synthesis IP list.
-        for key in ("parameters", "post_load_parameters", "project_properties", "fileset_properties", "checkpoint_properties", "constraint_properties"):
-            defaults.setdefault(key, {})
-        if stage == "synth":
-            defaults["impl_runs"] = {}
-        fill(run, defaults)
+        if not run.get("script"):
+            raise ValueError(f"{name}: supply required script; initialization will not invent design inputs")
+        run.setdefault("sources", [])
+        run.setdefault("enabled_on_all", True)
     temporary = None
     try:
         with tempfile.NamedTemporaryFile(mode="w", dir=project.parent, delete=False) as handle:

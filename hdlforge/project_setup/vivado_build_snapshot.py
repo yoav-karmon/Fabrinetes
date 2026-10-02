@@ -8,7 +8,7 @@ import re
 import shutil
 
 from vivado_build_hash import verify_source_hashes
-from vivado_build_layout import CONFIG, read_run, map_paths
+from vivado_build_layout import CONFIG, read_run
 from vivado_build_paths import require_complete
 
 
@@ -76,26 +76,13 @@ def snapshot_inputs(config: dict) -> dict:
         script = Path(run['script'])
         scripts = output / 'snapshot/scripts'
         scripts.mkdir(parents=True, exist_ok=True)
-        for field in ('sources', 'ips', 'constraints'):
-            for entry in frozen.get(field, []):
-                source = Path(entry['path'])
-                if source.suffix.lower() == '.xci':
-                    for sibling in source.parent.rglob('*'):
-                        if sibling.is_file():
-                            save(sibling)
-                entry['path'] = str(save(source))
-        for path in frozen.get('input_files', []):
-            helper = Path(path)
-            if helper.suffix == '.tcl' and helper.is_relative_to(script.parent):
-                target = scripts / helper.relative_to(script.parent)
-                if target.name == 'run.tcl' or target.is_relative_to(scripts / '_hdlforge'):
-                    raise ValueError(f'Declared helper conflicts with reserved runtime paths: {helper}')
-                target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(helper, target)
-                copied[str(helper)] = str(target)
-            else:
-                save(helper)
-        frozen['input_files'] = [copied[path] for path in frozen.get('input_files', [])]
+        for entry in frozen.get('sources', []):
+            source = Path(entry['path'])
+            if source.suffix.lower() == '.xci':
+                for sibling in source.parent.rglob('*'):
+                    if sibling.is_file():
+                        save(sibling)
+            entry['path'] = str(save(source))
         target_script = scripts / ('run.tcl' if run is config else script.name)
         if target_script.exists() and copied.get(str(script)) != str(target_script):
             raise ValueError(f'Script snapshot collision: {script} -> {target_script}')

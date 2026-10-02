@@ -43,20 +43,28 @@ class NativeBuildTest(unittest.TestCase):
         scripts.mkdir(parents=True)
         bootstrap = Path(__file__).with_name("vivado_build_example_synth.tcl").read_text().split("##############################################################################")[0]
         (scripts / "run.tcl").write_text(bootstrap +
-            "::hdlforge::initialize_design\n"
+            "::hdlforge::design design test-part\n"
+            "create_project -in_memory -part test-part\n"
+            "read_verilog -sv [::hdlforge::source_path {source $literal [brackets].sv}]\n"
+            "read_ip [::hdlforge::source_path core.xcix]\n"
+            "set_property used_in_synthesis false /ip/constraints/impl.xdc\n"
+            "read_xdc [::hdlforge::source_path static.xdc]\n"
             "synth_design -top design -part test-part -directive AreaOptimized_high -no_lc -flatten_hierarchy none -verilog_define TEST=1\n"
             "write_checkpoint -force -noxdef design.dcp\n"
             "generate_parallel_reports -reports {{report_utilization -file design_utilization_synth.rpt}}\n")
         for name in ("impl_one", "impl_two"):
             template = Path(__file__).with_name("vivado_build_example_impl.tcl").read_text()
-            (scripts / f"{name}.tcl").write_text(template)
-        self.impl = dict(stage="impl", script="results/synth_one/impl_one.tcl", part="test-part", top="design",
-                         ips=["core.xcix"], constraints=["static.xdc"])
-        self.synth = dict(stage="synth", script="results/synth_one/run.tcl", part="test-part", top="design",
-                          sources=["source $literal [brackets].sv"],
-                          ips=[{"path": "core.xcix", "file_properties": {
-                              "constraints/impl.xdc": {"used_in_synthesis": False}}}],
-                          constraints=["static.xdc"], defines=["TEST=1"],
+            tail = template[template.index("link_design -top"):]
+            (scripts / f"{name}.tcl").write_text(bootstrap +
+                "set top design\nset part test-part\n::hdlforge::design $top $part\n"
+                "create_project -in_memory -part $part\n"
+                "add_files -quiet [dict get $::hdlforge_config input_dcp]\n"
+                "read_ip [::hdlforge::source_path core.xcix]\n"
+                "read_xdc [::hdlforge::source_path static.xdc]\n"
+                "set ::ACTIVE_STEP init_design\n" + tail)
+        self.impl = dict(script="results/synth_one/impl_one.tcl", sources=["core.xcix", "static.xdc"])
+        self.synth = dict(script="results/synth_one/run.tcl",
+                          sources=["source $literal [brackets].sv", "core.xcix", "static.xdc"],
                           impl_runs={"impl_one": self.impl, "impl_two": {**self.impl, "script": "results/synth_one/impl_two.tcl"}})
         self.data = {"vivado": {"non_project": {"output_root": "results", "vivado_version": "2025.1",
                                                 "runs": {"synth_one": self.synth}}}}
@@ -119,14 +127,14 @@ class NativeBuildTest(unittest.TestCase):
         parent = self.build_synthesis()
         (self.root / 'static.xdc').write_text('# live edit\n')
         config = select_run(self.project, 'synth_one.impl_one')
-        self.assertEqual(Path(config['constraints'][0]['path']).read_text(), original)
+        self.assertEqual(Path(config['sources'][1]['path']).read_text(), original)
         self.assertTrue(Path(config['script']).is_relative_to(Path(parent['output'])))
         refreshed = select_run(self.project, 'synth_one.impl_one', refresh_impl_inputs=True)
-        self.assertEqual(Path(refreshed['constraints'][0]['path']).read_text(), '# live edit\n')
+        self.assertEqual(Path(refreshed['sources'][1]['path']).read_text(), '# live edit\n')
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(execute(self.project, config, str(self.executable)), 0)
         saved = read_run(Path(config['output']))
-        self.assertEqual(Path(saved['constraints'][0]['path']).read_text(), original)
+        self.assertEqual(Path(saved['sources'][1]['path']).read_text(), original)
 
     def test_attempts_share_one_json_and_preserve_previous_entries(self) -> None:
         parent = self.build_synthesis()
@@ -229,7 +237,8 @@ class NativeBuildTest(unittest.TestCase):
         self.assertEqual(after, before)
         self.assertIn("impl_example", example["impl_runs"])
         self.assertNotIn("steps", example["impl_runs"]["impl_example"])
-        self.assertIn("file_properties", example["ips"][0])
+        self.assertTrue(all(isinstance(path, str) for path in example["sources"]))
+        self.assertNotIn("part", example)
         contents = self.project.read_text()
         with self.assertRaises(ValueError):
             initialize_example(self.project)
@@ -245,10 +254,9 @@ class NativeBuildTest(unittest.TestCase):
         self.assertTrue(any("source $literal" in error for error in errors))
         self.assertFalse((self.root / "results/synth_one/artifacts").exists())
 
-    def test_lint_reports_missing_ip_archive_member(self) -> None:
-        self.synth["ips"][0]["file_properties"]["missing.xdc"] = {"used_in_synthesis": False}
-        self.project.write_text(json.dumps(self.data))
-        self.assertTrue(any("missing IP member missing.xdc" in error for error in lint_project(self.project)))
+    def test_lint_reports_invalid_ip_archive(self) -> None:
+        (self.root / "core.xcix").write_text("invalid archive")
+        self.assertTrue(any("invalid XCIX" in error for error in lint_project(self.project)))
 
     def test_json_steps_are_rejected_before_output(self) -> None:
         self.synth["steps"] = {"synth_design": {}}
@@ -257,6 +265,43 @@ class NativeBuildTest(unittest.TestCase):
             select_run(self.project, "synth_one")
         self.assertFalse((self.root / "results/synth_one/artifacts").exists())
 
+    def test_design_settings_in_json_are_rejected(self) -> None:
+        for field in ("stage", "part", "top", "defines", "parameters", "ips",
+                      "constraints", "input_files", "project_properties"):
+            with self.subTest(field=field):
+                data = json.loads(self.project.read_text())
+                data["vivado"]["non_project"]["runs"]["synth_one"][field] = "obsolete"
+                self.project.write_text(json.dumps(data))
+                with self.assertRaisesRegex(ValueError, "design settings belong in run.tcl"):
+                    select_run(self.project, "synth_one")
+                self.project.write_text(json.dumps(self.data))
+
+    def test_implementation_tcl_identity_must_match_parent(self) -> None:
+        script = self.root / self.impl["script"]
+        script.write_text(script.read_text().replace("set top design", "set top different"))
+        self.build_synthesis()
+        config = select_run(self.project, "synth_one.impl_one")
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(execute(self.project, config, str(self.executable)), 1)
+        self.assertIn("Implementation top differs", (Path(config["output"]) / "logs/failure.txt").read_text())
+
+    def test_tcl_identity_is_recorded_after_build(self) -> None:
+        self.assertNotIn("top", self.synth)
+        config = self.build_synthesis()
+        saved = read_run(Path(config["output"]))
+        self.assertEqual((saved["top"], saved["part"]), ("design", "test-part"))
+        self.assertEqual(saved["stage"], "synth")
+
+    def test_missing_tcl_identity_is_a_failed_run(self) -> None:
+        script = self.root / self.synth["script"]
+        script.write_text(script.read_text().replace("::hdlforge::design design test-part\n", ""))
+        config = select_run(self.project, "synth_one")
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(execute(self.project, config, str(self.executable)), 1)
+        self.assertIn("Run Tcl must declare its identity", (Path(config["output"]) / "logs/failure.txt").read_text())
+        self.assertEqual((Path(config["output"]) / "logs/status").read_text(), "failed\n")
+        self.assertEqual((Path(config["output"]) / "logs/exit_code").read_text(), "1\n")
+
     def test_public_cli_uses_selected_json_from_another_directory(self) -> None:
         subprocess.run(["git", "init", "-q", str(self.root)], check=True)
         executable = self.root / "vivado"
@@ -264,7 +309,16 @@ class NativeBuildTest(unittest.TestCase):
         executable.chmod(0o755)
         wrapper = Path(__file__).with_name("hdlforge")
         env = {**os.environ, "PATH": str(self.root) + os.pathsep + os.environ["PATH"]}
-        result = subprocess.run([str(wrapper), "--project", str(self.project), "--env-path", json.dumps([str(self.root)]), "vivado.build.synth.synth_one.continue"], cwd=wrapper.parent, env=env,
+        env.pop("HDLFORGE_CALLED", None)
+        self.data["settings"] = {"env": {"test-host": {"test-user": {
+            "path": os.environ["PATH"].split(os.pathsep), "path_import": [],
+            "pythonpath": os.environ.get("PYTHONPATH", "").split(os.pathsep),
+            "pythonpath_import": [], "variables": {}, "variables_import": []}}}}
+        self.data["settings"]["env"]["test-host"]["test-user"]["pythonpath"] = [
+            p for p in self.data["settings"]["env"]["test-host"]["test-user"]["pythonpath"] if p]
+        self.project.write_text(json.dumps(self.data))
+        env.update(HOST_MACHINE="test-host", HDLFORGE_HOST_USER="test-user")
+        result = subprocess.run([str(wrapper), "--project", str(self.project), "--env-path", json.dumps([str(self.root)]), "vivado.build.synth.synth_one.continue"], cwd=self.root, env=env,
                                 capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("HDLFORGE_BUILD_COMPLETE", result.stdout)
@@ -346,17 +400,17 @@ class NativeBuildTest(unittest.TestCase):
         scripts.mkdir()
         bootstrap = Path(__file__).with_name('vivado_build_example_ip.tcl').read_text().split('##############################################################################')[0]
         (scripts / 'run.tcl').write_text(bootstrap +
-            '::hdlforge::initialize_design\nsynth_ip core\n'
-            'set ip_path [dict get [lindex [dict get $::hdlforge_config ips] 0] path]\n'
+            '::hdlforge::design ip test-part\ncreate_project -in_memory -part test-part\nsynth_ip core\n'
+            'set ip_path [dict get [lindex [dict get $::hdlforge_config sources] 0] path]\n'
             'set stream [open $ip_path w]\nputs $stream modified\nclose $stream\n')
         self.data['vivado']['non_project']['runs']['ip_one'] = dict(
-            stage='ip', script='results/ip_one/run.tcl', part='test-part', ips=['core.xcix'])
+            kind='ip', script='results/ip_one/run.tcl', sources=['core.xcix'])
         self.project.write_text(json.dumps(self.data))
         config = select_run(self.project, 'ip_one')
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(execute(self.project, config, str(self.executable)), 0)
         output = Path(config['output'])
-        frozen = Path(read_run(output)['ips'][0]['path'])
+        frozen = Path(read_run(output)['sources'][0]['path'])
         self.assertEqual(frozen.read_bytes(), (self.root / 'core.xcix').read_bytes())
         rerun = select_run(self.project, f"ip_one.rerun.{config['run_id']}")
         with contextlib.redirect_stdout(io.StringIO()):
@@ -390,12 +444,12 @@ class NativeBuildTest(unittest.TestCase):
         helper.write_text('set ::declared_helper_loaded 1\n')
         (script.parent / 'unrelated.tcl').write_text('error must_not_run\n')
         with script.open('a') as stream:
-            stream.write('source [file join [file dirname [info script]] helper.tcl]\n')
-        self.synth['input_files'] = [str(helper.relative_to(self.root))]
+            stream.write('source [::hdlforge::source_path {results/synth_one/helper.tcl}]\n')
+        self.synth['sources'].append(str(helper.relative_to(self.root)))
         self.project.write_text(json.dumps(self.data))
         config = self.build_synthesis()
         scripts = Path(config['output']) / 'snapshot/scripts'
-        self.assertTrue((scripts / 'helper.tcl').is_file())
+        self.assertTrue(list((Path(config['output']) / 'snapshot/source').rglob('helper.tcl')))
         self.assertFalse((scripts / 'unrelated.tcl').exists())
 
     def test_registry_finds_renamed_run_by_id(self) -> None:

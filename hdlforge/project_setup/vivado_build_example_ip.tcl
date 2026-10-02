@@ -11,10 +11,27 @@ if {![info exists ::hdlforge_config]} {
 ##############################################################################
 
 ##############################################################################
-## Load the JSON-selected IP from the private copy made by HDLForge.
+## Load the declared IP from the private copy made by HDLForge.
 ## No saved project is opened. Source IP files are never regenerated in place.
 ##############################################################################
-::hdlforge::initialize_design
+# Design and Vivado settings are maintained with this run.
+set top "ip"
+set part "xcvu9p-fsgd2104-3-e"
+::hdlforge::design $top $part
+set_param general.usePosixSpawnForFork 1
+set_param "general.maxThreads" "8"
+create_project -in_memory -part $part
+set_property "default_lib" "xil_defaultlib" [current_project]
+set_property "target_language" "Verilog" [current_project]
+set_property "ip_output_repo" "ip_cache" [current_project]
+set_property "ip_cache_permissions" [list "read" "write"] [current_project]
+
+# Read the frozen inputs with this run's language and property choices.
+set input [::hdlforge::source_path "sources/ip/example.xcix"]
+read_ip $input
+set ip [get_ips -quiet [file rootname [file tail $input]]]
+set_property "generate_synth_checkpoint" true [get_files -all [get_property IP_FILE $ip]]
+set_property "synth_checkpoint_mode" "Singular" [get_files -all [get_property IP_FILE $ip]]
 
 ##############################################################################
 ## Optional: structured messages for Vivado GUI filtering. Text logs also

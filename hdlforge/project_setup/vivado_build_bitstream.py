@@ -47,8 +47,7 @@ def select_bitstream(project: Path, parsed: dict) -> dict:
                   bitstream_source_launch_id=config.get('launch_id'),
                   bitstream_epoch=epoch, build_selection=selection,
                   script=str(Path(__file__).with_name('vivado_build_bitstream.tcl')),
-                  auto_impl=[], sources=[], ips=[], constraints=[],
-                  input_files=[], rerun=False)
+                  auto_impl=[], sources=[], rerun=False)
     for key in ('refresh_impl_inputs', '_rerun_runtime', '_rerun_original_output', 'parent_launch_id'):
         config.pop(key, None)
     config.update(new_identity())

@@ -10,8 +10,6 @@ if {![info exists ::hdlforge_config]} {
 ## Its generated JSON records the parent synthesis DCP path and SHA-256.
 ##############################################################################
 
-set top [dict get $::hdlforge_config top]
-set part [dict get $::hdlforge_config part]
 
 # Link the explicitly selected synthesis checkpoint and the JSON IP/XDC lists.
 set ::ACTIVE_STEP init_design
@@ -21,7 +19,36 @@ set ::ACTIVE_STEP init_design
 ## close_msg_db command if you do not need a stage message database.
 ##############################################################################
 # create_msg_db init_design.pb
-::hdlforge::initialize_design
+# Design and Vivado settings are maintained with this run.
+set top "top"
+set part "xcvu9p-fsgd2104-3-e"
+::hdlforge::design $top $part
+set_param general.usePosixSpawnForFork 1
+set_param project.singleFileAddWarning.threshold 0
+set_param "chipscope.maxJobs" "1"
+set_param "general.maxThreads" "8"
+create_project -in_memory -part $part
+set_property "XPM_LIBRARIES" [list "XPM_CDC" "XPM_FIFO" "XPM_MEMORY"] [current_project]
+set_property "default_lib" "xil_defaultlib" [current_project]
+set_property "target_language" "Verilog" [current_project]
+set_property "ip_output_repo" "ip_cache" [current_project]
+set_property "ip_cache_permissions" [list "read" "write"] [current_project]
+set_property "design_mode" "GateLvl" [current_fileset]
+
+# Read the frozen inputs with this run's language and property choices.
+add_files -quiet [dict get $::hdlforge_config input_dcp]
+set input [::hdlforge::source_path "compilation/ip_example/latest/work/ip_sources/0/example.xcix"]
+read_ip $input
+set ip [get_ips -quiet [file rootname [file tail $input]]]
+set matches {}
+foreach candidate [get_files -quiet -all -of_objects $ip] {
+    if {[string match "*/example_ooc.xdc" $candidate]} {lappend matches $candidate}
+}
+if {![llength $matches]} {error "Missing IP constraint example_ooc.xdc"}
+set_property "used_in_implementation" false $matches
+set input [::hdlforge::source_path "sources/XDC/implementation.xdc"]
+read_xdc $input
+set_property "processing_order" "LATE" [get_files $input]
 link_design -top $top -part $part
 ## Optional: finish the message database opened for this stage.
 # close_msg_db -file init_design.pb

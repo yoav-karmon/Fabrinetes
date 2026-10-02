@@ -1,6 +1,5 @@
 """Read-only discovery of JSON non-project runs and their synthesis artifacts."""
 
-import json
 import re
 from pathlib import Path
 
@@ -13,50 +12,45 @@ PROCESS_FLAGS = ["--stopall", "--find_all_user_runs"]
 
 BUILD_HELP = """
 Non-project builds: vivado.non_project in the selected project JSON.
-  output_root: run-definition root; vivado_version: optional exact version.
-  runs.NAME: stage (synth/ip), script, part, top, sources, ips, constraints,
-    defines, input_files, parameters, post_load_parameters, project_properties,
-    fileset_properties, checkpoint_properties, constraint_properties.
-  impl_runs.NAME: implementation definition with its own script and inputs.
-    Omitted ips inherits the selected synthesis's frozen IP inputs; [] selects none.
-  HDLForge copies the maintained script unchanged as snapshot/scripts/run.tcl.
-  Implementation scripts conventionally live beside the synthesis script as
-    impl_run_NAME.tcl; script paths always come from the project JSON.
-  Commands, directives, reports and checkpoints belong in Tcl, not JSON hooks.
-  Use the example scripts' bootstrap to load the shared runtime and generated JSON.
+  output_root: maintained run root (normally compilation).
+  vivado_version: optional exact installed Vivado version.
+  runs.NAME: script, sources, enabled_on_all, optional kind: ip, impl_runs.
+  impl_runs.NAME: script, sources and optional enabled_on_all.
+  sources is one list of snapshot file paths: RTL, XDC, IP, Tcl and helpers.
+  Each run.tcl owns part/top, defines, threads, properties and Vivado commands.
+  Call ::hdlforge::design TOP PART to record the design identity.
+  Resolve declared inputs with ::hdlforge::source_path LOGICAL_PATH.
+  Implementation Tcl reads the hash-checked input_dcp from runtime metadata.
 
 Run layout:
-  RUN/_LABEL/{snapshot/source,snapshot/scripts,logs,artifacts,work}
-  RUN/_LABEL/impl_runs/IMPL/_LABEL/{snapshot/source,snapshot/scripts,logs,artifacts,work}
-  All run.json paths are relative to snapshot/scripts. Vivado runs from work/.
-  The JSON stores the stable run_id, created_at and launch_epoch; folder names
-    carry no time/identity semantics. Renaming generated run folders is supported.
-  Implementations reference the parent DCP directly and freeze its SHA-256.
-    A changed or missing parent checkpoint refuses execution/rerun.
-  Existing old-format directories are not migrated or deleted by these commands.
+  compilation/RUN/run.tcl
+  compilation/RUN/_TIMESTAMP/{snapshot/source,snapshot/scripts,logs,artifacts,work}
+  compilation/RUN/_TIMESTAMP/impl_runs/IMPL/_TIMESTAMP/{snapshot,logs,artifacts,work}
+  HDLForge copies maintained scripts unchanged into snapshot/scripts.
+  All runtime JSON paths are relative to snapshot/scripts; Vivado runs in work/.
+  Labels begin with _; run_id and created_at remain authoritative after renaming.
+  latest uses JSON metadata, never folder names or filesystem mtime.
+  New synthesis snapshots implementation definitions and their declared sources.
+  New implementations use these frozen inputs unless --refresh_impl_inputs is set.
+  Reruns use frozen Tcl and sources; changed parent checkpoints refuse execution.
 
-Selectors:
-  --build SYNTH / SYNTH.new
-  --build SYNTH.IMPL --synth_timestamp ID
-  --build SYNTH.latest.IMPL.new
-  --build SYNTH.rerun.ID
-  --build SYNTH.SYNTH_ID.IMPL.rerun.IMPL_ID
-  --build SYNTH.SYNTH_ID.IMPL.bitstream.IMPL_ID
-  IDs are stable JSON run IDs; existing folder labels are also accepted.
-  latest uses JSON created_at, never folder names or filesystem mtime.
-  --auto_impl NAME may be repeated; continuations pin their parent by run ID.
-  A new implementation snapshots current declared Tcl/XDC/support files.
-    --refresh_impl_inputs is retained as a compatibility spelling for this behavior.
-  Reruns use frozen run.json and scripts; their recorded time does not change.
+Commands:
+  hdlforge vivado.build.synth.RUN.new
+  hdlforge vivado.build.impl.RUN.latest.IMPL.new
+  hdlforge vivado.build.synth.RUN.rerun.RUN_ID
+  hdlforge vivado.build.impl.RUN.RUN_ID.IMPL.rerun.IMPL_ID
+  hdlforge vivado.build.impl.RUN.RUN_ID.IMPL.bitstream.IMPL_ID
+  --auto_impl NAME can be repeated and pins the exact synthesis run ID.
+  hdlforge vivado.build.status
+  hdlforge vivado.build.stop_all
+  hdlforge vivado.build.clean_ignore_artifacts --dry-run
 
 Cleanup:
-  Add a single _* rule to the repository root .gitignore.
-  Generated labels and housekeeping files start with _; no per-run ignore files.
-  Save explicitly with git add -f <run-directory>; --save_this_run is retired.
-  --build_clean_ignore_artifacts [--dry-run], or --build RUN --clean_ignore_artifacts:
-    refuse the entire selected tree if ANY descendant is tracked or not ignored,
-    a nested repository exists, inspection fails, or a run lock is held.
-  --build_status / --build_status_all / --build_stop_all manage launch workers.
+  Keep maintained scripts outside underscore-prefixed folders.
+  A single _* rule in the root .gitignore excludes generated attempts.
+  Save a generated attempt explicitly with git add -f <run-directory>.
+  Cleanup refuses tracked/non-ignored descendants, nested repositories and locks.
+  Historical output directories are neither migrated nor deleted.
 """
 
 
