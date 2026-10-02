@@ -37,20 +37,16 @@ Run Verilator:
   hdlforge --tool Verilator --step lint --SimTargetName basic_test
   hdlforge --tool Verilator --step lint --SimTargetName basic_test --lint-file sources/rtl/top.sv
 
-Vivado setup:
-
-  "vivado": {
-    "config": {
-      "build_dir": "_vivado",
-      "project_name": "my_vivado_project"
-    },
-    "external_config": {
-      "filename": "sources/XDC/project.tcl"
-    }
-  }
+Vivado configuration:
+  Compile through vivado.non_project.runs and its impl_runs definitions.
+  Each definition selects maintained Tcl plus its declared sources and inputs.
+  See hdlforge/project_setup/vivado_build_example.json and
+  hdlforge/project_setup/vivado_build_example_README.md for the complete schema.
 
 Run Vivado:
-  hdlforge --tool vivado --generate_prj_with_external_tcl
+  hdlforge --tool vivado --build synth_example.new
+  hdlforge --tool vivado --build synth_example.latest.impl_example.new
+  hdlforge --tool vivado --project_console start
 
 LLM_orch setup:
 

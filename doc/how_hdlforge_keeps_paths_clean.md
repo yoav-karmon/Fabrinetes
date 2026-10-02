@@ -1,31 +1,19 @@
-How HDLForge keeps paths clean
+# HDLForge environment paths
 
-PATH between containers -> bashrc-root
+The launcher owns a single startup implementation in
+`hdlforge/project_setup/hdlforge_environment.bash`.
 
+1. Select the project from the launch directory or `--project`.
+2. On the first launch only, validate repository host/user settings and rebuild
+   the child environment, including PATH and PYTHONPATH.
+3. Apply the selected project overlay on every invocation.
+4. Apply CLI additions last and remove duplicate paths.
 
-PATH /PYTHONPATH between repos -> <REPO_TOP>/init_repo_env.sh
+Repository-relative entries use the repository JSON's directory; project
+entries use the selected file's directory. Nested launches keep the baseline.
+Changed variable assignments warn on stderr without printing values.
 
-  <REPO_TOP>/init_repo_env.sh:
-    add_to_path "<repo tool path>"
-    add_to_pythonpath "<repo python path>"
-
-  relative paths are relative to REPO_TOP.
-  add_to_path checks for duplicates before adding.
-  add_to_pythonpath checks for duplicates before adding.
-
-Update path in a shell:
-  update_repo_path
-
-HDLForge:
-
-  hdlforge auto-captures the correct environment from the launch directory (or --project file path).
-
-  Its launcher resolves its installation from the executable path and calls
-  hdlforge_environment.bash. It does not source ~/.bashrc or require FABRINETES
-  to be set before launch. A full executable path works from a fresh shell.
-
-  The bootstrap restores the base paths, loads /etc/profile.d/init_env.sh when
-  available and the configured VIVADO_SETTINGS script, and adds its own bin
-  directory. It then snapshots the tool paths before applying init_repo_env.sh.
-  Nested calls therefore retain HDLForge and vendor tools even when inherited
-  INIT_PATH was captured before those tools were configured.
+Use `hdlforge --tool path_manager show` to inspect effective paths and
+`hdlforge --tool path_manager show-all` for configured environments.
+See [HDLForge](hdlforge.md#environment-initialization) for the environment
+contract, retained runtime variables and management commands.

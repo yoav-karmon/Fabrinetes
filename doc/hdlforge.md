@@ -30,18 +30,16 @@ Run these from the repository root to use its `*.hdlforge.json`, or select
 they do not connect to hosts or execute SSH `Match exec` commands.
 
 ```bash
-hdlforge --sshconfig_import --json fpga.hdlforge.json --ssh-config ~/.ssh/config --dry-run
-hdlforge --sshconfig_import --json fpga.hdlforge.json
-hdlforge --sshconfig_verify --json fpga.hdlforge.json
-hdlforge --sshconfig_export --json fpga.hdlforge.json --dry-run
-hdlforge --sshconfig_merge --json fpga.hdlforge.json --input laptop.json --input lab.json --dry-run
-hdlforge --sshconfig_merge --json fpga.hdlforge.json --input lab.json --on-collision incoming
-hdlforge --sshconfig_export --help
+hdlforge --tool ssh import --json fpga.hdlforge.json --ssh-config ~/.ssh/config --dry-run
+hdlforge --tool ssh import --json fpga.hdlforge.json
+hdlforge --tool ssh verify --json fpga.hdlforge.json
+hdlforge --tool ssh export --json fpga.hdlforge.json --dry-run
+hdlforge --tool ssh merge --json fpga.hdlforge.json --input laptop.json --input lab.json --dry-run
+hdlforge --tool ssh merge --json fpga.hdlforge.json --input lab.json --on-collision incoming
+hdlforge --tool ssh export --help
 ```
 
-`--sshcofnig_import`, `--sshcofnig_export`, `--sshcofnig_verify`, and
-`--sshcofnig_merge` are accepted spelling aliases. Every action supports
-`--help` / `-h`, `--dry-run`, and `--force` / `-f`.
+Actions accept `--help`; write actions support `--dry-run` and `--force`.
 
 The inventory belongs to the **local** hostname and local user:
 `settings.env.<local-host>.<local-user>.ssh_config`. Defaults come from the
@@ -243,99 +241,34 @@ Vivado non-project:
     overwritten. enabled_on_all controls project-defined batch selection.
     See hdlforge/project_setup/vivado_build_example_README.md for the full example.
 
-Vivado project mode:
-  hdlforge --tool vivado --get_xpr_path
-    Print only the absolute configured XPR path on stdout, without starting Vivado.
-    Uses ProjectFile, including --project selection and JSON/TOML discovery.
-    The XPR need not exist yet. Configuration diagnostics go to stderr.
-  hdlforge --tool vivado --project_console help
-    Show persistent-console actions and arguments; requires no project shortcut.
-  hdlforge --tool vivado --project_console print-json
-    Print the reusable project_console group as JSON.
-  hdlforge --tool vivado --project_console install-json --json-file example.hdlforge.json --key LLM_orch.vivado --overwrite
-    Install under this dotted parent key. Replace project_console and its
-    description entirely; preserve siblings. Create missing parent objects.
-    Installation requires an existing JSON object, not an XPR or Vivado process.
-    Generated commands use native HDLForge and retain the selected project via
-    HDLFORGE_PROJECT_FILE. An arbitrary .json filename requires --project.
-    Running project actions requires the usual vivado configuration in that JSON.
-    The implementation lives in hdlforge/project_setup/vivado_console, with no
-    dependency on an FPGA repository's tools or .codex directories.
+## Persistent Vivado Tcl console
 
-Persistent Vivado project console:
-  hdlforge --tool vivado --project_console help
-  hdlforge --tool vivado --project_console install-json --json-file project.json --key LLM_orch.vivado
-  hdlforge vivado.project_console.update-json
-    One namespace owns project lifecycle, builds, run queries and run control.
-    There is no separate batch launcher, build manager or saved run-status database.
-    Existing project shortcuts need update-json; unrelated settings are preserved.
+```bash
+hdlforge --tool vivado --project_console start
+hdlforge --tool vivado --project_console send --cmd 'open_checkpoint design.dcp'
+hdlforge --tool vivado --project_console source --file inspect.tcl
+hdlforge --tool vivado --project_console interactive
+hdlforge --tool vivado --project_console status
+hdlforge --tool vivado --project_console restart
+hdlforge --tool vivado --project_console stop
+```
 
-  hdlforge vivado.project_console.management.open_console
-  hdlforge vivado.project_console.management.inspect_console
-  hdlforge vivado.project_console.runs.list_runs
-  hdlforge vivado.project_console.runs.enumerate_groups
-  hdlforge vivado.project_console.runs.inspect_run --append '--run impl_1'
-    Shows run metadata followed by stage settings in execution order: enable flags,
-    directives, arguments, Tcl pre/post hooks and report configurations. Values come
-    from the live run, including stage overrides of the named strategy. Only
-    properties exposed by Vivado are shown; (empty) means an exposed empty value.
-    --verbose adds all remaining run properties. --json retains the flat property
-    records, including every exposed STEPS.* setting. Group configuration uses the
-    same stage display separately for each run.
-  hdlforge vivado.project_console.runs.status_run --append '--run impl_1'
-  hdlforge vivado.project_console.runs.group_status --append '--group synth_1'
-  hdlforge vivado.project_console.build.build_group --append '--group synth_1 --jobs 2'
-  hdlforge vivado.project_console.build.launch_run --append '--run synth_1'
-  hdlforge vivado.project_console.build.write_bitstream --append '--run impl_1'
-    Launch uses Vivado launch_runs and returns without waiting for completion.
-    Vivado manages its own workers and synthesis dependencies. Omitting a target
-    lists live choices. --no-bitstream stops at implementation, --reset resets first.
-    reset_run/group and stop_run/group are explicit separate commands.
+The selected HDLForge JSON identifies the persistent tmux console. It needs no
+XPR or exported project Tcl and starts without opening or creating a project.
+Use `send` or `source` for unrestricted Tcl, including opening checkpoints or
+explicitly opening an existing project for inspection. Detach with Ctrl-b d.
+Inspection actions (`get_runs`, `run_info`, `group_info`, `run_status`) operate
+on the project explicitly opened in that console. `set_run_property` reads or
+edits its properties. `close_project` keeps the console alive and refuses to
+close active runs. Stop and restart terminate the managed console without
+export prompts. They do not manage non-project build workers.
 
-  hdlforge vivado.project_console.runs.reuse_status --append '--run impl_1'
-  hdlforge vivado.project_console.settings.clear_refresh --append '--run impl_1'
-    clear_refresh clears NEEDS_REFRESH only; it does not validate stale results.
-
-  hdlforge vivado.project_console.settings.edit_run_property --append '--run impl_1 --property STRATEGY --value Performance_Explore'
-    Without --property, list the selected run's properties. Edits are read back immediately; active runs are protected.
-  hdlforge vivado.project_console.settings.enable_incremental --append '--run synth_1'
-  hdlforge vivado.project_console.settings.disable_incremental --append '--run impl_1'
-    Both clear a manually selected incremental checkpoint. On enables automatic incremental reuse; off disables it.
-  hdlforge vivado.project_console.project.close_project --append '--force'
-    Close the project but keep the console alive.
-  hdlforge vivado.project_console.project.regenerate_project --append '--force'
-    Close, preserve the old directory, regenerate from configured Tcl, and reopen. Without --force, prompt to export before closing. Active runs are protected.
-    enable_run/group and disable_run/group persist availability in DESCRIPTION.
-
-  hdlforge vivado.project_console.project.export_open_project_to_tcl
-  hdlforge vivado.project_console.project.generate_project_from_tcl
-    Generation requires the open project to close first. Interactive mode offers
-    export to <project>.before-close.tcl before closing. Noninteractive mode refuses
-    unless --force is supplied. Force skips the export/prompt, not active-run checks.
-    Old generated project directories are preserved, never implicitly deleted.
-
-  hdlforge vivado.project_console.aux.execute_tcl --append '--cmd "get_projects"'
-  hdlforge vivado.project_console.aux.source_tcl --append '--file script.tcl'
-  hdlforge vivado.project_console.management.attach_console
-    send/source execute on the console as it stands, even with no project open.
-    Interactive attaches to tmux; Ctrl-b d detaches without stopping the console.
-    Noninteractive clients exit after responses; the console remains alive.
-    stop and restart ask before closing an open project; --force skips the prompt.
-
-Output:
-  Every Tcl request has VIVADO OUTPUT BEGIN/END boundaries and OK/ERROR status.
-  The full native output includes stdout, stderr, warnings and errors. The Tcl
-  result and error stack are retained. A formatted live summary follows the block.
-  --raw suppresses summary tables. --json emits response envelopes containing the
-  complete transcript, result, return code and structured records. --verbose on
-  info commands requests all properties. Subsequent build-worker output stays in
-  the run log; it is not misrepresented as part of the launch response.
-
-Implementation:
-  hdlforge/project_setup/vivado_console/run_commands.tcl owns run operations.
-  console_transport.py carries serialized requests to the persistent console.
-  project_console.py selects procedures and prints responses, without inferring status.
-  Completion is static; only explicit commands contact Vivado.
+Each response retains native output, Tcl results, errors and structured records.
+`--raw` suppresses summary tables; `--json` emits a response envelope.
+`print-json`, `install-json --json-file FILE --key LLM_orch.vivado`, and
+`update-json` maintain reusable console shortcuts while preserving siblings.
+All managed synthesis, implementation and bitstream generation uses the
+non-project build commands documented above.
 
 LLM_orch:
   hdlforge <shortcut.path>
@@ -346,18 +279,56 @@ LLM_orch:
   hdlforge --env-python '["sources/tests"]' --cmd 'python3 -m package.tool'
   hdlforge --env-path '["tools"]' --cmd 'my_tool' --append '<extra flags>'
 
-Environment:
-  hdlforge resolves its installation from its executable, including symlinks
-  hdlforge loads its bundled environment helper without sourcing ~/.bashrc
-  hdlforge loads /etc/profile.d/init_env.sh when present and configured VIVADO_SETTINGS
-  hdlforge restores its own executable path before preparing repository paths
-  hdlforge captures PATH, PYTHONPATH, REPO_TOP
-  hdlforge accepts native --env-python / --env-path / --env-var handoff
-  hdlforge --cmd uses the same env handoff and project-root execution path
-  hdlforge --cmd prints command-mode/executing lines by default; use --no-print for quiet stdout
-  --no-print propagates to nested commands and suppresses environment summaries;
-  command output and errors remain visible
-  raw hdlforge --cmd can run without a project JSON; project-leaf env values still need one
+## Environment initialization
+
+`hdlforge_environment.bash` owns project selection, startup and overlays.
+`HDLFORGE_CALLED=1` marks an initialized chain. On the first launch, HDLForge
+finds the selected working directory's Git root and reads the root JSON's
+`settings.env.<host>.<user>` through jq before clearing caller exports.
+Select host/user with `HOST_MACHINE` and `HDLFORGE_HOST_USER` before launch.
+
+The fresh environment retains login identity, terminal/display access, locale,
+timezone, temporary-directory settings and SSH-agent access. Arbitrary caller
+exports are dropped. PATH/PYTHONPATH start from a minimal executable baseline
+and configured repository paths. Tool settings and literal string variables
+come from the JSON. The parent shell is unchanged.
+
+Every invocation, including nested ones, overlays the selected project's
+environment, then `--env-path`, `--env-python` and `--env-var`. Nested calls
+retain the repo baseline without rediscovering or resetting it. Paths resolve
+relative to their owning JSON and are deduplicated. CLI paths resolve relative
+to the project directory. Changed variable values produce a stderr warning
+with the variable name and layer; identical assignments are quiet. Values are
+literal, including quotes, dollar signs and trailing newlines. Internal launcher
+variables and PATH/PYTHONPATH cannot be replaced through `--env-var`.
+
+## Path management
+
+```bash
+hdlforge --tool path_manager show
+hdlforge --tool path_manager show-all
+hdlforge --tool path_manager init-base-path
+hdlforge --tool path_manager init-base-pythonpath
+hdlforge --tool path_manager install-shell
+hdlforge --tool path_manager update-repo --project repo.hdlforge.json
+```
+
+`show` reports effective paths; `show-all` reports configured host/user pairs.
+The two `init-base-*` actions print shell exports from the incoming environment.
+`install-shell` installs the launcher and completion in the user's bashrc.
+`update-repo` records the current host/user configuration where missing.
+Normal startup is automatic; management actions are not prerequisites.
+
+## Native completion schema
+
+The installation-local `native_command_help.json` contains the `tree` schema.
+Tool selection anchors traversal in `tools`; a positional action selects its
+`actions` child. Flags declare `arity`, `repeatable`, static `values`, dynamic
+`provider`, and optional child states. `when` conditions use parsed option
+presence or values (`present`, `equals`, `all`, `any`, `not`). Every suggested
+token has a sibling `#token` description. Metadata is displayed, never inserted.
+Completion reads configuration only and does not initialize environments or
+contact Vivado. The engine consumes tokens before the cursor and honors `--`.
 
 More:
   hdlforge_project_file.md
@@ -418,12 +389,6 @@ Examples keep one shared list on synthesis; an explicit implementation list
 overrides inheritance. The resolved list is frozen with the synthesis inputs.
 In input paths, `**` matches generated subdirectories recursively; each IP pattern
 must resolve to exactly one file.
-
-`--build RUN --save_this_run` saves the newest matching existing timestamp by
-adding exceptions to the run-root `.gitignore`. Use `--synth_timestamp TIMESTAMP`
-to select an exact run. Saving an implementation also saves its parent synthesis,
-but not sibling implementations. This management action does not start a build.
-Edit `.gitignore` manually to change or remove saved exceptions.
 
 IP runs record SHA-256 hashes of frozen source inputs in `info/source_hashes.json`.
 This metadata stays in the dated producer folder. Before copying its

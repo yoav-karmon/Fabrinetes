@@ -12,7 +12,6 @@ import tempfile
 import time
 
 from .tcl_arguments import tcl_word
-from .project_paths import ensure_xpr_is_available
 from .terminal_output import log as log_message
 
 HELPER_TCL = Path(__file__).with_name("live_project_helpers.tcl")
@@ -23,14 +22,14 @@ class ConsoleUnavailable(RuntimeError):
 
 
 class ProjectConsole:
-    def __init__(self, xpr: Path, timeout: float = 180, project_file: Path | None = None):
-        self.xpr = xpr.resolve()
-        self.project_file = project_file
-        self.logs_directory = self.xpr.parent.parent / "project_console" / self.xpr.stem
+    def __init__(self, project_file: Path, timeout: float = 180):
+        self.project_file = project_file.resolve()
         self.timeout = timeout
         self.force_recovery = False
-        identity = hashlib.sha1(str(self.xpr).encode()).hexdigest()[:10]
-        self.session = f"agent_tmux_{os.environ.get('USER', '').replace('.', '_')}_vivado_xpr_{self.xpr.stem}_{identity}_1"
+        identity = hashlib.sha1(str(self.project_file).encode()).hexdigest()[:10]
+        self.logs_directory = self.project_file.parent / "_vivado" / "console" / identity
+        label = re.sub(r"[^A-Za-z0-9_-]", "_", self.project_file.stem)
+        self.session = f"agent_tmux_{os.environ.get('USER', '').replace('.', '_')}_vivado_console_{label}_{identity}_1"
         self.directory = Path(tempfile.gettempdir()) / f"vivado-project-console-{os.getuid()}-{identity}"
         self.directory.mkdir(mode=0o700, exist_ok=True)
         self.terminal = self.directory / "terminal.log"
@@ -61,7 +60,7 @@ class ProjectConsole:
             invocation = shlex.join(["vivado", "-mode", "tcl", "-log", str(logs / "vivado.log"),
                                      "-journal", str(logs / "vivado.jou"), "-source", str(startup)])
             subprocess.run(["tmux", "new-session", "-d", "-s", self.session,
-                            "-c", str(self.xpr.parent.parent), "exec " + invocation], check=True, capture_output=True)
+                            "-c", str(self.project_file.parent), "exec " + invocation], check=True, capture_output=True)
             subprocess.run(["tmux", "pipe-pane", "-t", self.session, "cat >> " + shlex.quote(str(self.terminal))], check=True, capture_output=True)
             pid = subprocess.run(["tmux", "display-message", "-p", "-t", self.session, "#{pane_pid}"],
                                  check=True, capture_output=True, text=True).stdout.strip()
@@ -90,12 +89,6 @@ class ProjectConsole:
                 self.helper("open")
                 # Requests from a previous console cannot complete in this one.
                 (self.directory / "pending").unlink(missing_ok=True)
-
-    def ensure_project(self) -> None:
-        if not self.exists():
-            ensure_xpr_is_available(self.xpr)
-        self.open()
-        self.request(f"lvp_open_project {tcl_word(self.xpr)}")
 
     def pending_request(self) -> Path | None:
         """Return the unfinished request without contacting Vivado."""

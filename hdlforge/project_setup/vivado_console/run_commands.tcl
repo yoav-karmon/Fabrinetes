@@ -36,11 +36,6 @@ proc lvp_enabled {run} {
     return [expr {[lsearch -exact [split [get_property DESCRIPTION $run] "\n"] {[HDLForge:disabled]}] < 0}]
 }
 
-proc lvp_assert_enabled {run} {
-    if {![lvp_enabled $run]} {error "Run is disabled: $run"}
-    if {[get_property IS_IMPLEMENTATION $run] && ![lvp_enabled [_lvp_run [get_property PARENT $run]]]} {error "Parent synthesis is disabled: $run"}
-}
-
 proc lvp_run_messages {run} {
     set result [dict create WARNINGS - CRITICAL_WARNINGS - ERRORS -]
     set path [file join [get_property DIRECTORY $run] runme.log]
@@ -115,36 +110,6 @@ proc lvp_run_status {name} {lvp_run_record [_lvp_run $name] status}
 proc lvp_group_info {name {verbose 0}} {foreach run [lvp_group_runs $name] {lvp_run_info $run $verbose}}
 proc lvp_group_status {name} {foreach run [lvp_group_runs $name] {lvp_run_status $run}}
 proc lvp_reuse_status {name} {lvp_run_record [_lvp_run $name] reuse}
-proc lvp_clear_refresh {name} {set_property NEEDS_REFRESH false [_lvp_run $name]; lvp_reuse_status $name}
-
-proc lvp_build_run {name {jobs 1} {bitstream 1} {reset 0}} {
-    set run [_lvp_run $name]
-    lvp_assert_enabled $run
-    if {$jobs < 1} {error "jobs must be positive"}
-    if {$reset} {reset_run $run}
-    set args [list $run -jobs $jobs]
-    if {$bitstream && [get_property IS_IMPLEMENTATION $run]} {lappend args -to_step write_bitstream}
-    launch_runs {*}$args
-    lvp_run_status $name
-}
-proc lvp_build_group {name {jobs 1} {bitstream 1} {reset 0}} {
-    set group [lvp_group_runs $name]
-    lvp_assert_enabled [lindex $group 0]
-    if {$jobs < 1} {error "jobs must be positive"}
-    if {$reset} {reset_run [lindex $group 0]}
-    set children {}
-    foreach run [lrange $group 1 end] {if {[lvp_enabled $run]} {lappend children $run}}
-    if {![llength $children]} {lvp_build_run $name $jobs 0 0; return}
-    set args [list $children -jobs $jobs]
-    if {$bitstream} {lappend args -to_step write_bitstream}
-    launch_runs {*}$args
-    lvp_group_status $name
-}
-proc lvp_build_bitstream {name {jobs 1}} {
-    if {![get_property IS_IMPLEMENTATION [_lvp_run $name]]} {error "Bitstream requires an implementation run"}
-    lvp_build_run $name $jobs 1
-}
-proc lvp_stop_run {name} {terminate_runs [_lvp_run $name]; lvp_run_status $name}
 proc lvp_run_properties {name} {
     set run [_lvp_run $name]
     foreach property [lsort [list_property $run]] {
@@ -158,65 +123,10 @@ proc lvp_edit_run_property {name property value} {
     set_property $property $value $run
     lvp_emit [dict create RUN $name PROPERTY $property VALUE [get_property $property $run]]
 }
-proc lvp_incremental {name enabled} {
-    set run [_lvp_run $name]
-    if {[regexp -nocase {running|queued} [get_property STATUS $run]]} {error "Run is active: $name"}
-    # Clear a manual checkpoint so automatic on/off is unambiguous.
-    set_property INCREMENTAL_CHECKPOINT {} $run
-    set_property AUTO_INCREMENTAL_CHECKPOINT $enabled $run
-    lvp_emit [dict create RUN $name AUTO_INCREMENTAL_CHECKPOINT [get_property AUTO_INCREMENTAL_CHECKPOINT $run] INCREMENTAL_CHECKPOINT [get_property INCREMENTAL_CHECKPOINT $run]]
-}
-proc lvp_stop_group {name} {terminate_runs {*}[lvp_group_runs $name]; lvp_group_status $name}
-proc lvp_reset_run {name} {reset_run [_lvp_run $name]; lvp_run_status $name}
-proc lvp_reset_group {name} {reset_run [lindex [lvp_group_runs $name] 0]; lvp_group_status $name}
-proc lvp_set_enabled {name enabled {group 0}} {
-    set runs [list [_lvp_run $name]]
-    if {$group} {set runs [lvp_group_runs $name]}
-    foreach run $runs {
-        set lines {}
-        foreach line [split [get_property DESCRIPTION $run] "\n"] {
-            if {$line ni {{[HDLForge:enabled]} {[HDLForge:disabled]}}} {lappend lines $line}
-        }
-        lappend lines [expr {$enabled ? {[HDLForge:enabled]} : {[HDLForge:disabled]}}]
-        set_property DESCRIPTION [join $lines "\n"] $run
-        lvp_run_record $run list
-    }
-}
-
 proc lvp_close_project {} {
     if {![llength [get_projects -quiet]]} {return}
     foreach run [get_runs] {
         if {[regexp -nocase {running|queued} [get_property STATUS $run]]} {error "Run is active: $run; stop it explicitly first"}
     }
     close_project
-}
-proc lvp_export {path} {
-    _lvp_project
-    write_project_tcl -force $path
-    set handle [open $path a]
-    foreach run [get_runs] {
-        set desc [get_property DESCRIPTION $run]
-        if {[regexp {\[HDLForge:(enabled|disabled)\]} $desc]} {puts $handle [format {%s [get_runs %s]} [list set_property DESCRIPTION $desc] [list $run]]}
-    }
-    close $handle
-    lvp_emit [dict create EXPORTED [file normalize $path]]
-}
-proc lvp_generate {script project_dir origin} {
-    if {[llength [get_projects -quiet]]} {error "Close the current project before generating"}
-    set script [file normalize $script]
-    set project_dir [file normalize $project_dir]
-    if {[file exists $project_dir]} {
-        set backup "${project_dir}.preserved-[clock microseconds]"
-        file rename $project_dir $backup
-        puts "Preserved existing project: $backup"
-    }
-    file mkdir [file dirname $project_dir]
-    set previous [pwd]
-    cd [file dirname $project_dir]
-    set ::origin_dir_loc [file normalize $origin]
-    set ::user_project_name [file tail $project_dir]
-    set ::argv {}
-    set ::argc 0
-    try {uplevel #0 [list source $script]} finally {cd $previous}
-    lvp_status
 }

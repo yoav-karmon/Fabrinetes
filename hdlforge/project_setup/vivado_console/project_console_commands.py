@@ -10,40 +10,37 @@ CATALOG = json.loads((Path(__file__).resolve().parents[1] / "native_command_help
 COMMANDS = {name: (action, CATALOG["project_console"]["#" + name])
             for name, action in CATALOG["project_console"].items() if not name.startswith("#")}
 
-GROUPS = {
-    "aux": ("Execute Tcl commands or source Tcl files in the console.", "send source"),
-    "management": ("Console status, start, stop, restart and terminal access.",
-                   "status start stop restart interactive list_consoles console_output"),
-    "project": ("Close, export, generate or regenerate the project.",
-                "close_project export_open_project_to_tcl generate_project_from_tcl regenerate_project"),
-    "runs": ("List runs and groups; inspect live status and properties.",
-             "get_runs get_groups run_info run_status group_info group_status reuse_status follow"),
-    "build": ("Launch, stop or reset runs and groups through Tcl.",
-              "build_run build_group build_bitstream stop_run stop_group reset_run reset_group"),
-    "settings": ("Edit run properties, incremental compilation and launch enablement.",
-                 "set_run_property incremental_on incremental_off clear_refresh enable_run disable_run enable_group disable_group"),
-    "help": ("Command help and JSON installation.", "help install-json print-json"),
-}
+GROUPS = {'aux': ('Execute Tcl commands or source Tcl files.', 'send source'),
+ 'management': ('Console lifecycle and terminal access.',
+                'status start stop restart interactive list_consoles console_output'),
+ 'project': ('Close an explicitly opened project.', 'close_project'),
+ 'runs': ('Inspect an explicitly opened project.',
+          'get_runs get_groups run_info run_status group_info group_status reuse_status follow'),
+ 'settings': ('Inspect and edit properties through the console.', 'set_run_property'),
+ 'help': ('Command help and JSON installation.', 'help install-json print-json')}
 
-DISPLAY_NAMES = {
-    "follow": "follow_active_groups",
-    "send": "execute_tcl", "source": "source_tcl",
-    "status": "inspect_console", "start": "open_console", "stop": "terminate_console", "restart": "restart_console",
-    "interactive": "attach_console", "list_consoles": "list_consoles", "console_output": "capture_output",
-    "close_project": "close_project", "export_open_project_to_tcl": "export_open_project_to_tcl",
-    "generate_project_from_tcl": "generate_project_from_tcl", "regenerate_project": "regenerate_project",
-    "get_runs": "list_runs", "get_groups": "enumerate_groups", "run_info": "inspect_run",
-    "run_status": "status_run", "group_info": "configuration_group", "group_status": "group_status",
-    "reuse_status": "reuse_status", "build_run": "launch_run", "build_group": "build_group",
-    "build_bitstream": "write_bitstream", "stop_run": "terminate_run", "stop_group": "halt_group",
-    "reset_run": "reset_run", "reset_group": "clear_group_results",
-    "set_run_property": "edit_run_property", "incremental_on": "enable_incremental",
-    "incremental_off": "disable_incremental", "clear_refresh": "clear_refresh",
-    "enable_run": "activate_run", "enable_group": "permit_group",
-    "disable_run": "block_run", "disable_group": "suspend_group",
-    "help": "commands", "install-json": "install-json", "print-json": "print-json",
-}
-
+DISPLAY_NAMES = {'follow': 'follow_active_groups',
+ 'send': 'execute_tcl',
+ 'source': 'source_tcl',
+ 'status': 'inspect_console',
+ 'start': 'open_console',
+ 'stop': 'terminate_console',
+ 'restart': 'restart_console',
+ 'interactive': 'attach_console',
+ 'list_consoles': 'list_consoles',
+ 'console_output': 'capture_output',
+ 'close_project': 'close_project',
+ 'get_runs': 'list_runs',
+ 'get_groups': 'enumerate_groups',
+ 'run_info': 'inspect_run',
+ 'run_status': 'status_run',
+ 'group_info': 'configuration_group',
+ 'group_status': 'group_status',
+ 'reuse_status': 'reuse_status',
+ 'set_run_property': 'edit_run_property',
+ 'help': 'commands',
+ 'install-json': 'install-json',
+ 'print-json': 'print-json'}
 
 def shortcut_path(name: str) -> str:
     for group, (_, actions) in GROUPS.items():
@@ -114,7 +111,7 @@ def locate_own_key(filename: Path, invoked_key: str | None = None) -> str:
         management = value.get("management", {})
         own = value.get("update-json") or (management.get("update-json") if isinstance(management, dict) else None)
         own = own or value.get("update-json")
-        if path and path[-1] == "project_console" and isinstance(own, str) and any(flag + " update-json" in own for flag in ("--project_console", "--project_mng")):
+        if path and path[-1] == "project_console" and isinstance(own, str) and any(flag + " update-json" in own for flag in ("--project_console",)):
             matches.append(".".join(path[:-1]))
         for name, child in value.items():
             if not name.startswith("#"):

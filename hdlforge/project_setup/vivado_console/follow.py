@@ -13,7 +13,7 @@ from .run_output import run_tables
 
 def console_info(console):
     """Read tmux metadata and request files without sending Tcl commands."""
-    info = {'project': str(console.xpr), 'session': console.session,
+    info = {'project': str(console.project_file), 'session': console.session,
             'log': str(console.logs_directory / 'vivado.log'), 'status': 'unavailable'}
     try:
         result = subprocess.run(
@@ -31,7 +31,7 @@ def console_info(console):
 
 
 def display_frame(records, info):
-    print(f"Project XPR: {info['project']}")
+    print(f"HDLForge project: {info['project']}")
     print(f"Tcl console: {info['status']} | pane PID: {info.get('pid', '-')} | command: {info.get('command', '-')}")
     print(f"tmux session: {info['session']}")
     print(f"Tcl request: {info.get('request', 'unknown')} (passive inspection)")
@@ -46,7 +46,7 @@ def follow(console, group='', interval=5, once=False, machine=False, targets=Non
         raise ValueError('interval must be positive')
     with console.locked():
         console.open()
-    command = f'lvp_open_project {tcl_word(console.xpr)}\nlvp_active_group_status {tcl_word(group)}'
+    command = f'lvp_active_group_status {tcl_word(group)}'
     with console.locked():
         console.request(command)
     records = console.last_response.get('records', [])

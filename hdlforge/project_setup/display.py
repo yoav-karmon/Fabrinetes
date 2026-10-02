@@ -66,19 +66,6 @@ def print_task_args(local_vars: dict, REPO_TOP: str, allowed_values: dict[str, L
                 if isinstance(value, list):
                     display_value = f"[{', '.join(map(str, value))}]"
                 display_value = truncate_value(display_value)
-                # For step parameter, show API flag names instead of internal step names
-                if key == "step" and isinstance(value, list):
-                    # Map internal step names to API flag names
-                    step_to_flag = {
-                        "lint": "--lint",
-                        "generate_prj_with_external_tcl": "--generate_prj_with_external_tcl",
-                        "write_tcl": "--write_tcl",
-                        "file_remove": "--file_remove --file_path <path>",
-                        "file_add": "--file_add --file_path <path>"
-                    }
-                    flag_names = [step_to_flag.get(s, s) for s in value]
-                    display_value = f"[{', '.join(flag_names)}]"
-                    display_value = truncate_value(display_value)
                 allowed_str = ', '.join(allowed_values[key])
                 allowed_str = truncate_allowed(allowed_str)
                 table.append([key.ljust(max_key_len), display_value, allowed_str])

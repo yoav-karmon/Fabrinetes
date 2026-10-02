@@ -71,24 +71,12 @@ class ProjectFile:
         self.vivado_lint_ignore_error_codes = self.vivado_config.get("lint_ignore_error_codes", [])
         self.vivado_lint_ignore_warning_codes = self.vivado_config.get("lint_ignore_warning_codes", [])
         
-        # Vivado paths - get from external_config.filename
-        project_tcl_filename = self.vivado_external_config.get("filename", "")
-        self.vivado_project_tcl_edit_json = self.vivado_external_config.get("project_tcl_edit_json", "")
-        if project_tcl_filename:
-            self.vivado_project_tcl = self._working_path / project_tcl_filename
-        elif self.vivado_project_name:
-            self.vivado_project_tcl = self._working_path / f"{self.vivado_project_name}.tcl"
-        else:
-            self.vivado_project_tcl = None
-        
         if self.vivado_project_name:
             self.vivado_project_xpr_path = self.vivado_build_dir / self.vivado_project_name / f"{self.vivado_project_name}.xpr"
             self.vivado_project_xpr_relative = f"{self.vivado_project_name}/{self.vivado_project_name}.xpr"
-            self.vivado_output_tcl_path = self.vivado_build_dir / f"{self.vivado_project_name}.tcl"
         else:
             self.vivado_project_xpr_path = None
             self.vivado_project_xpr_relative = None
-            self.vivado_output_tcl_path = None
         
         # Verilator config
         verilator_build_dir_str = self.verilator_config.get("build_dir", "_verilator")

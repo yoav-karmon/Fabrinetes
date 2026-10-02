@@ -7,7 +7,7 @@ import subprocess
 import sys
 
 from .console_transport import ConsoleUnavailable, ProjectConsole
-from .project_paths import discover_project_json, load_xpr_path
+from .project_paths import discover_project_json
 from .project_console_commands import COMMANDS, shortcut_path, hdlforge_commands, install_commands, locate_own_key
 from .tcl_arguments import tcl_word
 from .terminal_output import table
@@ -60,42 +60,10 @@ def run_command(args: argparse.Namespace) -> str:
         if args.value is None:
             raise ValueError("set_run_property requires --value (use an empty string to clear)")
         return f"lvp_edit_run_property {target} {tcl_word(args.property)} {tcl_word(args.value)}"
-    if action in {"incremental_on", "incremental_off"}:
-        return f"lvp_incremental {target} {int(action == 'incremental_on')}"
-    if action.startswith(("enable_", "disable_")):
-        return f"lvp_set_enabled {target} {int(action.startswith('enable_'))} {int('group' in action)}"
     command = f"lvp_{action} {target}"
-    if action in {"build_run", "build_group"}:
-        command += f" {args.jobs} {int(not args.no_bitstream)} {int(args.reset)}"
-    elif action == "build_bitstream":
-        command += f" {args.jobs}"
-    elif action in {"run_info", "group_info"}:
+    if action in {"run_info", "group_info"}:
         command += f" {int(args.verbose)}"
     return command
-
-
-def confirm_close(console: ProjectConsole, args: argparse.Namespace, export_path: Path) -> None:
-    """A forced close skips export/confirmation, never implicitly stops active runs."""
-    console.request("lvp_status")
-    records = console.last_response.get("records", [])
-    if not records or not records[0].get("PROJECT"):
-        return
-    opened = records[0].get("XPR")
-    if not opened or Path(opened).resolve() != console.xpr.resolve():
-        raise RuntimeError(f"HDLForge JSON targets {console.xpr}, but the console has {opened or 'an unidentified project'} open. Nothing was closed.")
-    if not args.force:
-        if not sys.stdin.isatty():
-            raise RuntimeError("Project is open. Export/close it first, or pass --force to close without exporting Tcl; active runs are still protected.")
-        answer = input("Export current project to Tcl before closing? [y/N/cancel] ").strip().lower()
-        if answer in {"c", "cancel"}:
-            raise RuntimeError("Cancelled; project remains open")
-        if answer not in {"", "n", "no", "y", "yes"}:
-            raise ValueError("Enter yes, no, or cancel; project remains open")
-        if answer in {"y", "yes"}:
-            # Never overwrite the Tcl about to be sourced during regeneration.
-            destination = export_path.with_name(export_path.stem + ".before-close.tcl")
-            console.request(f"lvp_export {tcl_word(destination)}")
-    console.request("lvp_close_project")
 
 
 def parser() -> argparse.ArgumentParser:
@@ -110,9 +78,6 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--value")
     result.add_argument("--file", type=Path)
     result.add_argument("--output", type=Path)
-    result.add_argument("--jobs", type=int, default=1)
-    result.add_argument("--reset", action="store_true")
-    result.add_argument("--no-bitstream", action="store_true")
     result.add_argument("--force", action="store_true")
     result.add_argument("--raw", action="store_true")
     result.add_argument("--json", action="store_true", help="JSON response envelopes include the full transcript, Tcl result and records")
@@ -129,8 +94,6 @@ def parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     try:
-        if args.jobs < 1:
-            raise ValueError("jobs must be positive")
         if args.action == "help":
             table(["Command", "Description"], sorted([[shortcut_path(name), value[1]] for name, value in COMMANDS.items()]))
             return 0
@@ -144,15 +107,14 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.action == "list_consoles":
             result = subprocess.run(["tmux", "list-sessions", "-F", "#{session_name}"], capture_output=True, text=True)
-            table(["Console"], [[v] for v in result.stdout.splitlines() if "_vivado_xpr_" in v])
+            table(["Console"], [[v] for v in result.stdout.splitlines() if "_vivado_console_" in v])
             return 0
         project = (args.project_json or discover_project_json(Path.cwd())).resolve()
         if args.action == "update-json":
             install_commands(project, locate_own_key(project, os.environ.get("HDLFORGE_JSON_COMMAND_PATH")), True)
             return 0
         config = json.loads(project.read_text())
-        export_path = (project.parent / config["vivado"]["external_config"]["filename"]).resolve()
-        console = ProjectConsole(load_xpr_path(project), args.timeout, project)
+        console = ProjectConsole(project, args.timeout)
         console.on_response = lambda response: display_response(enrich(response), args.raw, args.json)
         if args.action == "follow":
             if args.run:
@@ -175,36 +137,24 @@ def main(argv: list[str] | None = None) -> int:
                     else:
                         console.request("lvp_status")
                 else:
-                    display_response({"request": "transport", "command": "status", "output": "Console stopped.\n", "result": "", "code": 0, "records": [{"CONSOLE": "stopped", "CONFIGURED_XPR": str(console.xpr)}]}, args.raw, args.json)
+                    display_response({"request": "transport", "command": "status", "output": "Console stopped.\n", "result": "", "code": 0, "records": [{"CONSOLE": "stopped", "PROJECT_JSON": str(project)}]}, args.raw, args.json)
                 return 0
             if args.action == "restart":
                 if console.exists():
-                    confirm_close(console, args, export_path)
-                    console.close()
+                    console.close(force=True)
                 console.open()
-                if console.xpr.exists():
-                    console.request(f"lvp_open_project {tcl_word(console.xpr)}")
                 console.request("lvp_status")
                 return 0
             if args.action == "console_output":
                 return subprocess.run(["tmux", "capture-pane", "-p", "-t", console.session, "-S", "-"]).returncode
             if args.action == "close_project":
                 console.open()
-                confirm_close(console, args, export_path)
+                console.request("lvp_close_project")
                 console.request("lvp_status")
-                return 0
-            if args.action in {"generate_project_from_tcl", "regenerate_project"}:
-                console.open()
-                confirm_close(console, args, export_path)
-                console.request(f"lvp_generate {tcl_word(export_path)} {tcl_word(console.xpr.parent)} {tcl_word(project.parent)}")
-                if args.action == "regenerate_project":
-                    console.request(f"lvp_open_project {tcl_word(console.xpr)}\nlvp_status")
                 return 0
             if args.action in {"start", "send", "source"}:
                 console.open()
                 if args.action == "start":
-                    if console.xpr.exists():
-                        console.request(f"lvp_open_project {tcl_word(console.xpr)}")
                     console.request("lvp_status")
                 elif args.action == "send":
                     if not args.cmd:
@@ -216,11 +166,7 @@ def main(argv: list[str] | None = None) -> int:
                     console.request(f"source {tcl_word(args.file.resolve())}")
                 return 0
             console.open()
-            prefix = f"lvp_open_project {tcl_word(console.xpr)}\n"
-            if args.action == "export_open_project_to_tcl":
-                console.request(prefix + f"lvp_export {tcl_word((args.output or export_path).resolve())}")
-            else:
-                console.request(prefix + run_command(args))
+            console.request(run_command(args))
         return 0
     except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
         if args.json:

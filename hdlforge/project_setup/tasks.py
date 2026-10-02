@@ -22,7 +22,6 @@ from typing import List, Dict, Any,Tuple
 import warnings
 import re
 # Import task handlers
-from vivado_tasks import vivado, VivadoStep
 from verilator_tasks import Verilator
 from network_tasks import network
 from vcd_analyzer_tasks import vcd_analyzer
@@ -245,9 +244,8 @@ def help(c):
     
     print("QUICK START:")
     print("  1. Set up your project: hdlforge --tool projects")
-    print("  2. Generate project with external TCL: hdlforge --tool vivado --generate_prj_with_external_tcl")
-    print("  3. Run synthesis: hdlforge --tool vivado --project_console build_run --run <synth_run_name>")
-    print("  4. Run simulation: hdlforge --tool Verilator --step build --step sim --SimTargetName <target>")
+    print("  2. Run synthesis: hdlforge --tool vivado --build <selector>")
+    print("  3. Run simulation: hdlforge --tool Verilator --step build --step sim --SimTargetName <target>")
     print()
     print("GETTING HELP:")
     print("  hdlforge                          # Show this help")
@@ -305,40 +303,11 @@ def help_vivado():
     print("    --build SYNTH[.IMPL] --clean_ignore_artifacts    Delete explicitly ignored inactive artifacts; no build")
     print("      Artifact actions cover all timestamps; --synth_timestamp selects one.")
     print()
-    print("  Project Management:")
-    print("    --generate_prj_with_external_tcl    Generate Vivado project using external TCL script")
-    print("    --write_tcl                         Export Vivado project to TCL")
-    print("    --get_xpr_path                      Print the absolute configured XPR path; does not start Vivado")
-    print("    --project_console <ACTION>              Persistent Vivado Tcl console and live run management")
-    print("    --monitor <ACTION>                  Monitor status, timing-graph, tail, collection, and management; use help")
-    print("      --project_console help                Show actions, descriptions, and options")
-    print("      --project_console help                List console actions and arguments")
-    print("      --project_console build_run           Build --run NAME; add --reset for reset-and-full-build")
-    print("      --project_console build_group         Build --group SYNTH; add --reset for reset-and-full-build")
-    print("    --project_console <ACTION>          Manage a persistent console or install reusable JSON commands")
-    print("      --project_console help            Show console actions and installation options")
-    print()
-    print("  Build and reset runs through --project_console build_run/build_group/reset_run/reset_group.")
-    print()
-    print("  File Management (require --file_path):")
-    print("    --file_add --file_path <PATH>        Add a file to the Vivado project")
-    print("    --file_remove --file_path <PATH>     Remove a file from the Vivado project")
-    print()
-    print("  Static Project Tcl Edits (require JSON text, JSON file, or project JSON reference):")
-    print("    --add_file_to_project_tcl            Add file sections to exported project Tcl")
-    print("    --remove_file_from_project_tcl        Remove file sections from exported project Tcl")
-    print("    --add_run_to_project_tcl             Add synth/implementation run sections")
-    print("    --remove_run_from_project_tcl         Remove synth/implementation run sections")
-    print("    --project_tcl_json <JSON>             Inline edit JSON")
-    print("    --project_tcl_json_file <PATH>        Edit JSON file")
-    print()
-    print("  Other:")
-    print("    --lint                               Run lint")
-    print("    --clean                              Clean the Vivado project directory under the build directory")
-    print("    --clean_logs                         Clean Vivado log files from current directory")
-    print("                                         (vivado.log, vivado.jou, vivado_*.backup.*)")
-    print("    --verbose                            Enable verbose output")
-    print("    -f, --force                          Skip confirmation prompts")
+    print("  Tcl console and inspection:")
+    print("    --project_console ACTION             Persistent console, Tcl submission and inspection")
+    print("      Actions: start, send, source, interactive, status, restart, stop; use help for all")
+    print("    --get_xpr_path                       Print a configured XPR path without starting Vivado")
+    print("    --monitor ACTION                     Inspect logs, timing and build evidence; use help")
     print()
     print("OPTIONS:")
     print("    --project <PATH>                     Specify project file path (optional)")
@@ -666,22 +635,8 @@ if __name__ == "__main__":
     parser.add_argument('--lint-file', action='append', help='Project-relative Verilator source file(s) for raw selected-file lint')
     parser.add_argument('--extra-env', help='Extra environment variables')
     
-    # Vivado arguments
-    parser.add_argument('--lint', action='store_true', help='Run lint')
-    parser.add_argument('--generate_prj_with_external_tcl', action='store_true', help='Generate Vivado project using external TCL script')
-    parser.add_argument('--write_tcl', action='store_true', help='Export Vivado project to TCL')
-    parser.add_argument('--file_remove', action='store_true', help='Remove a file from the Vivado project')
-    parser.add_argument('--file_add', action='store_true', help='Add a file to the Vivado project')
-    parser.add_argument('--file_path', type=str, help='File path (required for file_remove and file_add)')
-    parser.add_argument('--add_file_to_project_tcl', action='store_true', help='Add file sections to the exported Vivado project Tcl')
-    parser.add_argument('--remove_file_from_project_tcl', '--remove_file_fom_project_tcl', dest='remove_file_from_project_tcl', action='store_true', help='Remove file sections from the exported Vivado project Tcl')
-    parser.add_argument('--add_run_to_project_tcl', '--add_rrun_to_project_tcl', '--add_run_fom_project_tcl', '--add_rrun_fom_project_tcl', dest='add_run_to_project_tcl', action='store_true', help='Add synth/implementation run sections to the exported Vivado project Tcl')
-    parser.add_argument('--remove_run_from_project_tcl', '--remove_rrun_fom_project_tcl', '--remove_run_fom_project_tcl', dest='remove_run_from_project_tcl', action='store_true', help='Remove synth/implementation run sections from the exported Vivado project Tcl')
-    parser.add_argument('--project_tcl_json', type=str, help='Inline JSON dictionary for project Tcl edits')
-    parser.add_argument('--project_tcl_json_file', type=str, help='JSON file for project Tcl edits')
-    parser.add_argument('--clean_logs', action='store_true', help='Clean Vivado log files from current directory')
     parser.add_argument('-f', '--force', action='store_true', help='Skip confirmation prompts')
-    
+
     # Network, hw_manager, and hw_server tool arguments (shared --cmd)
     # For hw_server, --cmd can be used multiple times and accepts any string (menu selections)
     # For other tools, it's a single command from the choices list
@@ -816,66 +771,7 @@ if __name__ == "__main__":
             args.project_lint_file,
         )
     elif args.tool == 'vivado':
-        # Check if deprecated --step is used with vivado
-        if args.step:
-            print("[!x!] Error: --step is deprecated for vivado tool")
-            print("[i] Use direct flags instead:")
-            print("    --lint               Run lint")
-            print()
-            help_vivado()
-            sys.exit(1)
-        
-        # Collect non-build project operations from direct flags
-        steps_from_flags = []
-        
-        if args.lint:
-            steps_from_flags.append('lint')
-        if args.generate_prj_with_external_tcl:
-            steps_from_flags.append('generate_prj_with_external_tcl')
-        if args.write_tcl:
-            steps_from_flags.append('write_tcl')
-        if args.file_remove:
-            steps_from_flags.append('file_remove')
-        if args.file_add:
-            steps_from_flags.append('file_add')
-        if args.add_file_to_project_tcl:
-            steps_from_flags.append('project_tcl_file_add')
-        if args.remove_file_from_project_tcl:
-            steps_from_flags.append('project_tcl_file_remove')
-        if args.add_run_to_project_tcl:
-            steps_from_flags.append('project_tcl_run_add')
-        if args.remove_run_from_project_tcl:
-            steps_from_flags.append('project_tcl_run_remove')
-        if args.clean_logs:
-            steps_from_flags.append('clean_logs')
-        
-        final_steps = steps_from_flags
-        
-        # Check if no steps are provided - show help
-        if not final_steps:
-            help_vivado()
-            sys.exit(0)
-        
-        # Validate that file_path is provided when needed
-        requires_file_path = any(step in ['file_remove', 'file_add'] for step in final_steps)
-        if requires_file_path and not args.file_path:
-            print("[!x!] File path is required for file_remove and file_add commands")
-            print("[i] Usage examples:")
-            print("    hdlforge --tool vivado --file_remove --file_path <file_path>")
-            print("    hdlforge --tool vivado --file_add --file_path <file_path>")
-            exit(1)
-        
-        vivado(
-            c,
-            args.project,
-            args.verbose,
-            final_steps,
-            args.clean,
-            args.force,
-            args.file_path,
-            args.project_tcl_json,
-            args.project_tcl_json_file,
-        )
+        help_vivado()
     elif args.tool == 'network':
         # Network tool selected
         cmd_list = args.cmd if args.cmd else []
