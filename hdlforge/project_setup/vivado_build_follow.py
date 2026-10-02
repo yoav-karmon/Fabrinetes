@@ -35,5 +35,5 @@ def background_follow(project: Path, output_root: Path, argv: list[str]) -> int:
     except KeyboardInterrupt:
         print(f'\nDetached. Build continues with launcher PID {process.pid}.\nLog: {path}', flush=True)
         print(f'Resume log following:\n  {shlex.join(["tail", "-n", "50", "-f", "--", str(path.resolve())])}', flush=True)
-        print('Use hdlforge --tool vivado --build_status to inspect it; --stop_run stops a selected attempt.', flush=True)
+        print('Use hdlforge vivado.build.status to inspect it; --stop_run stops a selected attempt.', flush=True)
         return 0

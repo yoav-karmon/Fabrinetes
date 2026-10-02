@@ -18,7 +18,7 @@ from ssh_config_inventory import get_inventory, merge, parse_config, read_docume
 
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(
-        prog="hdlforge --tool ssh", allow_abbrev=False,
+        prog="hdlforge ssh.<action>", allow_abbrev=False,
         description="Import, export, verify or merge SSH inventories keyed by connection Host alias.",
         epilog="Writes show a diff and require approval unless --force. Every existing destination is backed up "
                "as <filename>.<UTC timestamp>.bak. Dry-run and verify never write or create backups. "

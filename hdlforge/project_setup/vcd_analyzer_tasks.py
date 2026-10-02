@@ -29,7 +29,7 @@ def vcd_analyzer(c, **kwargs):
     # Validate required arguments
     if not getattr(args, 'vcd', None):
         print("[!x!] VCD file must be specified with --vcdfilename")
-        print("[i] Usage: hdlforge --tool vcd_analyzer --vcdfilename <vcd_file> [options]")
+        print("[i] Usage: hdlforge vcd_analyzer.values --vcdfilename <vcd_file> [options]")
         sys.exit(1)
     
     # Handle rebuild-index flag

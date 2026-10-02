@@ -79,7 +79,7 @@ hdlforge_select_project() {
                 HDLFORGE_PROJECT_ARGS+=(--tool "$TOOL_NAME")
                 shift
                 ;;
-            --tool|--cmd|--append|--eval_json|--env-python|--env-path|--env-var|--flags|--file|--lint-file|--vcdfilename)
+            --tool|--cmd|--eval_json|--env-python|--env-path|--env-var|--flags|--file|--lint-file|--vcdfilename)
                 # Opaque argument values must not be interpreted as --project.
                 HDLFORGE_PROJECT_ARGS+=("$1")
                 if [ "$#" -ge 2 ]; then
@@ -166,7 +166,7 @@ hdlforge_normalize_file_arguments() {
                 fi
                 HDLFORGE_PROJECT_ARGS+=("$flag" "$value")
                 ;;
-            --cmd|--append|--eval_json|--env-python|--env-path|--env-var|--flags|--tool)
+            --cmd|--eval_json|--env-python|--env-path|--env-var|--flags|--tool)
                 HDLFORGE_PROJECT_ARGS+=("$1")
                 if [ "$#" -ge 2 ]; then
                     HDLFORGE_PROJECT_ARGS+=("$2")
@@ -232,6 +232,10 @@ hdlforge_validate_environment() {
 hdlforge_export_variable() {
     local environment_name="$1" environment_value="$2" environment_layer="$3"
     if [[ -v "$environment_name" ]] && [ "${!environment_name}" != "$environment_value" ]; then
+        if [ "${HDLFORGE_NESTED_CALL:-0}" = 1 ] && [ "${HDLFORGE_ALLOW_ENV_OVERWRITE:-0}" != 1 ]; then
+            printf 'warning: preserving inherited environment variable %s; use --allow-env-overwrite to replace it\n' "$environment_name" >&2
+            return 0
+        fi
         printf 'warning: %s overrides environment variable %s\n' "$environment_layer" "$environment_name" >&2
     fi
     declare -gx "$environment_name=$environment_value"
@@ -254,6 +258,11 @@ hdlforge_apply_json_environment() {
     tool_path="$("$jq_bin" -r '.tools.vivado // empty' <<< "$env_json")"
     if [ -n "$tool_path" ]; then
         tool_path="$(resolve_working_path "$tool_path" "$base_dir")" || return 1
+        if [ "${HDLFORGE_NESTED_CALL:-0}" = 1 ] && [ "${HDLFORGE_ALLOW_ENV_OVERWRITE:-0}" != 1 ] \
+            && [ -n "${VIVADO_SETTINGS:-}" ] && [ "$VIVADO_SETTINGS" != "$tool_path" ]; then
+            printf 'warning: preserving inherited Vivado environment; use --allow-env-overwrite to replace it\n' >&2
+            tool_path="$VIVADO_SETTINGS"
+        fi
         [ -f "$tool_path" ] || { echo "error: Vivado settings not found: $tool_path" >&2; return 1; }
         # Source each settings file once in a nested command chain.
         if [ "${HDLFORGE_VIVADO_SETTINGS_LOADED:-}" != "$tool_path" ]; then
@@ -304,6 +313,18 @@ hdlforge_prepare_environment() {
     local selected_host="${HDLFORGE_SELECTED_HOST:-${HOST_MACHINE:-}}"
     local selected_user="${HDLFORGE_SELECTED_USER:-${HDLFORGE_HOST_USER:-}}"
     local jq_bin first_launch=false
+    local parent_name parent_path="${PATH:-}" parent_pythonpath="${PYTHONPATH:-}"
+    local -A parent_values=()
+    # Vendor setup scripts can export or unset variables too. Preserve the
+    # complete incoming nested environment, not only JSON-assigned keys.
+    if [ "${HDLFORGE_CALLED:-0}" = 1 ] && [ "${HDLFORGE_ALLOW_ENV_OVERWRITE:-0}" != 1 ]; then
+        while IFS= read -r parent_name; do
+            case "$parent_name" in
+                HDLFORGE*|REPO_TOP|ROOT_FOLDER|FABRINETES|PATH|PYTHONPATH|PWD|OLDPWD|SHLVL|_|BASHOPTS|SHELLOPTS) ;;
+                *) parent_values["$parent_name"]="${!parent_name}" ;;
+            esac
+        done < <(compgen -e)
+    fi
     source "$installation_dir/bashrc-func" || return 1
     jq_bin="${HDLFORGE_JQ:-$(type -P jq)}"
     [ -x "$jq_bin" ] || { echo "error: jq is required on the incoming PATH" >&2; return 1; }
@@ -351,6 +372,17 @@ hdlforge_prepare_environment() {
     if [ -n "$project_json" ] && [ "$project_json" != "$repo_json" ]; then
         hdlforge_apply_json_environment "$project_environment" "$jq_bin" "$PROJECT_DIR" "project" || return 1
     fi
+    if [ "$first_launch" != true ] && [ "${HDLFORGE_ALLOW_ENV_OVERWRITE:-0}" != 1 ]; then
+        for parent_name in "${!parent_values[@]}"; do
+            if [[ ! -v "$parent_name" ]] || [ "${!parent_name}" != "${parent_values[$parent_name]}" ]; then
+                printf 'warning: preserving inherited environment variable %s after tool setup\n' "$parent_name" >&2
+                declare -gx "$parent_name=${parent_values[$parent_name]}"
+            fi
+        done
+        PATH="$(remove_duplicates_from_path "$PATH:$parent_path")"
+        PYTHONPATH="$(remove_duplicates_from_path "${PYTHONPATH:-}:$parent_pythonpath")"
+        export PATH PYTHONPATH
+    fi
     export HDLFORGE_CALLED=1
 }
 
@@ -388,20 +420,6 @@ hdlforge_join_colon() {
 
 hdlforge_resolve_project_path() {
     resolve_working_path "$1" "$ROOT_FOLDER"
-}
-
-hdlforge_collect_colon_paths() {
-    local value="$1"
-    local array_name="$2"
-    local label="${3:-HDLForge env path}"
-    local path_value
-    local old_ifs="$IFS"
-
-    IFS=':'
-    for path_value in $value; do
-        hdlforge_append_unique "$array_name" "$path_value" "$label"
-    done
-    IFS="$old_ifs"
 }
 
 hdlforge_path_contains() {
@@ -773,13 +791,8 @@ hdlforge_apply_env_state() {
         fi
     fi
 
-    if [ "${HDLFORGE_ENV_STATE_ACTIVE:-0}" = "1" ]; then
-        hdlforge_collect_colon_paths "${HDLFORGE_ADD_PYTHONPATH:-}" HDLFORGE_COLLECTED_PYTHONPATHS "PYTHONPATH"
-        hdlforge_collect_colon_paths "${HDLFORGE_ADD_PATH:-}" HDLFORGE_COLLECTED_PATHS "PATH"
-        if [ -n "${HDLFORGE_ADD_ENV_VAR_JSON:-}" ]; then
-            hdlforge_collect_env_var_json "$HDLFORGE_ADD_ENV_VAR_JSON" "HDLForge inherited env var JSON" || exit 1
-        fi
-    fi
+    # Inherited additions are already present in this process. Replaying their
+    # old JSON values here would undo an explicitly permitted project overlay.
 
     for json_arg in "${HDLFORGE_ENV_PYTHON_JSONS[@]}"; do
         hdlforge_collect_path_array_json \
@@ -821,6 +834,7 @@ hdlforge_apply_env_state() {
         env_key="${HDLFORGE_COLLECTED_ENV_KEYS[$index]}"
         env_value="${HDLFORGE_COLLECTED_ENV_VALUES[$index]}"
         hdlforge_export_variable "$env_key" "$env_value" "command line"
+        HDLFORGE_COLLECTED_ENV_VALUES[$index]="${!env_key}"
         has_env_state=true
     done
 

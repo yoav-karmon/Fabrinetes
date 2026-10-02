@@ -20,7 +20,7 @@ different project; use `--project` for an external source's project.
 Nested commands retain an explicit project choice when searching that same
 directory, including directories with multiple project files. Changing to a
 different project selects the nearest project there. Fresh launches ignore an
-inherited project filename. A raw `--cmd` with no selected project retains its
+inherited project filename. An `eval-cmd` invocation with no selected project retains its
 launch directory when the repository environment is otherwise available.
 
 ## SSH configuration inventory
@@ -30,13 +30,13 @@ Run these from the repository root to use its `*.hdlforge.json`, or select
 they do not connect to hosts or execute SSH `Match exec` commands.
 
 ```bash
-hdlforge --tool ssh import --json fpga.hdlforge.json --ssh-config ~/.ssh/config --dry-run
-hdlforge --tool ssh import --json fpga.hdlforge.json
-hdlforge --tool ssh verify --json fpga.hdlforge.json
-hdlforge --tool ssh export --json fpga.hdlforge.json --dry-run
-hdlforge --tool ssh merge --json fpga.hdlforge.json --input laptop.json --input lab.json --dry-run
-hdlforge --tool ssh merge --json fpga.hdlforge.json --input lab.json --on-collision incoming
-hdlforge --tool ssh export --help
+hdlforge ssh.import --json fpga.hdlforge.json --ssh-config ~/.ssh/config --dry-run
+hdlforge ssh.import --json fpga.hdlforge.json
+hdlforge ssh.verify --json fpga.hdlforge.json
+hdlforge ssh.export --json fpga.hdlforge.json --dry-run
+hdlforge ssh.merge --json fpga.hdlforge.json --input laptop.json --input lab.json --dry-run
+hdlforge ssh.merge --json fpga.hdlforge.json --input lab.json --on-collision incoming
+hdlforge ssh.export --help
 ```
 
 Actions accept `--help`; write actions support `--dry-run` and `--force`.
@@ -115,7 +115,7 @@ their contents before committing or sharing.
 Bitstream-only regeneration uses the normal Vivado build selector:
 
 ```bash
-hdlforge --tool vivado --build synth_production.latest.impl_production.bitstream.<impl_timestamp>
+hdlforge vivado.build.impl.synth_production.latest.impl_production.bitstream.<impl_timestamp>
 ```
 
 Select a dated synthesis in place of `latest` when needed. Completion lists
@@ -126,8 +126,8 @@ then writes a new bitstream in the implementation's `bitstream_runs/<timestamp>/
 The original implementation's USERID timestamp is retained. No synthesis,
 placement, routing, physical optimization or current-source/XDC reload occurs.
 Original implementation outputs remain intact. Regeneration uses the normal
-background launcher, `runme.log`, `--build_status`, Ctrl-C detach and
-`--build_stop_all`. No extra JSON setting or project Tcl helper is required.
+background launcher, `runme.log`, `vivado.build.status`, Ctrl-C detach and
+`vivado.build.stop_all`. No extra JSON setting or project Tcl helper is required.
 New runs record the final checkpoint in `info/last_routed_checkpoint.txt`.
 Legacy examples use `<top>_postroute_physopt.dcp` or `<top>_routed.dcp`.
 
@@ -138,119 +138,73 @@ Non-project implementation bitstream identity:
   record the value. Source XDC files are not rewritten; USR_ACCESS/version remains
   design-controlled. Existing bitstreams and saved runtime snapshots are unchanged.
 
-Project file:
-  <project>.hdlforge.json
+## Dotted commands
 
-Project root:
-  folder containing the project file
+The installed `native_command_help.json` is the source of truth for executable
+command leaves, contextual help and completion. An incomplete path prints its
+available children and modifiers without launching a tool.
 
-Auto-detect project:
-  cd <project root>
-  hdlforge --tool <tool> <args>
+```bash
+hdlforge
+hdlforge vivado
+hdlforge vivado.build
+hdlforge vivado.build.synth.synth_example.new
+hdlforge vivado.build.impl.synth_example.latest.impl_example.new
+hdlforge vivado.build.synth.synth_example.continue
+hdlforge Verilator.sim --SimTargetName full_sim
+hdlforge vivado.console.send --cmd 'open_checkpoint design.dcp'
+hdlforge eval-cmd 'python3 script.py --argument value' --dry-run
+hdlforge eval-cmd.help
+hdlforge project-shortcuts.testing.integration_test.sim.example.run_all
+```
 
-Explicit project:
-  hdlforge --project <project>.hdlforge.json --tool <tool> <args>
+`continue` preserves the existing configured-run continuation behavior. `new`
+requests a new synthesis. Implementation selectors identify their synthesis,
+implementation and operation as shown by completion.
 
-Tools:
-  Verilator
-  vivado
-  tsharkWrapper
-  hw_server
-  toolbox
+Project shortcut lookup is explicit through `project-shortcuts.<path>` and
+limited to `LLM_orch`. Bare shortcut paths are not auto-detected. Project-file
+discovery for startup and environment setup remains automatic.
 
-Verilator:
-  hdlforge --tool Verilator --step build --SimTargetName <target>
-  hdlforge --tool Verilator --step sim --SimTargetName <target>
-  hdlforge --tool Verilator --step lint --SimTargetName <target>
-  hdlforge --tool Verilator --file <source.sv> --flags -Wno-fatal --flags -Werror-UNUSEDSIGNAL
-  hdlforge --tool Verilator --lint-file <source.sv> --flags -Wno-fatal
-  --file lints selected project files with package sources and source-dir lookup
-  --lint-file lints only the selected file path without dependency sources
-  --file and --lint-file imply --step lint when no step is supplied
-  targetless file lint scopes -Werror-<CODE> failures to selected files
+`eval-cmd` accepts exactly one quoted shell command. Its `--dry-run` resolves
+the environment and prints the command and working directory without executing
+the payload. Arguments for scripts belong inside that quoted command or in a
+dedicated script. `--tool`, top-level `--cmd`, `--eval_json` and `--append` are
+removed. The console's local `--cmd` still supplies its Tcl payload.
 
-Vivado non-project:
-  hdlforge --project example.hdlforge.json --tool vivado --build synth_example
-  hdlforge --project example.hdlforge.json --tool vivado --build synth_example --auto_impl impl_example
-  hdlforge --project example.hdlforge.json --tool vivado --build synth_example.latest.impl_example.new
-  hdlforge --project example.hdlforge.json --tool vivado --build synth_example.rerun.<run-id>
-  hdlforge --project example.hdlforge.json --tool vivado --build synth_example.<synth-id>.impl_example.rerun.<impl-id>
-    Definitions live in vivado.non_project.runs; implementation definitions are
-    nested in impl_runs. Project-definition paths are relative to the project JSON.
-    The script field explicitly selects maintained Tcl code. HDLForge copies it,
-    generates snapshot/scripts/run.json, and launches the copied run.tcl directly
-    with -tclargs <run.json>. The current working directory is the run's work/.
-    New synthesis snapshots also freeze each implementation's declared inputs and
-    store each definition in run.json implementation_configs. Each launched
-    implementation adds an entry to that same JSON under attempts, keyed by run ID,
-    with identity and checkpoint hash. Child scripts receive the shared JSON path
-    and run ID. Updates use file locking and atomic replacement.
-    The maintained script's bootstrap loads the frozen runtime and Tcllib JSON parser.
+## Master flags
 
-    Layout: <output_root>/<synth>/_<label>/{snapshot,logs,artifacts,work}.
-    snapshot contains source/ and scripts/{run.tcl,run.json,_hdlforge/}.
-    Implementation: <synth-run>/impl_runs/<implementation-name>/_<label>/ with exactly the same layout.
-    Maintained implementation scripts live beside the synthesis script, conventionally
-    impl_run_NAME.tcl. Only declared files and literal RTL includes are snapshotted;
-    declare dynamic dependencies in input_files. Implementations inherit the parent's
-    frozen IP list only when ips is omitted; they do not copy synthesis RTL or DCP.
-    Their JSON references the parent DCP relatively and stores SHA-256/parent run ID.
-    A missing or changed checkpoint refuses execution or rerun.
+Every command inherits `tree.master_flags`: `--project`, `--env-path`,
+`--env-python`, `--env-var`, `--allow-env-overwrite`, `--no-print`, `--dry-run`,
+`--help` and `-h`. They appear in every command's help/completion and may be
+placed before or after its anchor. Action-local modifiers follow the command.
+Environment arrays accept literal JSON or a dotted data leaf in the selected
+project; `--env-var` uses an array of single-key objects.
 
-    Generated JSON paths are relative to its own directory, not the working directory.
-    Run labels are opaque and start with _. Identity and time come from run_id,
-    created_at, timestamp and launch_epoch in JSON. Renaming generated run folders
-    preserves execution, discovery, latest selection and reruns. Use stable IDs
-    from completion when labels contain punctuation. New implementations snapshot
-    the parent synthesis's frozen declared Tcl/XDC/support files; reruns preserve the original JSON,
-    scripts, inputs and bitstream USERID timestamp. --refresh_impl_inputs remains
-    accepted for a new implementation but is redundant with that default behavior.
-    Latest selects by JSON creation time and requires success; no fallback to an
-    older success. Auto-implementation pins the successful parent's stable ID.
-    Commands, directives and stages belong to Tcl. Parameter/property maps remain
-    literal Vivado values. initialize_design loads JSON inputs into an in-memory project.
+```bash
+hdlforge eval-cmd 'python3 -m integration_test.example' --env-python '["sources/tests"]'
+hdlforge project-shortcuts.testing.example --env-var '[{"TESTCASE":"example"}]'
+hdlforge eval-cmd 'printenv TESTCASE' --allow-env-overwrite --env-var '[{"TESTCASE":"changed"}]'
+```
 
-  hdlforge --project example.hdlforge.json --tool vivado --build synth_example.latest.impl_example.bitstream.<impl-id>
-    Open the selected routed checkpoint without synthesis/place/route. Save a
-    hash-checked reference and paired probes in a new bitstream_runs/_<label> run.
-    Preserve the implementation's original bitstream USERID timestamp.
-  hdlforge --project example.hdlforge.json --tool vivado --build ip_example
-    Regenerate private work/ip_sources copies; the input snapshot stays immutable.
-  hdlforge --project example.hdlforge.json --tool vivado --build_status
-  hdlforge --project example.hdlforge.json --tool vivado --build_status_all
-  hdlforge --project example.hdlforge.json --tool vivado --build_stop_all
-  hdlforge --project example.hdlforge.json --tool vivado --build_find_all_user_runs
-    _run_registry.json records launches; run IDs relocate renamed folders.
-    logs/ holds status, exit code, stage events, runme.log, vivado.log and journal.
-    Ctrl-C detaches log following; it does not stop the background worker.
-    Process identity and run locks protect active runs.
-  hdlforge --project example.hdlforge.json --tool vivado --build_clean_ignore_artifacts --dry-run
-    Cleanup without a selector checks whole synthesis trees, including every nested
-    implementation. Any tracked or non-ignored descendant prevents deletion of
-    the entire tree; unreadable paths, nested repositories and held locks also block.
-    Remove --dry-run to delete eligible trees. --build RUN --clean_ignore_artifacts
-    narrows selection. Add _* once to the repository root .gitignore; HDLForge does
-    not generate per-run ignore files. Save explicitly with git add -f <run-folder>.
-    --save_this_run is retired. Old-format folders remain intact and are not selected.
-  hdlforge --project example.hdlforge.json --tool vivado --build_create syth_imp_example
-  hdlforge --project example.hdlforge.json --tool vivado --init_build all
-  hdlforge --project example.hdlforge.json --tool vivado --build_lint
-    Create examples, fill missing defaults without overriding values, or validate
-    definitions and script/input paths without launching Vivado. Scripts belong
-    directly in the synthesis/IP definition directory. Existing examples are not
-    overwritten. enabled_on_all controls project-defined batch selection.
-    See hdlforge/project_setup/vivado_build_example_README.md for the full example.
+Nested invocations preserve inherited environment values by default. New keys
+and path entries can be added. A changed inherited value is skipped with a
+stderr warning; `--allow-env-overwrite` permits replacing it on that invocation
+and emits the normal overwrite warning. Permission is not inherited by further
+nested launches. Equal values are quiet. Reserved launcher variables remain
+protected even with the flag. First-launch repository/project/CLI precedence
+is unchanged.
 
 ## Persistent Vivado Tcl console
 
 ```bash
-hdlforge --tool vivado --project_console start
-hdlforge --tool vivado --project_console send --cmd 'open_checkpoint design.dcp'
-hdlforge --tool vivado --project_console source --file inspect.tcl
-hdlforge --tool vivado --project_console interactive
-hdlforge --tool vivado --project_console status
-hdlforge --tool vivado --project_console restart
-hdlforge --tool vivado --project_console stop
+hdlforge vivado.console.start
+hdlforge vivado.console.send --cmd 'open_checkpoint design.dcp'
+hdlforge vivado.console.source --file inspect.tcl
+hdlforge vivado.console.interactive
+hdlforge vivado.console.status
+hdlforge vivado.console.restart
+hdlforge vivado.console.stop
 ```
 
 The selected HDLForge JSON identifies the persistent tmux console. It needs no
@@ -273,11 +227,11 @@ non-project build commands documented above.
 LLM_orch:
   hdlforge <shortcut.path>
   hdlforge <shortcut.path> --append '<extra flags>'
-  hdlforge --cmd '<shell command>'
-  hdlforge --no-print --cmd '<shell command>'
-  hdlforge --cmd '<shell command>' --append '<extra flags>'
+  hdlforge eval-cmd '<shell command>'
+  hdlforge --no-print eval-cmd '<shell command>'
+  hdlforge eval-cmd '<shell command>' --append '<extra flags>'
   hdlforge --env-python '["sources/tests"]' --cmd 'python3 -m package.tool'
-  hdlforge --env-path '["tools"]' --cmd 'my_tool' --append '<extra flags>'
+  hdlforge eval-cmd 'my_tool --flag value' --env-path '["tools"]'
 
 ## Environment initialization
 
@@ -305,12 +259,12 @@ variables and PATH/PYTHONPATH cannot be replaced through `--env-var`.
 ## Path management
 
 ```bash
-hdlforge --tool path_manager show
-hdlforge --tool path_manager show-all
-hdlforge --tool path_manager init-base-path
-hdlforge --tool path_manager init-base-pythonpath
-hdlforge --tool path_manager install-shell
-hdlforge --tool path_manager update-repo --project repo.hdlforge.json
+hdlforge path_manager.show
+hdlforge path_manager.show-all
+hdlforge path_manager.init-base-path
+hdlforge path_manager.init-base-pythonpath
+hdlforge path_manager.install-shell
+hdlforge path_manager.update-repo --project repo.hdlforge.json
 ```
 
 `show` reports effective paths; `show-all` reports configured host/user pairs.
@@ -319,202 +273,23 @@ The two `init-base-*` actions print shell exports from the incoming environment.
 `update-repo` records the current host/user configuration where missing.
 Normal startup is automatic; management actions are not prerequisites.
 
-## Native completion schema
+## Shared command tree
 
-The installation-local `native_command_help.json` contains the `tree` schema.
-Tool selection anchors traversal in `tools`; a positional action selects its
-`actions` child. Flags declare `arity`, `repeatable`, static `values`, dynamic
-`provider`, and optional child states. `when` conditions use parsed option
-presence or values (`present`, `equals`, `all`, `any`, `not`). Every suggested
-token has a sibling `#token` description. Metadata is displayed, never inserted.
-Completion reads configuration only and does not initialize environments or
-contact Vivado. The engine consumes tokens before the cursor and honors `--`.
+`native_command_help.json` stores `tree.commands` and `tree.master_flags`.
+Each dot selects a child in `commands`; a dynamic provider resolves project
+shortcut paths or build selectors. Executable leaves declare their internal
+dispatch arguments and allowed `flags`. The same resolver validates launch
+arguments and supplies help/completion state. Internal dispatcher arguments
+are implementation details, not a second public command syntax.
 
-More:
-  hdlforge_project_file.md
-  how_hdlforge_keeps_paths_clean.md
+Flags declare arity, repeatability, values/providers and optional `when`
+conditions (`present`, `equals`, `all`, `any`, `not`). Every static command or
+flag has a sibling `#name` description. Dynamic project shortcuts use their
+own sibling descriptions. Metadata is display-only.
 
-Bash completion descriptions:
-  Invoking a command group, such as hdlforge vivado --no-print, lists only
-  its immediate children. Invoke a listed subgroup to see the next level;
-  group listing does not execute any child commands. Keys beginning with #
-  remain hidden.
-  Running bare hdlforge prints usage followed by the same top-level choices
-  and descriptions as Double-Tab, using the project in the current directory.
-  This also works through Fabrinetes.sh --exec and requires no interactive
-  terminal. With no project, the table contains global options only.
-  Double-Tab displays command candidates in a bordered Command/Description
-  table, using descriptions from the selected project's JSON. Normal Tab and menu completion
-  insert only the command token. File-path completion keeps native Bash behavior.
-  Long command names and descriptions wrap within their table cells. Existing shells pick up runtime changes on their next completion.
-  Vivado build-profile menus describe stage actions. The shared command prefix appears once
-  above the table, while completion still inserts the full command token.
-  Invoking a group (with or without a trailing dot) uses the same table.
-  Synthesis shortcuts run synthesis only; implementation shortcuts run all
-  enabled implementations and require current synthesis. Combined full-build
-  shortcuts cover both stages. Menus do not inspect or list saved XPR runs.
-  Explicit JSON descriptions take precedence over standard profile help text.
+Completion reads configuration without setting up environments or contacting
+tools. It consumes only tokens before the cursor and treats option values and
+the eval payload as opaque. Double-Tab displays descriptions; normal completion
+inserts tokens only. Unknown commands/options and anonymous passthrough fail.
 
-  Put descriptions beside the command or group they describe. A key beginning
-  with # is metadata: it is hidden from command listings and completion and
-  cannot be executed, including through an explicit --eval_json path.
-
-```json
-{
-  "LLM_orch": {
-    "#build": "Build commands",
-    "build": {
-      "#status": "Show the current build status",
-      "status": "python3 tools/status.py"
-    }
-  }
-}
-```
-
-  #status describes its sibling status; #build describes its sibling build.
-  Other # keys can hold notes and are also excluded from command traversal.
-  Shorthand and --eval_json completion both use these descriptions. Inline
-  descriptions take priority over the older top-level LLM_orch_help map,
-  which remains supported for compatibility. Completion only reads JSON;
-  it never executes help text. The backend --describe option adds separate
-  __DESC__ records; its default output remains plain completion candidates.
-
-Completion table formatting is bundled in hdlforge/project_setup/table_formatter.py.
-It uses only the Python standard library and does not load another repository
-or a skills directory. The backend --display-table option emits __TABLE__
-display records separately from completion tokens; --columns sets table width.
-
-Implementation IP inputs inherit the parent synthesis `ips` list when omitted.
-Examples keep one shared list on synthesis; an explicit implementation list
-overrides inheritance. The resolved list is frozen with the synthesis inputs.
-In input paths, `**` matches generated subdirectories recursively; each IP pattern
-must resolve to exactly one file.
-
-IP runs record SHA-256 hashes of frozen source inputs in `info/source_hashes.json`.
-This metadata stays in the dated producer folder. Before copying its
-XCI/XCIX, consumers compare the recorded producer JSON run and source hashes with
-the current producer files. Changed or missing inputs, or missing hash metadata,
-produce warnings while allowing the consumer to continue. Warnings are printed
-and saved in the consumer artifact `info/warnings.log`. Regenerating older IP
-runs creates the metadata. No automatic regeneration is performed. Implementation
-continues to use its parent synthesis snapshot.
-
-
-
-Before implementation starts, HDLForge copies the selected synthesis DCP into
-`inputs/synthesis_checkpoint/` and copies its frozen IP, XDC, Tcl and supporting
-inputs into the implementation input tree. Runtime paths use these local copies,
-not current sources or newly generated IP outputs. `info/input_manifest.json` maps
-parent paths to copies; `info/input_hashes.json` records their SHA-256 hashes.
-Later attempts reuse the shared input snapshot without clearing it.
-
-Implementation layout:
-
-```text
-artifacts/<synth_timestamp>/impl_runs/<impl>/
-  inputs/                     shared frozen DCP, IP, XDC, Tcl and supporting files
-  input_config.json           completed snapshot and local input paths
-  input_manifest.json
-  input_hashes.json
-  <implementation_timestamp>/
-    info/
-    work/
-    checkpoints/
-    reports/
-    bitstream/
-    runme.log
-```
-
-Each launch creates a new UTC implementation timestamp, retains previous attempts,
-and uses the shared input tree. The synthesis timestamp still selects the parent.
-Input creation is locked; a completed shared snapshot is reused without recopying.
-Saving an implementation also preserves its shared inputs and parent synthesis.
-
-Dated selectors (preferred; older selectors remain compatible):
-
-```bash
-hdlforge --tool vivado --build synth_production.new
-hdlforge --tool vivado --build synth_production.rerun.<synth_timestamp>
-hdlforge --tool vivado --build synth_production.latest.impl_production.new
-hdlforge --tool vivado --build synth_production.<synth_timestamp>.impl_production.new
-hdlforge --tool vivado --build synth_production.<synth_timestamp>.impl_production.rerun.<impl_timestamp>
-```
-
-`new` creates an attempt. An explicit attempt timestamp reruns its frozen inputs,
-clearing generated outputs while preserving inputs, snapshot metadata, and child
-implementations. `latest` selects the newest timestamp; using it as an input requires success. Timestamp fractions are
-part of the timestamp, not selector separators. Completion discovers timestamps
-and implementation names from JSON and artifact directories. No separate timestamp
-flag is needed. Existing shorthand and --synth_timestamp remain compatible.
-
-Run locks retain PID identity and log location. A busy attempt reports its lock
-and recovery options. With an explicit attempt selector, `--remove_lock` clears
-idle metadata without building; `--stop_run` stops only that attempt; `--force_run`
-stops it before rerunning. A held lock is never bypassed or unlinked. The empty
-lock file remains to avoid races between processes locking different file inodes.
-
-Completion groups retries under `rerun.`. `SYNTH.rerun.latest` resolves to
-and reruns the newest dated synthesis attempt, even if failed. Likewise,
-`SYNTH.latest.IMPL.rerun.latest` selects the newest implementation attempt beneath
-the newest synthesis. No physical latest folder is used. The resolved attempt
-keeps its own lock and frozen inputs. `new` remains a separate choice.
-Completion offers `latest` and `rerun.` only when timestamped folders exist at that
-level. Bitstream completion requires the selected implementation to be complete.
-
-`--auto_impl IMPL` works with `SYNTH.new`, `SYNTH.rerun.TIMESTAMP`, and
-`SYNTH.rerun.latest`. After synthesis succeeds it creates new implementation
-attempts through their configured bitstream stage. Dated reruns retain the exact
-parent timestamp; logical latest reruns also pin that date throughout
-the chain. A changed parent checkpoint is copied into private implementation
-inputs instead of reusing a stale shared checkpoint. Existing attempts keep
-their frozen inputs. These paths have not been build-tested during this change.
-
-Builds always launch a detached worker and follow its persistent
-`output_root/launch_logs/` log. Ctrl-C detaches the viewer without stopping the
-build or auto-implementation chain. Use --build_status and a timestamped --stop_run
-to inspect or stop it. TTY detection is not used; Ctrl-C detaches log following even through wrappers or pipes. Each run still has its own runme.log.
-
-Use `--build synth_production.latest.impl_production.new --refresh_impl_inputs`
-to snapshot current implementation XDC, Tcl and declared supporting files in the
-new attempt's own inputs directory. The synthesis DCP and IPs remain frozen.
-Previous shared inputs are untouched; reruns reuse this attempt's refreshed snapshot.
-Changes are logged in info/refreshed_inputs.log and refreshed_inputs.json.
-The flag is rejected for synthesis and reruns. Synthesis-affecting changes require
-new synthesis. Other implementation settings remain from the synthesis snapshot.
-
-Outputs exist only in dated run folders. `latest` is resolved by HDLForge to
-the newest timestamp at the selected level; no latest folder, symlink, publication
-copy, or publication lock is created. Existing historical copies are not consulted
-or modified. Input readiness checks apply to the selected date without fallback.
-IP paths containing `artifacts/latest/` are logical references: HDLForge replaces
-that component with a date before copying inputs into the consumer snapshot.
-
-`--build_status` and `--build_status_all` refresh in place in the controlling terminal, without
-scrolling repeated tables. Ctrl-C exits the viewer and leaves builds running.
-Without a controlling terminal it prints one status snapshot.
-`--build_status` shows active/unavailable builds only. `--build_status_all` includes
-all registered launches, with active builds first. Completed runs
-retain their final status and elapsed duration; runs with an unknown exit time
-show `-` for elapsed time. Log idle is shown only for active runs.
-The `Run` column identifies the selected synthesis and implementation attempts:
-`<synth>.<synth timestamp or latest>[.<impl>.<impl timestamp or latest>]`.
-For `.new`, it shows the allocated timestamp; a logical `.latest` selection
-shows its resolved timestamp. In `--build_status`, the same label identifies each tail command
-below the table. `--build_status_all` displays the table without tail commands
-or per-run log messages.
-There is no separate, ambiguous timestamp column. Legacy implementation folders
-without an attempt timestamp show `-` for that part.
-The table shows only the actual Vivado engine PID, omitting launcher/wrapper PIDs,
-CPU time, and the statistics source. `Elapsed` is wall time since the recorded
-launch (stopping at completion), independent of log command timers. `RAM used(MB)`
-is resident memory (RSS); `Peak RAM(MB)` is the peak memory measurement.
-`Vivado state` samples all engine threads: `Running` if any is runnable,
-`I/O wait` if a thread is in uninterruptible wait and none is runnable, or
-`Waiting` when all sampled threads are waiting. A waiting main thread alone
-does not imply idle workers; even `Waiting` is an instantaneous observation,
-not evidence of a stalled build. `Log idle(s)` measures time without log updates.
-
-Synthesis reruns are refused once the run has implementation history under
-impl_runs/<implementation-name>/. Empty implementation folders do not block
-reruns. Create a new synthesis run once implementation history exists. Implementation reruns remain available
-and validate the parent checkpoint hash before changing outputs.
+Related references: `hdlforge_project_file.md`, `how_hdlforge_keeps_paths_clean.md`.

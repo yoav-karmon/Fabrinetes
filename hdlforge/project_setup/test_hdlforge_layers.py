@@ -11,7 +11,7 @@ class EnvironmentLayersTest(unittest.TestCase):
     setUp = test_hdlforge_environment.LauncherEnvironmentTest.setUp
 
     def run_command(self, command: str, *arguments: str) -> subprocess.CompletedProcess:
-        return subprocess.run([str(self.wrapper), "--no-print", *arguments, "--cmd", command],
+        return subprocess.run([str(self.wrapper), "--no-print", *arguments, "eval-cmd", command],
                               cwd=self.project, env=self.env, capture_output=True, text=True)
 
     def test_fresh_launch_removes_caller_exports(self):
@@ -22,7 +22,7 @@ class EnvironmentLayersTest(unittest.TestCase):
         self.assertEqual(result.stdout, "unset|/example/agent")
 
     def test_nested_launch_retains_parent_runtime_values(self):
-        result = self.run_command("export RUNTIME_VALUE=parent; hdlforge --no-print --cmd 'printenv RUNTIME_VALUE'")
+        result = self.run_command("export RUNTIME_VALUE=parent; hdlforge --no-print eval-cmd 'printenv RUNTIME_VALUE'")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "parent\n")
 

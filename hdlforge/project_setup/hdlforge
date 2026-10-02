@@ -52,50 +52,6 @@ hdlforge_shell_quote_args() {
     printf '%s' "$command_text"
 }
 
-hdlforge_print_usage() {
-    echo "NAME"
-    echo "       hdlforge - run FPGA tools and project commands"
-    echo ""
-    echo "SYNOPSIS"
-    echo "       hdlforge --tool <tool> [options]"
-    echo "       hdlforge --eval_json <path> [environment options] [--append <fragment>]"
-    echo "       hdlforge --cmd <command> [environment options] [--append <fragment>]"
-    echo "       hdlforge <shortcut.path> [environment options] [--append <fragment>]"
-    echo ""
-    echo "COMMAND MODES"
-    echo "       --cmd <command>"
-    echo "              Run one quoted shell command in the prepared HDLForge environment."
-    echo ""
-    echo "       --eval_json <path>"
-    echo "              Run the exact dotted command path from the selected project JSON."
-    echo ""
-    echo "ENVIRONMENT OPTIONS"
-    echo "       These options apply to --cmd, --eval_json, shortcut, and --tool modes."
-    echo ""
-    echo "       --env-python <array-leaf-or-json>"
-    echo "              Add PYTHONPATH entries before executing the selected command."
-    echo ""
-    echo "       --env-path <array-leaf-or-json>"
-    echo "              Add PATH entries before executing the selected command."
-    echo ""
-    echo "       --env-var <array-leaf-or-json>"
-    echo "              Export environment variables before executing the selected command."
-    echo ""
-    echo "OPTIONS"
-    echo "       --project <file>       Select a .hdlforge.json or .hdlforge.toml project file."
-    echo "       --append <fragment>    Append one shell fragment to --cmd or a shortcut."
-    echo "       --dry-run              Resolve without executing the final command."
-    echo "       --no-print             Suppress HDLForge wrapper status output."
-    echo "       --tool ssh ACTION     Import, export, verify or merge SSH inventories."
-    echo "       --tool path_manager ACTION  Inspect or initialize environment configuration."
-    echo "       -h, --help             Show this help."
-    echo ""
-    echo "EXAMPLES"
-    echo "       hdlforge --env-python '[\"sources/tests\"]' --cmd 'python3 -m integration_test.some_tool'"
-    echo "       hdlforge --tool path_manager show"
-    echo "       hdlforge --env-path '[\"tools\"]' --eval_json LLM_orch.testing.run"
-}
-
 hdlforge_update_repo_json() {
     local project_json="$1" host_name user_name tmp_json
     host_name="${HOST_MACHINE:-$(hostname -s)}"
@@ -222,165 +178,36 @@ hdlforge_add_to_bashrc_completion() {
     echo "[i] Added HDLForge completion to $bashrc_file"
 }
 
-hdlforge_inject_default_eval_json() {
-    local has_tool=false
-    local has_eval_json=false
-    local has_raw_cmd=false
-    local expect_value=""
-    local optional_build_value=false
-    local seen_dd=false
-    local non_flag_count=0
-    local non_flag_value=""
-    local shortcut_value=""
-    local eval_json_path=""
-    local arg
-    local injected=false
-    local new_args=()
-
-    for arg in "$@"; do
-        if [ "$seen_dd" = true ]; then
-            continue
-        fi
-
-        # --build optionally consumes a selector; a following flag is not its value.
-        if [ "$optional_build_value" = true ]; then
-            optional_build_value=false
-            if [[ "$arg" != -* ]]; then
-                continue
-            fi
-        fi
-
-        if [ -n "$expect_value" ]; then
-            expect_value=""
-            continue
-        fi
-
-        case "$arg" in
-            --)
-                seen_dd=true
-                ;;
-            --tool)
-                has_tool=true
-                expect_value="$arg"
-                ;;
-            --eval_json)
-                has_eval_json=true
-                expect_value="$arg"
-                ;;
-            --cmd)
-                has_raw_cmd=true
-                expect_value="$arg"
-                ;;
-            --build)
-                optional_build_value=true
-                ;;
-            --project|--env-python|--env-path|--env-var|--append|--eval_json_append)
-                expect_value="$arg"
-                ;;
-            -*)
-                ;;
-            *)
-                non_flag_count=$((non_flag_count + 1))
-                non_flag_value="$arg"
-                if [[ "$arg" =~ ^[[:alpha:]_][[:alnum:]_]*(\.[[:alpha:]_][[:alnum:]_]*)+$ ]]; then
-                    shortcut_value="$arg"
-                fi
-                ;;
-        esac
-    done
-
-    if [ -n "$expect_value" ]; then
-        echo "[!x!] Error: $expect_value requires VALUE"
-        hdlforge_print_usage
-        return 1
-    fi
-
-    if { [ "$has_tool" = true ] && { [ "$has_eval_json" = true ] || [ "$has_raw_cmd" = true ]; }; } \
-        || { [ "$has_eval_json" = true ] && [ "$has_raw_cmd" = true ]; }; then
-        echo "[!x!] Error: choose exactly one execution mode: --tool, --cmd, --eval_json, or <shortcut.path>"
-        hdlforge_print_usage
-        return 1
-    fi
-
-    if { [ "$has_eval_json" = true ] || [ "$has_raw_cmd" = true ]; } && [ "$non_flag_count" -gt 0 ]; then
-        echo "[!x!] Error: --cmd and --eval_json cannot be combined with shorthand shortcut path: $non_flag_value"
-        hdlforge_print_usage
-        return 1
-    fi
-
-    if [ "$has_tool" = true ] && [ -n "$shortcut_value" ]; then
-        echo "[!x!] Error: --tool cannot be combined with shorthand shortcut path: $shortcut_value"
-        hdlforge_print_usage
-        return 1
-    fi
-
-    if [ "$has_tool" = true ] || [ "$has_eval_json" = true ] || [ "$has_raw_cmd" = true ] || [ "$non_flag_count" -ne 1 ]; then
-        HDLFORGE_DEFAULT_EVAL_JSON_ARGS=("$@")
-        return 0
-    fi
-
-    expect_value=""
-    seen_dd=false
-    for arg in "$@"; do
-        if [ "$seen_dd" = true ]; then
-            new_args+=("$arg")
-            continue
-        fi
-
-        if [ -n "$expect_value" ]; then
-            new_args+=("$arg")
-            expect_value=""
-            continue
-        fi
-
-        case "$arg" in
-            --)
-                seen_dd=true
-                new_args+=("$arg")
-                ;;
-            --tool|--eval_json|--cmd|--project|--env-python|--env-path|--env-var|--append|--eval_json_append)
-                new_args+=("$arg")
-                expect_value="$arg"
-                ;;
-            *)
-                if [ "$injected" = false ] && [ "$arg" = "$non_flag_value" ]; then
-                    if [[ "$arg" == LLM_orch.* ]]; then
-                        eval_json_path="$arg"
-                    else
-                        eval_json_path="LLM_orch.${arg}"
-                    fi
-                    new_args+=("--eval_json" "$eval_json_path")
-                    injected=true
-                else
-                    new_args+=("$arg")
-                fi
-                ;;
-        esac
-    done
-
-    HDLFORGE_DEFAULT_EVAL_JSON_ARGS=("${new_args[@]}")
-}
-
-# Bare invocation is exactly the documented help output.
-if [ $# -eq 0 ]; then
-    exec "$0" --help
-fi
-
-if [ $# -eq 1 ] && ([[ "$1" == "--help" ]] || [[ "$1" == "-h" ]]); then
-    hdlforge_print_usage
-    echo ""
-    echo "Available Tools:"
-    echo "  vivado        - FPGA Development Tasks (synthesis, implementation, bitstream)"
-    echo "  Verilator     - Simulation Tasks (build, sim, lint)"
-    echo "  network       - Network Utilities (raw packet sending)"
-    echo "  vcd_analyzer  - VCD Waveform Analysis"
-    echo "  tsharkWrapper - tshark Command Wrapper"
-    echo "  hw_server     - Interactive FPGA Tools (program, ILA/VIO, JTAG)"
-    echo "  projects      - Project Management"
-    echo "  ssh           - SSH inventory import/export/verify/merge"
-    echo "  path_manager  - Environment inspection and initialization"
+# Resolve the public command tree before touching project/tool environments.
+# NUL records preserve shell payloads and option values without eval or splitting.
+route_file="$(mktemp)" || exit 1
+trap 'rm -f "$route_file"' EXIT
+python3 "$HDLFORGE_INSTALL_DIR/hdlforge_command_tree.py" "$@" > "$route_file" || exit $?
+mapfile -d '' -t routed < "$route_file"
+rm -f "$route_file"
+trap - EXIT
+if [ "${routed[0]}" = HELP ]; then
+    printf '%s\n' "${routed[1]}"
     exit 0
 fi
+master_count="${routed[1]}"
+master_args=("${routed[@]:2:master_count}")
+internal_args=("${routed[@]:2+master_count}")
+HDLFORGE_ALLOW_ENV_OVERWRITE=0
+NO_PRINT=false
+[ "${HDLFORGE_NOPRINT:-0}" != 1 ] || NO_PRINT=true
+route_args=()
+set -- "${master_args[@]}"
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --allow-env-overwrite) HDLFORGE_ALLOW_ENV_OVERWRITE=1; shift ;;
+        --dry-run) DRY_RUN=true; export HDLFORGE_DRY_RUN=1; shift ;;
+        --no-print) NO_PRINT=true; export HDLFORGE_NOPRINT=1; shift ;;
+        *) route_args+=("$1" "$2"); shift 2 ;;
+    esac
+done
+environment_args=("${route_args[@]}")
+set -- "${route_args[@]}" "${internal_args[@]}"
 
 # Extract the tool anchor without interpreting values as independent actions.
 management_tool=""
@@ -395,28 +222,50 @@ for ((management_index=0; management_index<${#management_input[@]}; management_i
             ;;
         --tool=*) management_tool="${management_arg#*=}" ;;
         --) break ;;
-        --project|--cmd|--append|--env-path|--env-python|--env-var|--flags|--eval_json)
+        --project|--cmd|--env-path|--env-python|--env-var|--flags|--eval_json)
             management_args+=("$management_arg")
             management_index=$((management_index + 1))
             management_args+=("${management_input[management_index]}")
             ;;
         --no-print) ;;
+        --dry-run) DRY_RUN=true; management_args+=("$management_arg") ;;
+        --allow-env-overwrite) ;;
         *) management_args+=("$management_arg") ;;
     esac
 done
 if [ "$management_tool" = ssh ]; then
+    # SSH remains usable outside a repository. Explicit environment additions
+    # opt into the normal project bootstrap before entering its standalone CLI.
+    ssh_environment=false
+    for route_arg in "${environment_args[@]}"; do
+        case "$route_arg" in --env-path|--env-python|--env-var) ssh_environment=true ;; esac
+    done
+    if [ "$ssh_environment" = true ]; then
+        hdlforge_select_project "${environment_args[@]}" || exit 1
+        cd "$PROJECT_DIR" || exit 1
+        hdlforge_prepare_environment || exit 1
+        hdlforge_apply_env_state "${environment_args[@]}"
+        management_args=("${internal_args[@]:2}")
+        [ -z "$PROJECT_FILE_PATH" ] || management_args+=(--project "$PROJECT_FILE_PATH")
+    fi
+    [ "$DRY_RUN" != true ] || management_args+=(--dry-run)
     exec python3 "$HDLFORGE_INSTALL_DIR/ssh_config_cli.py" "${management_args[@]}"
 fi
 if [ "$management_tool" = path_manager ]; then
+    if [ "$DRY_RUN" = true ]; then
+        printf '[i] path_manager command resolved; execution skipped\n'
+        exit 0
+    fi
     management_action=""
     update_project=""
     set -- "${management_args[@]}"
     while [ "$#" -gt 0 ]; do
         case "$1" in
+            --env-path|--env-python|--env-var) shift ;;
             --project) update_project="$2"; shift ;;
             --project=*) update_project="${1#*=}" ;;
             --help|-h)
-                echo 'usage: hdlforge --tool path_manager {show,show-all,init-base-path,init-base-pythonpath,install-shell,update-repo} [--project FILE]'
+                echo 'usage: hdlforge path_manager. {show,show-all,init-base-path,init-base-pythonpath,install-shell,update-repo} [--project FILE]'
                 exit 0 ;;
             *)
                 if [ -n "$management_action" ] || [[ "$1" == -* ]]; then
@@ -427,6 +276,18 @@ if [ "$management_tool" = path_manager ]; then
         esac
         shift
     done
+    if [ "$management_action" != show ] && [ "$management_action" != show-all ]; then
+        for route_arg in "${environment_args[@]}"; do
+            case "$route_arg" in
+                --env-path|--env-python|--env-var)
+                    hdlforge_select_project "${environment_args[@]}" || exit 1
+                    cd "$PROJECT_DIR" || exit 1
+                    hdlforge_prepare_environment || exit 1
+                    hdlforge_apply_env_state "${environment_args[@]}"
+                    break ;;
+            esac
+        done
+    fi
     case "$management_action" in
         init-base-path) printf 'export HDLFORGE_BASE_PATH=%q\n' "$PATH"; exit 0 ;;
         init-base-pythonpath) printf 'export HDLFORGE_BASE_PYTHONPATH=%q\n' "${PYTHONPATH:-}"; exit 0 ;;
@@ -467,66 +328,10 @@ fi
 hdlforge_select_project "$@" || exit 1
 set -- "${HDLFORGE_PROJECT_ARGS[@]}"
 
-# Global output control for LLM_orch recursion.
-# Only consume --no-print before the passthrough separator (`--`);
-# after that, flags belong to the leaf command.
-NO_PRINT=false
-if [[ -n "${HDLFORGE_NOPRINT:-}" && "${HDLFORGE_NOPRINT:-0}" != "0" ]]; then
-    NO_PRINT=true
-fi
-args_filtered=()
-seen_dd=false
-for arg in "$@"; do
-    if [ "$seen_dd" = true ]; then
-        args_filtered+=("$arg")
-        continue
-    fi
-    if [[ "$arg" == "--" ]]; then
-        seen_dd=true
-        args_filtered+=("$arg")
-        continue
-    fi
-    if [[ "$arg" == "--no-print" ]]; then
-        NO_PRINT=true
-        continue
-    fi
-    if [[ "$arg" == "--dry-run" ]]; then
-        DRY_RUN=true
-        export HDLFORGE_DRY_RUN=1
-        continue
-    fi
-    args_filtered+=("$arg")
-done
-set -- "${args_filtered[@]}"
-
-if [ "$management_tool" != path_manager ]; then
-    hdlforge_inject_default_eval_json "$@" || exit 1
-    set -- "${HDLFORGE_DEFAULT_EVAL_JSON_ARGS[@]}"
-fi
-
 CURRENT_EVAL_JSON_MODE=false
-current_has_tool=false
-for arg in "$@"; do
-    if [[ "$arg" == "--" ]]; then
-        break
-    fi
-    if [[ "$arg" == "--tool" ]]; then
-        current_has_tool=true
-        continue
-    fi
-    if [[ "$arg" == "--eval_json" ]]; then
-        CURRENT_EVAL_JSON_MODE=true
-        continue
-    fi
-done
-
-if [ "$CURRENT_EVAL_JSON_MODE" = true ]; then
+if [ "${internal_args[0]}" = --eval_json ]; then
     CURRENT_EVAL_JSON_MODE=true
     NO_PRINT=true
-    export HDLFORGE_NOPRINT=1
-fi
-
-if [ "$NO_PRINT" = true ]; then
     export HDLFORGE_NOPRINT=1
 fi
 
@@ -553,8 +358,19 @@ shell_id="$PPID"
 timestamp=$(date +%Y%m%d)
 time=$(date +%H%M%S)
 
-hdlforge_apply_env_state "$@"
-set -- "${HDLFORGE_FILTERED_ARGS[@]}"
+selected_args=("$@")
+hdlforge_apply_env_state "${environment_args[@]}"
+# Selection normalized invocation-relative native file paths. Environment
+# options remain removable by arity without touching opaque payload values.
+set -- "${selected_args[@]}"
+filtered_native=()
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --env-python|--env-path|--env-var) shift 2 ;;
+        *) filtered_native+=("$@"); break ;;
+    esac
+done
+set -- "${filtered_native[@]}"
 
 if [ "$management_tool" = path_manager ] && [ "$management_action" = show ]; then
     hdlforge_print_environment
@@ -569,300 +385,42 @@ fi
 mkdir -p "$TASKS_DIR/logs"
 log_file="$TASKS_DIR/logs/hdlforge_${timestamp}_pid${shell_id}.log"
 
-# If no commands are passed, default to --list
-if [ $# -eq 0 ]; then
-    set -- --list
-fi
-
-# Check if --tool is in arguments before the passthrough separator (LLM
-# orchestration mode detection). Arguments after `--` belong to the leaf command
-# and must not force this wrapper out of LLM_orch mode.
-has_tool_flag=false
-for arg in "$@"; do
-    if [[ "$arg" == "--" ]]; then
-        break
-    fi
-    if [[ "$arg" == "--tool" ]]; then
-        has_tool_flag=true
-        break
-    fi
+# Execute only explicit eval-cmd or project-shortcuts leaves.
+command_mode=""
+command_value=""
+native_args=()
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --eval_json|--cmd)
+            command_mode="$1"
+            command_value="$2"
+            shift 2
+            ;;
+        --tool)
+            native_args=("$@")
+            break
+            ;;
+        *) echo "error: unexpected internal argument: $1" >&2; exit 2 ;;
+    esac
 done
-
-# Eval-json and command mode both use the LLM_orch command expansion path. Keep
-# --tool out of the outer invocation; tool details belong inside the expanded
-# command.
-eval_json_mode=false
-json_path_mode=false
-cmd_mode=false
-for arg in "$@"; do
-    if [[ "$arg" == "--" ]]; then
-        break
-    fi
-    if [[ "$arg" == "--eval_json" ]]; then
-        eval_json_mode=true
-        json_path_mode=true
-        continue
-    fi
-    if [[ "$arg" == "--cmd" && "$has_tool_flag" = false ]]; then
-        cmd_mode=true
-    fi
-done
-
-if [ "$cmd_mode" = true ]; then
-    eval_json_mode=true
-fi
-
-if [ "$json_path_mode" = true ]; then
-    NO_PRINT=true
-    export HDLFORGE_NOPRINT=1
-fi
-
-if [ "$eval_json_mode" = true ]; then
-    for arg in "$@"; do
-        if [[ "$arg" == "--tool" ]]; then
-            echo "[!x!] Error: --tool cannot be used with --eval_json or top-level --cmd"
-            hdlforge_print_usage
-            exit 1
-        fi
-    done
-fi
-
-# If --tool is not present, enter explicit LLM orchestration mode.
-if [ "$has_tool_flag" = false ]; then
-    if [ "$eval_json_mode" = false ]; then
-        echo "[!x!] Error: --tool is required unless --eval_json is used"
-        hdlforge_print_usage
-        exit 1
-    fi
-
-    # Startup owns project selection for both raw commands and JSON shortcuts.
-    PROJECT_JSON="$PROJECT_FILE_PATH"
-    PROJECT_JSON_DIR="$PROJECT_DIR"
-    if [[ "$PROJECT_JSON" != *.json ]]; then
-        PROJECT_JSON=""
-        if [ "$cmd_mode" != true ]; then
-            echo "error: a project JSON is required for shortcuts; use --project <file>" >&2
-            exit 1
-        fi
-    fi
-
-    # Check if jq is available
-    if [ "$cmd_mode" != true ] && ! command -v jq >/dev/null 2>&1; then
-        echo "[!x!] Error: jq is required for LLM orchestration mode"
-        echo "[i] Install jq: sudo apt-get install jq (or equivalent for your system)"
-        exit 1
-    fi
-    
-    # Build JSON path from remaining arguments (skip flags like --project).
-    # --append appends one shell command fragment to the JSON command.
-    # Anonymous passthrough is intentionally rejected.
-    JSON_PATH_PARTS=()
-    APPEND_ARGS=()
-    EVAL_JSON=false
-    CMD_MODE=false
-    CMD_COMMAND=""
-    skip_next=false
-    expect_append=false
-    expect_cmd=false
-    for arg in "$@"; do
-        if [ "$expect_cmd" = true ]; then
-            if [ "$CMD_MODE" = true ]; then
-                echo "[!x!] Error: only one --cmd is supported"
-                hdlforge_print_usage
-                exit 1
-            fi
-            CMD_MODE=true
-            CMD_COMMAND="$arg"
-            expect_cmd=false
-            continue
-        fi
-        if [ "$expect_append" = true ]; then
-            APPEND_ARGS+=("$arg")
-            expect_append=false
-            continue
-        fi
-        # Skip --project and its value if present
-        if [[ "$arg" == "--project" ]]; then
-            skip_next=true
-            continue
-        fi
-        if [ "$skip_next" = true ]; then
-            skip_next=false
-            continue
-        fi
-        if [[ "$arg" == "--" ]]; then
-            echo "[!x!] Error: anonymous passthrough is not supported in LLM_orch commands"
-            hdlforge_print_usage
-            exit 1
-        fi
-        if [[ "$arg" == "--eval_json" ]]; then
-            EVAL_JSON=true
-            continue
-        fi
-        if [[ "$arg" == "--cmd" ]]; then
-            expect_cmd=true
-            continue
-        fi
-        if [[ "$arg" == "--append" ]]; then
-            expect_append=true
-            continue
-        fi
-        if [[ "$arg" == "--eval_json_append" ]]; then
-            echo "[!x!] Error: --eval_json_append was renamed to --append"
-            hdlforge_print_usage
-            exit 1
-        fi
-        if [[ "$arg" == "--eval_json_arg" ]]; then
-            echo "[!x!] Error: --eval_json_arg was replaced by --append"
-            hdlforge_print_usage
-            exit 1
-        fi
-        if [[ "$arg" == --* ]]; then
-            echo "[!x!] Error: unsupported JSON command option: $arg"
-            hdlforge_print_usage
-            exit 1
-        fi
-        # Only add non-flag arguments (those that don't start with --) to the path
-        if [[ "$arg" != --* ]]; then
-            JSON_PATH_PARTS+=("$arg")
-        fi
-    done
-
-    if [ "$expect_append" = true ]; then
-        echo "[!x!] Error: --append requires VALUE"
-        hdlforge_print_usage
-        exit 1
-    fi
-    if [ "$expect_cmd" = true ]; then
-        echo "[!x!] Error: --cmd requires VALUE"
-        hdlforge_print_usage
-        exit 1
-    fi
-
-    # Enforce a single dotted JSON path token before `--`
-    if [ "$CMD_MODE" = true ]; then
-        if [ "$EVAL_JSON" = true ]; then
-            echo "[!x!] Error: --cmd cannot be combined with --eval_json"
-            hdlforge_print_usage
-            exit 1
-        fi
-        if [ ${#JSON_PATH_PARTS[@]} -ne 0 ]; then
-            echo "[!x!] Error: --cmd takes one quoted shell-command string"
-            hdlforge_print_usage
-            exit 1
-        fi
-        JSON_PATH="--cmd"
-        NODE_TYPE="string"
-        COMMAND="$CMD_COMMAND"
-    elif [ ${#JSON_PATH_PARTS[@]} -eq 0 ]; then
-        echo "[!x!] Error: No command path provided"
-        hdlforge_print_usage
-        exit 1
-    elif [ ${#JSON_PATH_PARTS[@]} -ne 1 ]; then
-        echo "[!x!] Error: JSON path must be a single dotted token"
-        hdlforge_print_usage
-        exit 1
+if [ -n "$command_mode" ]; then
+    if [ "$command_mode" = --eval_json ]; then
+        export HDLFORGE_JSON_COMMAND_PATH="$command_value"
+        COMMAND="$("$HDLFORGE_JQ" -er --arg path "$command_value" 'getpath($path | split(".")) | select(type == "string" and length > 0)' < "$PROJECT_FILE_PATH")" || exit 1
     else
-        JSON_PATH="${JSON_PATH_PARTS[0]%.}"
+        COMMAND="$command_value"
     fi
-    
-    if [ "$CMD_MODE" != true ]; then
-        # Hash-prefixed JSON keys are descriptions, never executable commands.
-        if [[ "$JSON_PATH" == \#* || "$JSON_PATH" == *.\#* ]]; then
-            echo "[!x!] Description metadata cannot be executed: ${JSON_PATH}"
-            exit 1
-        fi
-        NODE_TYPE=$(jq -r --arg json_path "$JSON_PATH" 'getpath($json_path | split(".")) | type' "$PROJECT_JSON" 2>/dev/null)
-
-        if ([ -z "$NODE_TYPE" ] || [ "$NODE_TYPE" = "null" ]) && [[ "$JSON_PATH" != LLM_orch.* ]]; then
-            JSON_PATH_CANDIDATE="LLM_orch.${JSON_PATH}"
-            NODE_TYPE_CANDIDATE=$(jq -r --arg json_path "$JSON_PATH_CANDIDATE" 'getpath($json_path | split(".")) | type' "$PROJECT_JSON" 2>/dev/null)
-            if [ -n "$NODE_TYPE_CANDIDATE" ] && [ "$NODE_TYPE_CANDIDATE" != "null" ]; then
-                JSON_PATH="$JSON_PATH_CANDIDATE"
-                NODE_TYPE="$NODE_TYPE_CANDIDATE"
-            fi
-        fi
-
-        if [ -z "$NODE_TYPE" ] || [ "$NODE_TYPE" = "null" ]; then
-            echo "[!x!] Error: Command not found at JSON path: ${JSON_PATH}"
-            echo "[i] Available command-like string paths:"
-            jq -r 'paths(strings) as $p | select(all($p[]; (tostring | startswith("#") | not))) | "  " + ($p | join("."))' "$PROJECT_JSON" 2>/dev/null | head -20 || echo "  (unable to parse JSON structure)"
-            exit 1
-        fi
-
-        if [ "$NODE_TYPE" = "object" ] || [ "$NODE_TYPE" = "array" ]; then
-            python3 "$FABRINETES/hdlforge/project_setup/hdlforge_completion_backend.py" \
-                --cwd "$PWD" --comp-cword 3 --display-table --columns "${COLUMNS:-80}" \
-                -- hdlforge --project "$PROJECT_JSON" "${JSON_PATH#LLM_orch.}." | sed -n $'s/^__TABLE__\t//p'
-            exit 0
-        fi
-
-        if [ "$NODE_TYPE" != "string" ]; then
-            echo "[!x!] Error: ${JSON_PATH} resolves to ${NODE_TYPE}, but JSON commands must be strings."
-            exit 1
-        fi
-
-        # Fetch command from JSON using jq
-        COMMAND=$(jq -r --arg json_path "$JSON_PATH" 'getpath($json_path | split("."))' "$PROJECT_JSON" 2>/dev/null)
-    fi
-
-    if [ -z "$COMMAND" ]; then
-        echo "[!x!] Error: Empty command at JSON path: ${JSON_PATH}"
-        exit 1
-    fi
-    
-    for _append_arg in "${APPEND_ARGS[@]}"; do
-        if [[ "$COMMAND" =~ ^[[:space:]]*hdlforge([[:space:]]|$) ]]; then
-            if [[ "$COMMAND" =~ (^|[[:space:]])--tool([[:space:]]|$) ]]; then
-                COMMAND="${COMMAND} ${_append_arg}"
-            else
-                COMMAND="${COMMAND} $(hdlforge_shell_quote_args --append "$_append_arg")"
-            fi
-        else
-            COMMAND="${COMMAND} ${_append_arg}"
-        fi
-    done
-    
-    # Execute the fetched command recursively
-    if [ "$NO_PRINT" = false ]; then
-        if [ "$CMD_MODE" = true ]; then
-            echo "[i] HDLForge Command Mode: --cmd"
-        else
-            echo "[i] JSON Command Mode: ${JSON_PATH}"
-        fi
-        echo "[i] Executing: ${COMMAND}"
-        echo ""
-    fi
-
     if [ "$DRY_RUN" = true ]; then
-        if [ "$CMD_MODE" = true ]; then
-            echo "[i] HDLForge dry-run: --cmd command resolved"
-        else
-            echo "[i] HDLForge dry-run: JSON command resolved"
-        fi
-        echo "[i] Working directory: $PROJECT_JSON_DIR"
-        echo "[i] Command: ${COMMAND}"
-        echo "[i] execution skipped"
+        printf '[i] Working directory: %s\n[i] Command: %s\n[i] execution skipped\n' "$PWD" "$COMMAND"
         exit 0
     fi
-    
-    # Change to project directory (where JSON file is located) before executing
-    cd "$PROJECT_JSON_DIR" || {
-        echo "[!x!] Failed to cd into project directory: $PROJECT_JSON_DIR"
-        exit 1
-    }
-    
-    # Carry the exact selection into reusable nested native-tool commands.
+    [ "$NO_PRINT" = true ] || printf '[i] Executing: %s\n' "$COMMAND"
     export HDLFORGE_PROJECT_FILE="$PROJECT_FILE_PATH"
-    export HDLFORGE_JSON_COMMAND_PATH="$JSON_PATH"
-    # Execute the command (recursive call to hdlforge).
-    # Use eval to properly handle quoted arguments in the command. Disable
-    # brace expansion so CLI values like --group-fire-pattern {1:0,2:0,4}
-    # are passed as data instead of expanded by bash.
     set +o braceexpand
     eval "$COMMAND"
     exit $?
 fi
+set -- "${native_args[@]}"
 
 echo "--------$(pwd): $Date: $timestamp Time $time------" >> "$log_file"
 

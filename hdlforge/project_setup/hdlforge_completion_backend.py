@@ -13,28 +13,15 @@ from table_formatter import create_matrix_table_from_data
 from vivado_build_selector import parse_selector, selector_choices
 from vivado_build_config import ARTIFACT_FLAGS, build_names, synthesis_timestamps
 
+import hdlforge_command_tree as command_tree
+
 SCHEMA_ERROR = None
 try:
     NATIVE_HELP = json.loads(Path(__file__).with_name("native_command_help.json").read_text())
-    if not isinstance(NATIVE_HELP, dict):
-        raise ValueError("Native completion catalog must be an object")
-    for required_group in ("tree", "flags", "values", "project_console", "monitor"):
-        if not isinstance(NATIVE_HELP.get(required_group), dict):
-            raise ValueError(f"Missing native completion group: {required_group}")
-    for required_group in ("tools", "flags"):
-        if not isinstance(NATIVE_HELP["tree"].get(required_group), dict):
-            raise ValueError(f"Missing tree group: {required_group}")
-except (OSError, ValueError, TypeError) as error:
+    command_tree.validate(NATIVE_HELP["tree"])
+except (OSError, ValueError, KeyError, TypeError) as error:
     SCHEMA_ERROR = str(error)
-    NATIVE_HELP = {"tree": {"tools": {}, "flags": {}}, "flags": {}, "values": {}, "project_console": {}, "monitor": {}}
-CONSOLE_ACTIONS = {("help" if value == "--help" else value): NATIVE_HELP["project_console"].get("#" + name, "")
-                   for name, value in NATIVE_HELP["project_console"].items() if not name.startswith("#")}
-
-TOOLS = [name for name in NATIVE_HELP["tree"]["tools"] if not name.startswith("#")]
-GLOBAL_FLAGS = [name for name in NATIVE_HELP["tree"]["flags"] if not name.startswith("#") and name not in {"--project", "--tool"}]
-GLOBAL_VALUE_FLAGS = {"--project", "--tool", "--cmd", "--env-python", "--env-path", "--env-var"}
-REPEATABLE_GLOBAL_ENV_FLAGS = {"--env-python", "--env-path", "--env-var"}
-
+    NATIVE_HELP = {"tree": {"commands": {}, "master_flags": {}}}
 
 @dataclass
 class CompletionResult:
@@ -47,14 +34,8 @@ class CompletionResult:
 class ParsedState:
     tokens: list[str]
     cwd: Path
-    tool: str | None = None
-    cmd: str | None = None
     project_file: Path | None = None
     seen: set[str] | None = None
-    has_llm_path: bool = False
-    llm_path: str | None = None
-    eval_json: bool = False
-    has_append: bool = False
 
 
 def unique(items: list[str]) -> list[str]:
@@ -143,18 +124,7 @@ def get_explicit_flag_values(tokens: list[str], flag: str) -> list[str]:
 
 
 def detect_project_file(tokens: list[str], cwd: Path) -> Path | None:
-    explicit = get_explicit_flag_values(tokens, "--project")
-    if explicit:
-        candidate = Path(os.path.expanduser(explicit[-1]))
-        candidate = candidate if candidate.is_absolute() else cwd / candidate
-        return candidate.resolve() if candidate.is_file() else None
-    for directory in (cwd, *cwd.parents):
-        candidates = sorted([*directory.glob("*.hdlforge.json"), *directory.glob("*.hdlforge.toml")])
-        if candidates:
-            return candidates[0].resolve() if len(candidates) == 1 else None
-        if (directory / ".git").exists():
-            break
-    return None
+    return command_tree.project_file(tokens, cwd)
 
 
 def project_json_data(state: ParsedState) -> dict | None:
@@ -223,77 +193,6 @@ def list_interfaces() -> list[str]:
     return unique(interfaces)
 
 
-def walk_llm_paths(node: object, prefix: str = "") -> list[str]:
-    if not isinstance(node, dict):
-        return [prefix] if prefix else []
-
-    out: list[str] = []
-    for key, value in node.items():
-        if not isinstance(key, str) or key.startswith("#"):
-            continue
-        path = f"{prefix}.{key}" if prefix else key
-        out.append(path)
-        out.extend(walk_llm_paths(value, path))
-    return out
-
-
-def walk_string_paths_with_values(node: object, prefix: str = "") -> list[tuple[str, str]]:
-    if isinstance(node, str):
-        return [(prefix, node)] if prefix else []
-    if not isinstance(node, dict):
-        return []
-
-    out: list[tuple[str, str]] = []
-    for key, value in node.items():
-        if not isinstance(key, str) or key.startswith("#"):
-            continue
-        path = f"{prefix}.{key}" if prefix else key
-        out.extend(walk_string_paths_with_values(value, path))
-    return out
-
-
-def is_llm_leaf(project_file: Path | None, dotted: str) -> bool:
-    if any(part.startswith("#") for part in dotted.split(".")):
-        return False
-    if not project_file or project_file.suffix != ".json":
-        return False
-    data = load_json(project_file)
-    if not data:
-        return False
-
-    cursor: object = data.get("LLM_orch")
-    for part in dotted.split("."):
-        if not isinstance(cursor, dict) or part not in cursor:
-            return False
-        cursor = cursor[part]
-    return isinstance(cursor, str)
-
-
-def is_json_string_leaf(project_file: Path | None, dotted: str) -> bool:
-    if any(part.startswith("#") for part in dotted.split(".")):
-        return False
-    if not project_file or project_file.suffix != ".json":
-        return False
-    data = load_json(project_file)
-    if not data:
-        return False
-
-    candidates = [dotted]
-    if not dotted.startswith("LLM_orch."):
-        candidates.append(f"LLM_orch.{dotted}")
-
-    for candidate in candidates:
-        cursor: object = data
-        for part in candidate.split("."):
-            if not isinstance(cursor, dict) or part not in cursor:
-                break
-            cursor = cursor[part]
-        else:
-            if isinstance(cursor, str):
-                return True
-    return False
-
-
 def complete_dotted_paths(all_paths: list[str], cur: str) -> CompletionResult:
     if not all_paths:
         return CompletionResult([])
@@ -347,77 +246,12 @@ def complete_dotted_paths(all_paths: list[str], cur: str) -> CompletionResult:
     return CompletionResult(filtered, nospace=any(entry.endswith(".") for entry in filtered))
 
 
-def complete_llm_path(project_file: Path | None, cur: str) -> CompletionResult:
-    if not project_file or project_file.suffix != ".json":
-        return CompletionResult([])
-
-    data = load_json(project_file)
-    if not data:
-        return CompletionResult([])
-
-    return complete_dotted_paths(walk_llm_paths(data.get("LLM_orch")), cur)
-
-
-def complete_json_path(project_file: Path | None, cur: str) -> CompletionResult:
-    if not project_file or project_file.suffix != ".json":
-        return CompletionResult([])
-
-    data = load_json(project_file)
-    if not data:
-        return CompletionResult([])
-
-    if cur.startswith("LLM_orch"):
-        return complete_dotted_paths(walk_llm_paths(data.get("LLM_orch"), "LLM_orch"), cur)
-
-    candidates = ["LLM_orch."]
-    candidates.extend(
-        path
-        for path, value in walk_string_paths_with_values(data)
-        if not path.startswith(("LLM_orch.", "LLM_orch_help.")) and "hdlforge" in value
-    )
-    completions = sorted({entry for entry in candidates if entry.startswith(cur)})
-    return CompletionResult(completions, nospace=any(entry.endswith(".") for entry in completions))
-
-
-def is_deployment_program_file_path(dotted: str | None) -> bool:
-    if not dotted:
-        return False
-    if dotted.startswith("LLM_orch."):
-        dotted = dotted.removeprefix("LLM_orch.")
-
-    parts = dotted.split(".")
-    return (
-        len(parts) == 6
-        and parts[0] == "deployment"
-        and parts[1] == "manager"
-        and parts[2] == "program"
-        and parts[-1] == "file"
-    )
-
-
-def parse_classic_state(tokens: list[str], cwd: Path) -> ParsedState:
-    # Tool/value consumption belongs to tree_state; project lookup is read-only.
-    return ParsedState(tokens=tokens, cwd=cwd, seen=set(), project_file=detect_project_file(tokens, cwd))
-
-
-
-
 def complete_project_files(cur: str, _state: ParsedState) -> CompletionResult:
     return complete_path(cur, _state.cwd, suffixes=(".hdlforge.json", ".hdlforge.toml"))
 
 
-
-
-
-
-
-
 def complete_interfaces(cur: str, _state: ParsedState) -> CompletionResult:
     return complete_words(cur, list_interfaces())
-
-
-
-
 
 
 def complete_sim_target_names(cur: str, state: ParsedState) -> CompletionResult:
@@ -484,271 +318,58 @@ PROVIDERS = {
 }
 
 
-def build_selection_facts(value: str, state: ParsedState) -> dict:
-    parsed = parse_selector(value)
-    known = value in build_names(project_json_data(state) or {})
-    stage = "impl" if parsed and parsed.get("impl") else "synth"
-    return {"build_valid": bool(parsed or known), "build_stage": stage,
-            "build_bitstream": bool(parsed and parsed.get("bitstream")),
-            "build_new_impl": bool(parsed and parsed.get("impl") and parsed.get("attempt") == "new")}
+def command_candidates(node: dict, state: dict, prefix: str = "") -> dict:
+    """Describe static anchors and project-dependent choices without execution."""
+    candidates = {}
+    if prefix:
+        candidates[prefix+'help'] = 'Show contextual help without executing.'
+    mapping = node.get('commands', {})
+    for name, child in command_tree.entries(mapping).items():
+        path = prefix + name
+        candidates[path] = mapping['#'+name]
+        candidates.update(command_candidates(child, state, path+'.'))
+    if node.get('provider'):
+        candidates.update({prefix+name: description for name, description in
+                          command_tree.dynamic_choices(node['provider'], state['data'], state['project']).items()})
+    return candidates
 
 
-STATE_PROVIDERS = {"build_selection": build_selection_facts}
-
-
-def tree_entries(mapping: dict) -> dict:
-    return {key: value for key, value in mapping.items() if not key.startswith("#")}
-
-
-def validate_tree(node: dict) -> None:
-    """Reject undocumented choices and unknown completion providers."""
-    for group in ("flags", "tools", "actions", "values"):
-        entries = node.get(group, {})
-        if not isinstance(entries, dict):
-            raise ValueError(f"Completion {group} must be an object")
-        for name, spec in tree_entries(entries).items():
-            if not isinstance(spec, dict):
-                raise ValueError(f"Completion option must be an object: {name}")
-            if not isinstance(entries.get("#" + name), str) or not entries["#" + name].strip():
-                raise ValueError(f"Missing completion description: {name}")
-            if spec.get("provider") and spec["provider"] not in PROVIDERS:
-                raise ValueError(f"Unknown completion provider: {spec['provider']}")
-            if spec.get("state_provider") and spec["state_provider"] not in STATE_PROVIDERS:
-                raise ValueError(f"Unknown state provider: {spec['state_provider']}")
-            if spec.get("arity", 0) not in (0, 1, "?"):
-                raise ValueError(f"Invalid argument arity: {name}")
-            validate_tree(spec)
-    if "children" in node:
-        validate_tree(node["children"])
-
-
-def condition_matches(condition: dict, seen: set, values: dict) -> bool:
-    if not condition:
-        return True
-    if "all" in condition:
-        return all(condition_matches(item, seen, values) for item in condition["all"])
-    if "any" in condition:
-        return any(condition_matches(item, seen, values) for item in condition["any"])
-    if "not" in condition:
-        return not condition_matches(condition["not"], seen, values)
-    if "present" in condition:
-        return condition["present"] in seen
-    if "equals" in condition:
-        flag, value = condition["equals"]
-        return values.get(flag) == value
-    raise ValueError(f"Unknown completion condition: {condition}")
-
-
-def tree_state(state: ParsedState) -> tuple:
-    """Consume tokens once; values cannot accidentally select another anchor."""
-    tree = NATIVE_HELP["tree"]
-    nodes = [tree]
-    if state.tool:
-        nodes.append(tree["tools"].get(state.tool, {}))
-    seen, values, exclusive = set(), {}, set()
-    pending = None
-    passthrough = False
-    action_selected = False
-
-    def flags():
-        allowed_globals = nodes[1].get("globals") if len(nodes) > 1 else None
-        return {key: value for index, node in enumerate(nodes)
-                for key, value in tree_entries(node.get("flags", {})).items()
-                if index != 0 or allowed_globals is None or key in allowed_globals}
-
-    def consume(flag, spec, value):
-        nonlocal nodes
-        seen.add(flag)
-        values[flag] = value
-        if spec.get("state_provider"):
-            values.update(STATE_PROVIDERS[spec["state_provider"]](value, state))
-        if spec.get("exclusive"):
-            exclusive.add(spec["exclusive"])
-        if flag == "--tool":
-            state.tool = value
-            nodes = [tree, tree["tools"].get(value, {})]
-        if "children" in spec:
-            nodes.append(spec["children"])
-        if value in spec.get("values", {}):
-            nodes.append(spec["values"][value])
-
-    for token in state.tokens:
-        if passthrough:
-            break
-        if pending:
-            flag, spec = pending
-            pending = None
-            if spec["arity"] != "?" or not token.startswith("-"):
-                consume(flag, spec, token)
-                continue
-            consume(flag, spec, "")
-        if token == "--":
-            passthrough = True
-            continue
-        flag, separator, value = token.partition("=")
-        available = flags()
-        if flag in available:
-            spec = available[flag]
-            if spec.get("arity", 0) and not separator:
-                pending = (flag, spec)
-            else:
-                consume(flag, spec, value)
-            continue
-        for node in list(nodes):
-            if token in node.get("actions", {}) and not action_selected:
-                nodes.append(node["actions"][token])
-                values["action"] = token
-                action_selected = True
-                break
-    state.seen = seen
-    return nodes, flags(), seen, values, exclusive, pending, passthrough, action_selected
-
-
-def suggest_flags(state: ParsedState) -> list[str]:
-    nodes, flags, seen, values, exclusive, pending, passthrough, action_selected = tree_state(state)
-    if passthrough:
-        return []
-    return [flag for flag, spec in flags.items()
-            if (flag not in seen or spec.get("repeatable"))
-            and (not spec.get("exclusive") or spec["exclusive"] not in exclusive)
-            and condition_matches(spec.get("when", {}), seen, values)]
-
-
-def filter_single_use(flags: list[str], state: ParsedState, *, repeatable: set[str] | None = None) -> list[str]:
-    repeatable = (repeatable or set()) | REPEATABLE_GLOBAL_ENV_FLAGS
-    return [flag for flag in flags if flag in repeatable or flag not in (state.seen or set())]
-
-
-def complete_classic(tokens_before_current: list[str], cur: str, cwd: Path) -> CompletionResult:
-    state = parse_classic_state(tokens_before_current, cwd)
-    nodes, flags, seen, values, exclusive, pending, passthrough, action_selected = tree_state(state)
-    if passthrough:
-        return CompletionResult([])
-    prefix = ""
-    if cur.startswith("--") and "=" in cur:
-        flag, cur = cur.split("=", 1)
-        if flag not in flags:
-            return CompletionResult([])
-        pending = (flag, flags[flag])
-        prefix = flag + "="
-    if pending and (pending[1].get("arity") != "?" or not cur.startswith("-")):
-        flag, spec = pending
-        if spec.get("anchor") == "tools":
-            result = complete_words(cur, list(tree_entries(NATIVE_HELP["tree"]["tools"])))
-        elif spec.get("provider"):
-            result = PROVIDERS[spec["provider"]](cur, state)
-        else:
-            result = complete_words(cur, list(tree_entries(spec.get("values", {}))))
-        result.completions = [prefix + item for item in result.completions]
-        return result
-    candidates = suggest_flags(state)
-    if not action_selected:
-        candidates += [name for node in nodes for name, spec in tree_entries(node.get("actions", {})).items()
-                       if condition_matches(spec.get("when", {}), seen, values)]
-    return complete_words(cur, unique(candidates))
-
-
-def tree_descriptions(node: dict) -> dict:
+def complete_command(tokens: list[str], cur: str, cwd: Path) -> tuple[CompletionResult, dict]:
+    state = command_tree.parse(tokens, cwd, partial=True)
     descriptions = {}
-    for key, value in node.items():
-        if key.startswith("#") and isinstance(value, str):
-            descriptions[key[1:]] = value
-        elif isinstance(value, dict):
-            descriptions.update(tree_descriptions(value))
-    return descriptions
-
-
-def parse_llm_mode(tokens_before_current: list[str], cwd: Path) -> ParsedState:
-    state = ParsedState(tokens=tokens_before_current, cwd=cwd, seen=set(tokens_before_current))
-    state.project_file = detect_project_file(tokens_before_current, cwd)
-
-    expecting_value_flag: str | None = None
-    expecting_append_value = False
-    for token in tokens_before_current:
-        if expecting_value_flag:
-            if expecting_value_flag == "--cmd":
-                state.cmd = token
-            expecting_value_flag = None
-            continue
-        if expecting_append_value:
-            expecting_append_value = False
-            continue
-        if token in GLOBAL_VALUE_FLAGS:
-            expecting_value_flag = token
-            continue
-        if token == "--eval_json":
-            state.eval_json = True
-            continue
-        if token == "--append":
-            state.has_append = True
-            expecting_append_value = True
-            continue
-        if token == "--":
-            break
-        if not token.startswith("-") and not state.has_llm_path:
-            state.has_llm_path = True
-            state.llm_path = token
-
-    return state
-
-
-def complete_llm(tokens_before_current: list[str], cur: str, cwd: Path) -> CompletionResult:
-    if any(token == "--tool" or token.startswith("--tool=") for token in tokens_before_current):
-        return complete_classic(tokens_before_current, cur, cwd)
-    if "--" in tokens_before_current:
-        dd_index = tokens_before_current.index("--")
-        passthrough_tokens = tokens_before_current[dd_index + 1 :]
-        return complete_classic(passthrough_tokens, cur, cwd)
-
-    state = parse_llm_mode(tokens_before_current, cwd)
-    prev = tokens_before_current[-1] if tokens_before_current else ""
-    if prev == "--project":
-        return complete_project_files(cur, state)
-    if prev in {"--env-python", "--env-path", "--env-var"}:
-        return CompletionResult([])
-    if prev == "--cmd":
-        return CompletionResult([])
-    if prev == "--eval_json":
-        return complete_json_path(state.project_file, cur)
-    if prev == "--append":
-        if is_deployment_program_file_path(state.llm_path):
-            return complete_path(cur, state.cwd, suffixes=(".bit",))
-        return CompletionResult([])
-
-    if state.cmd is not None:
-        append_flags = [] if state.has_append else ["--append"]
-        if cur.startswith("-") or not cur:
-            return complete_words(cur, append_flags)
-        return CompletionResult([])
-
-    llm_flags = filter_single_use(["--eval_json", "--cmd", "--project", "--tool", *GLOBAL_FLAGS, "--help", "-h"], state)
-
-    if (cur.startswith("-") or not cur) and not state.has_llm_path:
-        merged = unique(complete_llm_path(state.project_file, cur).completions + [flag for flag in llm_flags if flag.startswith(cur)])
-        return CompletionResult(merged)
-
-    if not state.has_llm_path:
-        llm_result = complete_llm_path(state.project_file, cur)
-        merged = unique(llm_result.completions + [flag for flag in llm_flags if flag.startswith(cur)])
-        return CompletionResult(merged, filenames=llm_result.filenames, nospace=llm_result.nospace)
-
-    if cur == state.llm_path:
-        if state.eval_json:
-            return complete_json_path(state.project_file, cur)
-        return complete_llm_path(state.project_file, cur)
-
-    is_leaf = (
-        is_json_string_leaf(state.project_file, state.llm_path)
-        if state.eval_json and state.llm_path
-        else is_llm_leaf(state.project_file, state.llm_path or "")
-    )
-    if state.llm_path and is_leaf:
-        append_flags = [] if state.has_append else ["--append"]
-        if cur.startswith("-") or not cur:
-            return complete_words(cur, append_flags)
-        return CompletionResult([])
-
-    return CompletionResult([])
+    specs = state['specs']
+    pending = state['pending']
+    prefix = ''
+    if cur.startswith('--') and '=' in cur:
+        flag, cur = cur.split('=', 1)
+        pending = (flag, specs.get(flag, {}))
+        prefix = flag+'='
+    if pending:
+        flag, spec = pending
+        provider_state = ParsedState(tokens, cwd, project_file=state['project'], seen=state['seen'])
+        provider_state.tokens = state['args'] + tokens
+        if spec.get('provider') in PROVIDERS:
+            result = PROVIDERS[spec['provider']](cur, provider_state)
+        else:
+            result = complete_words(cur, list(command_tree.entries(spec.get('values', {}))))
+        result.completions = [prefix+item for item in result.completions]
+        descriptions.update({prefix+name: spec.get('values', {}).get('#'+name, 'Value for '+flag) for name in result.completions})
+        return result, descriptions
+    if not state['command'] and not cur.startswith('-'):
+        candidates = command_candidates(state['tree'], state)
+        result = complete_dotted_paths(list(candidates), cur)
+        for index, item in enumerate(result.completions):
+            node, _, _, ready = command_tree.resolve_path(state['tree'], item, state['data'])
+            if ready and not node.get('provider'):
+                result.completions[index] = item.rstrip('.')
+        descriptions = {item: candidates.get(item.rstrip('.'), 'Command group') for item in result.completions}
+        return result, descriptions
+    flags = [flag for flag, spec in specs.items()
+             if (flag not in state['seen'] or spec.get('repeatable'))
+             and command_tree.condition_matches(spec.get('when', {}), state['seen'], state['values'])]
+    for group in (state['tree']['master_flags'], state['node'].get('flags', {})):
+        descriptions.update({flag: group.get('#'+flag, '') for flag in flags if flag in group})
+    return complete_words(cur, flags), descriptions
 
 
 def completion_description(data: dict, candidate: str) -> str:
@@ -799,7 +420,7 @@ def main() -> int:
     try:
         if SCHEMA_ERROR:
             raise ValueError(SCHEMA_ERROR)
-        validate_tree(NATIVE_HELP["tree"])
+        command_tree.validate(NATIVE_HELP["tree"])
     except ValueError as error:
         if args.describe:
             print(str(error), file=sys.stderr)
@@ -816,18 +437,11 @@ def main() -> int:
     cur = words[comp_cword] if comp_cword < len(words) else ""
     tokens_before_current = words[1:comp_cword]
 
-    classic_mode = any(token == "--tool" or token.startswith("--tool=") for token in tokens_before_current)
-    if os.environ.get("HDLFORGE_COMPLETION_DEBUG"):
-        mode_name = "classic" if classic_mode else "llm_orch"
-        print(
-            f"[hdlforge completion] backend mode={mode_name} cwd={cwd} cur={cur!r}",
-            file=sys.stderr,
-        )
     try:
-        result = complete_classic(tokens_before_current, cur, cwd) if classic_mode else complete_llm(tokens_before_current, cur, cwd)
+        result, native = complete_command(tokens_before_current, cur, cwd)
     except (ValueError, KeyError, TypeError) as error:
         if args.describe:
-            print(f"Invalid completion tree: {error}", file=sys.stderr)
+            print(f"Invalid command state: {error}", file=sys.stderr)
         return 1
 
     print(f"__META__ filenames={1 if result.filenames else 0} nospace={1 if result.nospace else 0}")
@@ -836,13 +450,6 @@ def main() -> int:
     if (args.describe or args.display_table) and not result.filenames:
         project_file = detect_project_file(tokens_before_current, cwd)
         data = load_json(project_file) if project_file and project_file.suffix == ".json" else {}
-        native = {name[1:]: value for group in (NATIVE_HELP["flags"], NATIVE_HELP["values"])
-                  for name, value in group.items() if name.startswith("#")}
-        if "--project_console" in tokens_before_current:
-            native.update(CONSOLE_ACTIONS)
-        if "--monitor" in tokens_before_current:
-            native.update({name[1:]: value for name, value in NATIVE_HELP['monitor'].items() if name.startswith('#')})
-        native.update(tree_descriptions(NATIVE_HELP["tree"]))
         data = {**(data or {}), "__native_descriptions": native}
         for item in result.completions:
             if not completion_description(data, item):

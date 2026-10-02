@@ -20,20 +20,18 @@ class LauncherEnvironmentTest(unittest.TestCase):
         }
         project_file.write_text(json.dumps(data))
         for command in ('printenv XILINXD_LICENSE_FILE',
-                        "hdlforge --no-print --cmd 'printenv XILINXD_LICENSE_FILE'"):
+                        "hdlforge --no-print eval-cmd 'printenv XILINXD_LICENSE_FILE'"):
             with self.subTest(command=command):
-                result = subprocess.run([str(self.wrapper), "--no-print", "--cmd", command],
+                result = subprocess.run([str(self.wrapper), "--no-print", "eval-cmd", command],
                                         cwd=self.project, env=self.env, capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertEqual(result.stdout.strip(), license_path)
 
     def test_build_selector_is_not_a_shortcut(self):
         for arguments in (
-            ["--tool", "vivado", "--build", "synth_production.new"],
-            ["--tool", "vivado", "--build=synth_production.new"],
-            ["--build", "synth_production.new", "--tool", "vivado"],
-            ["--tool", "vivado", "--build"],
-            ["--build", "--tool", "vivado"],
+            ["vivado.build.synth.synth_production.new"],
+            ["vivado.build.synth.synth_production.new"],
+            ["vivado.build.synth.synth_production.new"],
         ):
             with self.subTest(arguments=arguments):
                 result = subprocess.run([str(self.wrapper), "--dry-run", *arguments],
@@ -43,11 +41,10 @@ class LauncherEnvironmentTest(unittest.TestCase):
                 self.assertNotIn("--eval_json", result.stdout)
 
     def test_build_does_not_hide_a_conflicting_shortcut(self):
-        result = subprocess.run([str(self.wrapper), "--dry-run", "--tool", "vivado",
-                                 "--build", "synth_production.new", "other.shortcut"],
+        result = subprocess.run([str(self.wrapper), "--dry-run", "vivado.build.synth.synth_production.new", "other.shortcut"],
                                 cwd=self.project, env=self.env, capture_output=True, text=True)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("--tool cannot be combined with shorthand", result.stdout)
+        self.assertIn("Unexpected argument", result.stderr)
 
     def setUp(self):
         # Snap-installed jq has a private /tmp but can read user-owned home files.
@@ -62,7 +59,7 @@ class LauncherEnvironmentTest(unittest.TestCase):
         subprocess.run(["git", "init", "--quiet", str(self.project)], check=True)
         self.wrapper = Path(__file__).with_name("hdlforge").resolve()
         self.project.joinpath("sample.hdlforge.json").write_text(json.dumps({
-            "LLM_orch": {"nested": "hdlforge --no-print --cmd 'command -v hdlforge'"},
+            "LLM_orch": {"nested": "hdlforge --no-print eval-cmd 'command -v hdlforge'"},
             "settings": {"env": {"test-host": {"test-user": {
                 "path": [str(Path(shutil.which("jq")).parent)],
             }}}},
@@ -94,7 +91,7 @@ class LauncherEnvironmentTest(unittest.TestCase):
                 "path": [str(self.bin_dir)], "pythonpath": [str(self.root)],
             }}}},
         }))
-        result = subprocess.run([str(self.wrapper), "--no-print", "--cmd",
+        result = subprocess.run([str(self.wrapper), "--no-print", "eval-cmd",
                                  'command -v vivado; printf "%s\\n" "$PATH" "$PYTHONPATH"'],
                                 cwd=self.project, env=self.env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -105,20 +102,20 @@ class LauncherEnvironmentTest(unittest.TestCase):
 
     def test_invalid_json_stops_before_command(self):
         self.project.joinpath("sample.hdlforge.json").write_text("{invalid")
-        result = subprocess.run([str(self.wrapper), "--no-print", "--cmd", "echo SHOULD_NOT_RUN"],
+        result = subprocess.run([str(self.wrapper), "--no-print", "eval-cmd", "echo SHOULD_NOT_RUN"],
                                 cwd=self.project, env=self.env, capture_output=True, text=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertNotIn("SHOULD_NOT_RUN", result.stdout)
 
     def test_cold_shortcut_resolves_nested_launcher(self):
-        result = subprocess.run([str(self.wrapper), "--no-print", "nested"], cwd=self.project,
+        result = subprocess.run([str(self.wrapper), "--no-print", "project-shortcuts.nested"], cwd=self.project,
                                 env=self.env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.splitlines(), [str(self.wrapper)])
         self.assertEqual(result.stderr, "")
 
     def test_quiet_mode_preserves_command_output_and_exit_status(self):
-        result = subprocess.run([str(self.wrapper), "--no-print", "--cmd",
+        result = subprocess.run([str(self.wrapper), "--no-print", "eval-cmd",
                                  "printf 'result\\n'; printf 'command error\\n' >&2; exit 37"],
                                 cwd=self.project, env=self.env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 37)
@@ -127,7 +124,7 @@ class LauncherEnvironmentTest(unittest.TestCase):
 
     def test_external_vivado_settings_do_not_override_host_user_selection(self):
         self.env["VIVADO_SETTINGS"] = str(self.root / "missing-settings.sh")
-        result = subprocess.run([str(self.wrapper), "--no-print", "--cmd", "echo SHOULD_NOT_RUN"],
+        result = subprocess.run([str(self.wrapper), "--no-print", "eval-cmd", "echo SHOULD_NOT_RUN"],
                                 cwd=self.project, env=self.env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "SHOULD_NOT_RUN\n")
@@ -139,7 +136,7 @@ class LauncherEnvironmentTest(unittest.TestCase):
             "export PATH=\"/wrong/path:$PATH\" # hdlforge-path\n"
         )
 
-        first = subprocess.run([str(self.wrapper), "--tool", "path_manager", "install-shell"],
+        first = subprocess.run([str(self.wrapper), "path_manager.install-shell"],
                                env=self.env, capture_output=True, text=True)
         self.assertEqual(first.returncode, 0, first.stderr)
         expected = (
@@ -150,14 +147,14 @@ class LauncherEnvironmentTest(unittest.TestCase):
         self.assertEqual(bashrc.read_text(), expected)
         self.assertIn("Repaired HDLForge PATH entry", first.stdout)
 
-        second = subprocess.run([str(self.wrapper), "--tool", "path_manager", "install-shell"],
+        second = subprocess.run([str(self.wrapper), "path_manager.install-shell"],
                                 env=self.env, capture_output=True, text=True)
         self.assertEqual(second.returncode, 0, second.stderr)
         self.assertEqual(bashrc.read_text(), expected)
         self.assertIn("already correct", second.stdout)
 
     def test_print_env_shows_path_provenance(self):
-        result = subprocess.run([str(self.wrapper), "--tool", "path_manager", "show"], cwd=self.project,
+        result = subprocess.run([str(self.wrapper), "path_manager.show"], cwd=self.project,
                                 env=self.env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("HDLForge selected environment", result.stdout)
@@ -168,7 +165,7 @@ class LauncherEnvironmentTest(unittest.TestCase):
     def run_selection(self, cwd: Path, arguments: list[str] | None = None) -> subprocess.CompletedProcess:
         """Observe the actual command directory and authoritative project selection."""
         command = 'printf "%s\\n" "$PWD" "$ROOT_FOLDER" "$HDLFORGE_PROJECT_FILE"'
-        return subprocess.run([str(self.wrapper), "--no-print", *(arguments or []), "--cmd", command],
+        return subprocess.run([str(self.wrapper), "--no-print", *(arguments or []), "eval-cmd", command],
                               cwd=cwd, env=self.env, capture_output=True, text=True)
 
     def make_selected_project(self) -> Path:
@@ -223,8 +220,8 @@ class LauncherEnvironmentTest(unittest.TestCase):
     def test_nested_command_preserves_explicit_selection(self):
         selected = self.make_selected_project()
         selected.with_name("other.hdlforge.json").write_text("{}")
-        command = "hdlforge --no-print --cmd 'printenv HDLFORGE_PROJECT_FILE'"
-        result = subprocess.run([str(self.wrapper), "--no-print", "--project", str(selected), "--cmd", command],
+        command = "hdlforge --no-print eval-cmd 'printenv HDLFORGE_PROJECT_FILE'"
+        result = subprocess.run([str(self.wrapper), "--no-print", "--project", str(selected), "eval-cmd", command],
                                 cwd=self.project, env=self.env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(result.stdout.strip(), str(selected))
@@ -254,7 +251,7 @@ class LauncherEnvironmentTest(unittest.TestCase):
         for arguments in (["--vcdfilename", "capture.vcd"], ["--vcdfilename=capture.vcd"]):
             with self.subTest(arguments=arguments):
                 result = subprocess.run([str(self.wrapper), "--project", str(selected), "--dry-run",
-                                         "--tool", "vcd_analyzer", *arguments], cwd=self.project,
+                                         "vcd_analyzer.modules", *arguments], cwd=self.project,
                                         env=self.env, capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 command = next(line.removeprefix("[i] Command: ") for line in result.stdout.splitlines()
@@ -269,7 +266,7 @@ class LauncherEnvironmentTest(unittest.TestCase):
         for flag in ("--lint-file", "--file"):
             with self.subTest(flag=flag):
                 result = subprocess.run([str(self.wrapper), "--project", str(selected), "--dry-run",
-                                         "--tool", "Verilator", flag, "outside.sv,second.sv"],
+                                         "Verilator.lint", flag, "outside.sv,second.sv"],
                                         cwd=self.project, env=self.env, capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 command = next(line.removeprefix("[i] Command: ") for line in result.stdout.splitlines()
@@ -280,8 +277,8 @@ class LauncherEnvironmentTest(unittest.TestCase):
 
     def test_project_free_command_stays_at_launch_directory(self):
         # An active nested environment can run a raw command outside any repo.
-        command = f"cd {shlex.quote(str(self.home))} && hdlforge --no-print --cmd pwd"
-        result = subprocess.run([str(self.wrapper), "--no-print", "--cmd", command],
+        command = f"cd {shlex.quote(str(self.home))} && hdlforge --no-print eval-cmd pwd"
+        result = subprocess.run([str(self.wrapper), "--no-print", "eval-cmd", command],
                                 cwd=self.project, env=self.env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(result.stdout.strip(), str(self.home))
@@ -298,23 +295,17 @@ class LauncherEnvironmentTest(unittest.TestCase):
 
     def test_nested_command_can_select_another_project(self):
         selected = self.make_selected_project()
-        command = f"cd {shlex.quote(str(selected.parent))} && hdlforge --no-print --cmd 'printenv HDLFORGE_PROJECT_FILE'"
-        result = subprocess.run([str(self.wrapper), "--no-print", "--cmd", command],
+        command = f"cd {shlex.quote(str(selected.parent))} && hdlforge --no-print eval-cmd 'printenv HDLFORGE_PROJECT_FILE'"
+        result = subprocess.run([str(self.wrapper), "--no-print", "eval-cmd", command],
                                 cwd=self.project, env=self.env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(result.stdout.strip(), str(selected))
 
-    def test_project_selection_stops_at_passthrough(self):
-        selected = self.make_selected_project()
-        result = subprocess.run([str(self.wrapper), "--dry-run", "--tool", "Verilator",
-                                 "--", "--project", str(selected)], cwd=self.project,
-                                env=self.env, capture_output=True, text=True)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        command = next(line.removeprefix("[i] Command: ") for line in result.stdout.splitlines()
-                       if line.startswith("[i] Command: "))
-        tokens = shlex.split(command)
-        self.assertEqual(tokens[tokens.index("--project") + 1], str(self.project / "sample.hdlforge.json"))
-        self.assertEqual(tokens[tokens.index("--") + 1:], ["--project", str(selected)])
+    def test_anonymous_passthrough_is_rejected(self):
+        result = subprocess.run([str(self.wrapper), 'Verilator.lint', '--', '--project', 'other.json'],
+                                cwd=self.project, env=self.env, capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Unexpected argument', result.stderr)
 
     def test_project_leaf_uses_the_selected_file(self):
         selected = self.make_selected_project()
@@ -322,7 +313,7 @@ class LauncherEnvironmentTest(unittest.TestCase):
         launch_dir = selected.parent / "nested"
         launch_dir.mkdir()
         result = subprocess.run([str(self.wrapper), "--no-print", "--env-var", "env.values",
-                                 "--cmd", "printenv SELECTED_VALUE"], cwd=launch_dir,
+                                 "eval-cmd", "printenv SELECTED_VALUE"], cwd=launch_dir,
                                 env=self.env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(result.stdout.strip(), "correct project")
@@ -334,7 +325,7 @@ class LauncherEnvironmentTest(unittest.TestCase):
         selected = external / "external.hdlforge.json"
         selected.write_text((self.project / "sample.hdlforge.json").read_text())
         result = subprocess.run([str(self.wrapper), "--no-print", "--project", str(selected),
-                                 "--cmd", 'printf "%s\\n" "$PWD" "$REPO_TOP" "$HDLFORGE_PROJECT_FILE"'],
+                                 "eval-cmd", 'printf "%s\\n" "$PWD" "$REPO_TOP" "$HDLFORGE_PROJECT_FILE"'],
                                 cwd=self.project, env=self.env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(result.stdout.splitlines(), [str(external), str(external), str(selected)])

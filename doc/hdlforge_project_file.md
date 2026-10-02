@@ -32,10 +32,10 @@ Verilator setup:
   }
 
 Run Verilator:
-  hdlforge --tool Verilator --step build --SimTargetName basic_test
-  hdlforge --tool Verilator --step sim --SimTargetName basic_test
-  hdlforge --tool Verilator --step lint --SimTargetName basic_test
-  hdlforge --tool Verilator --step lint --SimTargetName basic_test --lint-file sources/rtl/top.sv
+  hdlforge Verilator.build --SimTargetName basic_test
+  hdlforge Verilator.sim --SimTargetName basic_test
+  hdlforge Verilator.lint --SimTargetName basic_test
+  hdlforge Verilator.lint --SimTargetName basic_test --lint-file sources/rtl/top.sv
 
 Vivado configuration:
   Compile through vivado.non_project.runs and its impl_runs definitions.
@@ -44,9 +44,9 @@ Vivado configuration:
   hdlforge/project_setup/vivado_build_example_README.md for the complete schema.
 
 Run Vivado:
-  hdlforge --tool vivado --build synth_example.new
-  hdlforge --tool vivado --build synth_example.latest.impl_example.new
-  hdlforge --tool vivado --project_console start
+  hdlforge vivado.build.synth.synth_example.new
+  hdlforge vivado.build.impl.synth_example.latest.impl_example.new
+  hdlforge vivado.console.start
 
 LLM_orch setup:
 
@@ -66,16 +66,16 @@ LLM_orch setup:
   "LLM_orch": {
     "testing": {
       "sim": {
-        "basic": "hdlforge --tool Verilator --step sim --SimTargetName basic_test --env-python verilator.config.sim_targets.basic_test.env.pythonpath"
+        "basic": "hdlforge Verilator.sim --SimTargetName basic_test --env-python verilator.config.sim_targets.basic_test.env.pythonpath"
       }
     }
   }
 
 Run LLM_orch shortcut:
-  hdlforge testing.sim.basic
+  hdlforge project-shortcuts.testing.sim.basic
 
 Append flags to shortcut:
-  hdlforge testing.sim.basic --append '<extra flags>'
+  hdlforge project-shortcuts.testing.sim.basic --append '<extra flags>'
 
 Set env vars in a shortcut:
 
@@ -121,8 +121,8 @@ Recursive shortcut calls:
   "LLM_orch": {
     "testing": {
       "sim": {
-        "basic": "hdlforge --tool Verilator --step sim --SimTargetName basic_test",
-        "basic_with_flags": "hdlforge testing.sim.basic --append '<extra flags>'"
+        "basic": "hdlforge Verilator.sim --SimTargetName basic_test",
+        "basic_with_flags": "hdlforge project-shortcuts.testing.sim.basic --append '<extra flags>'"
       }
     }
   }
@@ -132,8 +132,8 @@ Recursive shortcut calls:
 
 Useful checks:
   jq '.LLM_orch | keys' <project>.hdlforge.json
-  hdlforge --tool Verilator --help
-  hdlforge --tool vivado --help
+  hdlforge Verilator.help
+  hdlforge vivado.help
 # Host environment variables
 
 Under `settings.env.<host>.<user>`, an optional `variables` object exports

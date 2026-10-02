@@ -30,6 +30,7 @@ from hw_server_tasks import hw_server, help_hw_server
 
 # Import project loader (single source of truth for project data)
 from project_file import ProjectFile
+from hdlforge_command_tree import help_text, parse
 from vivado_console import project_console
 import vivado_build
 import vivado_build_tools
@@ -190,310 +191,33 @@ def projects(c, set_project=None, list_projects=False):
             pass
 
 
+def _show_command_help(command: str) -> None:
+    print(help_text(parse([command] if command else [], Path.cwd())))
+
+
 def help(c):
-    """
-    Show HDLForge help information
-    
-    This task provides comprehensive help for HDLForge usage.
-    """
-    print("=" * 80)
-    print("HDLFORGE - Hardware Description Language Development Tool")
-    print("=" * 80)
-    print()
-    print("DESCRIPTION:")
-    print("  HDLForge is a unified command-line tool for FPGA development workflows.")
-    print("  It provides seamless integration between Vivado synthesis and Verilator simulation.")
-    print()
-    print("AVAILABLE TASKS:")
-    print()
-    
-    tasks_info = [
-        ("vivado", "FPGA Development Tasks", [
-            "Create and manage Xilinx Vivado projects",
-            "Run synthesis, implementation, and bitstream generation",
-            "Supports multiple build flows and configurations"
-        ]),
-        ("Verilator", "Simulation Tasks", [
-            "Compile and run Verilog/SystemVerilog simulations",
-            "Uses Verilator compiler with cocotb testbenches",
-            "Supports multiple simulation targets and environments"
-        ]),
-        ("network", "Network Utilities", [
-            "Send raw packets (ARP, ICMP, UDP)",
-            "Use --tool network --cmd <command>"
-        ]),
-        ("vcd_analyzer", "VCD Analyzer", [
-            "Analyze waveform files",
-            "Use --tool vcd_analyzer"
-        ]),
-        ("tsharkWrapper", "Tshark Wrapper", [
-            "Wrapper for tshark commands",
-            "Use --tool tsharkWrapper"
-        ]),
-        ("projects", "Project Management", [
-            "Manage HDL project configurations",
-            "Set active project and list available projects"
-        ])
-    ]
-    
-    for task_name, description, features in tasks_info:
-        print(f"  {task_name:<12} - {description}")
-        for feature in features:
-            print(f"    • {feature}")
-        print()
-    
-    print("QUICK START:")
-    print("  1. Set up your project: hdlforge --tool projects")
-    print("  2. Run synthesis: hdlforge --tool vivado --build <selector>")
-    print("  3. Run simulation: hdlforge --tool Verilator --step build --step sim --SimTargetName <target>")
-    print()
-    print("GETTING HELP:")
-    print("  hdlforge                          # Show this help")
-    print("  hdlforge --help                   # Show this help")
-    print("  hdlforge --tool <tool> --help      # Show detailed help for specific tool")
-    print()
-    print("PROJECT CONFIGURATION:")
-    print("  Projects are configured using *.hdlforge.json (or *.hdlforge.toml) files in your working directory.")
-    print("  The tool automatically detects project files or you can specify them explicitly.")
-    print()
-    print("DOCUMENTATION:")
-    print("  • HDLForge_Documentation.toml - Comprehensive documentation and examples")
-    print("  • Contains detailed command structures, build processes, and best practices")
-    print("  • Includes troubleshooting guides and configuration examples")
-    print()
-    print("ENVIRONMENT REQUIREMENTS:")
-    print("  • REPO_TOP environment variable must be set")
-    print("  • Vivado installation (for FPGA tasks)")
-    print("  • Verilator installation (for simulation tasks)")
-    print("  • Python packages: invoke, cocotb, tabulate")
-    print()
-    print("=" * 80)
+    _show_command_help('')
 
 
 def help_vivado():
-    """
-    Show detailed help for Vivado tool
-    """
-    print("=" * 80)
-    print("HDLFORGE VIVADO - FPGA Development Tasks")
-    print("=" * 80)
-    print()
-    print("DESCRIPTION:")
-    print("  Manage Xilinx Vivado projects, run synthesis, implementation, and bitstream generation.")
-    print()
-    print("USAGE:")
-    print("  hdlforge --tool vivado <--arg1> <value1> <--arg2> <value2> ...")
-    print()
-    print("AVAILABLE STEPS:")
-    print()
-    print("  JSON Non-Project Builds:")
-    print(vivado_build.BUILD_HELP)
-    print("    --build SYNTH[.IMPL]                Run the selected vivado.non_project JSON configuration")
-    print("    --build SYNTH.latest.IMPL.bitstream.ID  Regenerate bitstream from completed routed implementation")
-    print("    --synth_timestamp ID                Parent run ID/label; default selects newest JSON creation time")
-    print("    --auto_impl IMPL                    After synthesis succeeds, run IMPL pinned to its stable ID; repeatable")
-    print("    --build_status                    Show active/unavailable registered builds")
-    print("    --build_status_all                Show all registered builds, including completed, failed, stopped, and dead runs")
-    print("    --build_stop_all                   Stop registered launches and cancel their continuations")
-    print("    --build_find_all_user_runs        Discover current-user Vivado processes, including unregistered ones")
-    print("    --build_create syth_imp_example  Create JSON and Tcl examples for synthesis, implementation and IP")
-    print("    --init_build_example               Create all three JSON/Tcl examples (alias)")
-    print("    --build_lint                       Check build configuration and input paths without Vivado")
-    print("    Save a generated run explicitly with git add -f <run-directory>")
-    print("    --build SYNTH[.IMPL] --clean_ignore_artifacts    Delete explicitly ignored inactive artifacts; no build")
-    print("      Artifact actions cover all timestamps; --synth_timestamp selects one.")
-    print()
-    print("  Tcl console and inspection:")
-    print("    --project_console ACTION             Persistent console, Tcl submission and inspection")
-    print("      Actions: start, send, source, interactive, status, restart, stop; use help for all")
-    print("    --get_xpr_path                       Print a configured XPR path without starting Vivado")
-    print("    --monitor ACTION                     Inspect logs, timing and build evidence; use help")
-    print()
-    print("OPTIONS:")
-    print("    --project <PATH>                     Specify project file path (optional)")
-    print()
-    print("=" * 80)
+    _show_command_help('vivado')
 
 
 def help_verilator(project: str | None = None, sim_target_name: str | None = None):
-    """
-    Show detailed help for Verilator tool
-    """
-    print("=" * 80)
-    print("HDLFORGE VERILATOR - Simulation Tasks")
-    print("=" * 80)
-    print()
-    print("DESCRIPTION:")
-    print("  Compile and run Verilog/SystemVerilog simulations using Verilator compiler with cocotb testbenches.")
-    print()
-    print("USAGE:")
-    print("  hdlforge --tool Verilator <--arg1> <value1> <--arg2> <value2> ...")
-    print()
-    print("TARGET ARGUMENTS:")
-    print("    --SimTargetName <TARGET>            Required for build, sim, and full-target lint")
-    print("                                          Optional for lint when --file/--lint-file is provided")
-    print()
-    print("AVAILABLE STEPS:")
-    print("    --step build                         Compile SystemVerilog files to C++ executable")
-    print("    --step sim                           Run Python Cocotb testbench simulation")
-    print("    --step lint                          Run verilator --lint-only")
-    print()
-    print("OPTIONS:")
-    print("    --project <PATH>                     Specify project file path (optional)")
-    print("    --clean                              Clean build directory before running")
-    print("    --flags <FLAGS>                      Additional Verilator flags; may be repeated")
-    print("    --file <PATH[,PATH2]>                Lint selected project file(s) with package/library lookup")
-    print("    --lint-file <PATH[,PATH2]>           Lint only selected source file(s), without dependencies")
-    print("    --extra-env <KEY=VAL,KEY2=VAL2>      Additional environment variables")
-    print()
-    print("NOTES:")
-    print("  • SimTargetName must be defined in your project's verilator_settings.sim_targets when used")
-    print("  • Multiple --step flags can be provided to run multiple steps in sequence")
-    print("  • Build step must be run before sim step")
-    print("  • --file and --lint-file imply --step lint when no step is supplied")
-    print("  • Lint step is independent from build/sim and accepts optional --file or --lint-file")
-    print("  • Targetless file lint scopes -Werror-<CODE> failures to the selected file(s)")
-    print()
+    _show_command_help('Verilator')
     print_verilator_project_flag_help(project, sim_target_name)
-    print("=" * 80)
 
 
 def help_network():
-    """
-    Show detailed help for Network tool
-    """
-    print("=" * 80)
-    print("HDLFORGE NETWORK - Network Utilities")
-    print("=" * 80)
-    print()
-    print("DESCRIPTION:")
-    print("  Network utilities for sending raw packets (ARP, ICMP, UDP).")
-    print()
-    print("USAGE:")
-    print("  hdlforge --tool network --cmd <command> [--arg1] [<value1>] [--arg2] [<value2>] ...")
-    print()
-    print("AVAILABLE TOOLS:")
-    print()
-    print("  --network:")
-    print("    Network utilities for sending raw packets")
-    print()
-    print("    send_raw:")
-    print("      Send raw bytes to network interface")
-    print("      --interface <IFACE>                  Network interface (required)")
-    print("      --data <HEX_STRING>                  Raw data as hex string (required)")
-    print("      --verbose                            Enable verbose output")
-    print()
-    print("    send_arp:")
-    print("      Send ARP packet")
-    print("      --interface <IFACE>                  Network interface (required)")
-    print("      --arp_op <1|2>                       ARP operation: 1=request, 2=reply (default: 1)")
-    print("      --eth_dst_mac <MAC>                  Ethernet destination MAC (default: FF:FF:FF:FF:FF:FF for requests)")
-    print("      --eth_src_mac <MAC>                  Ethernet source MAC (default: interface MAC)")
-    print("      --src_mac <MAC>                      ARP source MAC address (default: 00:00:00:00:00:00)")
-    print("      --src_ip <IP>                        Source IP address (default: 192.168.1.1)")
-    print("      --dst_mac <MAC>                      ARP destination MAC address (default: 00:00:00:00:00:00)")
-    print("      --dst_ip <IP>                        Destination IP address (default: 192.168.1.2)")
-    print("      --verbose                            Enable verbose output")
-    print()
-    print("    send_icmp:")
-    print("      Send ICMP packet (ping)")
-    print("      --interface <IFACE>                  Network interface (required)")
-    print("      --eth_dst_mac <MAC>                  Ethernet destination MAC (default: FF:FF:FF:FF:FF:FF)")
-    print("      --eth_src_mac <MAC>                  Ethernet source MAC (default: interface MAC)")
-    print("      --src_ip <IP>                        Source IP address (default: 192.168.1.1)")
-    print("      --dst_ip <IP>                        Destination IP address (default: 192.168.1.2)")
-    print("      --icmp_type <TYPE>                   ICMP type: 8=echo request, 0=echo reply (default: 8)")
-    print("      --icmp_code <CODE>                   ICMP code (default: 0)")
-    print("      --identifier <ID>                    ICMP identifier (default: 0)")
-    print("      --sequence <SEQ>                     ICMP sequence number (default: 0)")
-    print("      --data <HEX_STRING>                   ICMP data payload as hex string")
-    print("      --verbose                            Enable verbose output")
-    print()
-    print("    send_udp:")
-    print("      Send UDP packet")
-    print("      --interface <IFACE>                  Network interface (required)")
-    print("      --eth_dst_mac <MAC>                  Ethernet destination MAC (default: FF:FF:FF:FF:FF:FF)")
-    print("      --eth_src_mac <MAC>                  Ethernet source MAC (default: interface MAC)")
-    print("      --src_ip <IP>                        Source IP address (default: 192.168.1.1)")
-    print("      --dst_ip <IP>                        Destination IP address (default: 192.168.1.2)")
-    print("      --src_port <PORT>                    Source UDP port (default: 12345)")
-    print("      --dst_port <PORT>                    Destination UDP port (default: 53)")
-    print("      --data <HEX_STRING>                   UDP payload as hex string")
-    print("      --verbose                            Enable verbose output")
-    print()
-    print("EXAMPLES:")
-    print("  # Send ARP request")
-    print("  sudo hdlforge --tool network --cmd send_arp --interface eth0 --src_ip 192.168.1.100")
-    print()
-    print("  # Send UDP packet")
-    print("  sudo hdlforge --tool network --cmd send_udp --interface eth0 --src_ip 192.168.1.1 \\")
-    print("       --dst_ip 192.168.1.100 --dst_port 5678 --data 'deadbeef'")
-    print()
-    print("NOTES:")
-    print("  • Network tools require root privileges (use sudo)")
-    print("  • Use tcpdump to capture packets: sudo tcpdump -i <interface> -w capture.pcap")
-    print("  • View pcap file: tcpdump -r capture.pcap -X")
-    print()
-    print("=" * 80)
+    _show_command_help('network')
 
 
 def help_vcd_analyzer():
-    """
-    Show detailed help for VCD Analyzer tool
-    """
-    print("=" * 80)
-    print("HDLFORGE VCD_ANALYZER - VCD Waveform Analysis")
-    print("=" * 80)
-    print()
-    print("DESCRIPTION:")
-    print("  Professional VCD waveform analysis tool with signal hierarchy support.")
-    print()
-    print("USAGE:")
-    print("  hdlforge --tool vcd_analyzer [--arg1] [<value1>] [--arg2] [<value2>] ...")
-    print()
-    print("ARGUMENTS:")
-    print("    --vcdfilename <FILE>                   VCD file to analyze (required)")
-    print("    --get_modules_list                     List all modules in the design")
-    print("    --get_values_pins <PATH>               Module path to list value changes for pins only (excludes sub-modules)")
-    print("    --get_values_all <PATH>                Module path to list value changes for all signals (excludes sub-modules)")
-    print("    --human                                Human-readable output format with padding")
-    print()
-    print("EXAMPLES:")
-    print("  hdlforge --tool vcd_analyzer --vcdfilename waveform.vcd --get_modules_list")
-    print("  hdlforge --tool vcd_analyzer --vcdfilename waveform.vcd --get_values_pins 'top.module_inst'")
-    print("  hdlforge --tool vcd_analyzer --vcdfilename waveform.vcd --get_values_all 'top.module_inst'")
-    print("  hdlforge --tool vcd_analyzer --vcdfilename waveform.vcd --get_values_pins 'top.module_inst' --human")
-    print()
-    print("=" * 80)
+    _show_command_help('vcd_analyzer')
 
 
 def help_projects():
-    """
-    Show detailed help for Projects tool
-    """
-    print("=" * 80)
-    print("HDLFORGE PROJECTS - Project Management")
-    print("=" * 80)
-    print()
-    print("DESCRIPTION:")
-    print("  List all HDL project configurations recursively from the current directory.")
-    print()
-    print("USAGE:")
-    print("  hdlforge --tool projects --list")
-    print()
-    print("OPTIONS:")
-    print("    --list                                 List all available projects recursively from current directory")
-    print("    --verbose                              Enable verbose output")
-    print()
-    print("EXAMPLES:")
-    print("  hdlforge --tool projects --list          List all projects recursively from current directory")
-    print()
-    print("NOTES:")
-    print("  • Searches recursively for all *.hdlforge.json and *.hdlforge.toml files")
-    print("  • Displays results in a formatted table with project file, name, and path")
-    print("  • Projects are configured using *.hdlforge.json or *.hdlforge.toml files")
-    print()
-    print("=" * 80)
+    _show_command_help('projects')
 
 
 if __name__ == "__main__":
@@ -704,7 +428,7 @@ if __name__ == "__main__":
         print("[!x!] Error: --get_modules_list does not accept arguments", file=sys.stderr)
         print(f"[i] Unrecognized arguments: {' '.join(unknown)}", file=sys.stderr)
         print("[i] Note: --get_modules_list is a flag (no arguments). If you want to filter modules:", file=sys.stderr)
-        print("[i]   Use grep: hdlforge --tool vcd_analyzer --vcdfilename <file> --get_modules_list | grep 'pattern'", file=sys.stderr)
+        print("[i]   Use grep: hdlforge vcd_analyzer.modules --vcdfilename <file> | grep 'pattern'", file=sys.stderr)
         print("[i]   Or quote wildcards to prevent shell expansion when typing the command", file=sys.stderr)
         sys.exit(1)
     

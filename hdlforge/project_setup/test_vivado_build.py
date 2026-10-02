@@ -14,7 +14,6 @@ import unittest
 from unittest.mock import patch
 import zipfile
 
-from hdlforge_completion_backend import complete_classic
 from vivado_build import execute, select_run
 from vivado_build_artifacts import manage_artifacts
 from vivado_build_config import synthesis_timestamps
@@ -265,8 +264,7 @@ class NativeBuildTest(unittest.TestCase):
         executable.chmod(0o755)
         wrapper = Path(__file__).with_name("hdlforge")
         env = {**os.environ, "PATH": str(self.root) + os.pathsep + os.environ["PATH"]}
-        result = subprocess.run([str(wrapper), "--project", str(self.project), "--env-path", json.dumps([str(self.root)]), "--tool", "vivado",
-                                 "--build", "synth_one"], cwd=wrapper.parent, env=env,
+        result = subprocess.run([str(wrapper), "--project", str(self.project), "--env-path", json.dumps([str(self.root)]), "vivado.build.synth.synth_one.continue"], cwd=wrapper.parent, env=env,
                                 capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("HDLFORGE_BUILD_COMPLETE", result.stdout)

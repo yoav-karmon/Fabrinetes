@@ -4,9 +4,9 @@ Generated for `{{PROJECT}}`; run HDLForge from the project JSON directory.
 Replace placeholder sources, IP, XDC, part and top before building.
 
 ```bash
-hdlforge --project {{PROJECT_ARG}} --tool vivado --build ip_example
-hdlforge --project {{PROJECT_ARG}} --tool vivado --build synth_example --auto_impl impl_example
-hdlforge --project {{PROJECT_ARG}} --tool vivado --build synth_example.latest.impl_example.new
+hdlforge --project {{PROJECT_ARG}} vivado.build.synth.ip_example.continue
+hdlforge --project {{PROJECT_ARG}} vivado.build.synth.synth_example.continue --auto_impl impl_example
+hdlforge --project {{PROJECT_ARG}} vivado.build.impl.synth_example.latest.impl_example.new
 ```
 
 The project JSON points to maintained scripts: `synth_example/run.tcl`,
@@ -53,9 +53,9 @@ the relative tree. Discovery and `latest` use metadata; completion offers stable
 IDs. A failed newest synthesis is not silently replaced with an older success.
 
 ```bash
-hdlforge --project {{PROJECT_ARG}} --tool vivado --build synth_example.rerun.<run-id>
-hdlforge --project {{PROJECT_ARG}} --tool vivado --build synth_example.<synth-id>.impl_example.rerun.<impl-id>
-hdlforge --project {{PROJECT_ARG}} --tool vivado --build synth_example.<synth-id>.impl_example.bitstream.<impl-id>
+hdlforge --project {{PROJECT_ARG}} vivado.build.synth.synth_example.rerun.<run-id>
+hdlforge --project {{PROJECT_ARG}} vivado.build.synth.synth_example.<synth-id>.impl_example.rerun.<impl-id>
+hdlforge --project {{PROJECT_ARG}} vivado.build.synth.synth_example.<synth-id>.impl_example.bitstream.<impl-id>
 ```
 
 Bitstream-only runs reference the selected implementation's routed checkpoint,
@@ -70,8 +70,8 @@ if any descendant is tracked or not ignored, inspection fails, a nested Git
 repository exists, or a run lock is held.
 
 ```bash
-hdlforge --project {{PROJECT_ARG}} --tool vivado --build_clean_ignore_artifacts --dry-run
-hdlforge --project {{PROJECT_ARG}} --tool vivado --build_status
+hdlforge --project {{PROJECT_ARG}} vivado.build.clean_ignore_artifacts --dry-run
+hdlforge --project {{PROJECT_ARG}} vivado.build.status
 ```
 
 Historical old-format output folders are left intact and are not selected for

@@ -117,7 +117,7 @@ class ConsoleTest(unittest.TestCase):
                 if isinstance(value, dict):
                     check(value)
                 else:
-                    self.assertIn('--project_console ', value)
+                    self.assertIn('vivado.console.', value)
                     self.assertNotIn('--project_mng ', value)
         check(commands)
 

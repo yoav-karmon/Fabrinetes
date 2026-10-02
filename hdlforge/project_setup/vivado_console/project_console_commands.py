@@ -65,7 +65,7 @@ def hdlforge_commands() -> dict:
             target = target[part]
         leaf = path[-1]
         target["#" + leaf] = description
-        target[leaf] = 'hdlforge --project "$HDLFORGE_PROJECT_FILE" --tool vivado --project_console ' + action
+        target[leaf] = 'hdlforge vivado.console.' + ('help' if action == '--help' else action) + ' --project "$HDLFORGE_PROJECT_FILE"'
     return {"#project_console": "Persistent Vivado Tcl console; full command transcripts and live summaries.",
             "project_console": root}
 
@@ -111,7 +111,7 @@ def locate_own_key(filename: Path, invoked_key: str | None = None) -> str:
         management = value.get("management", {})
         own = value.get("update-json") or (management.get("update-json") if isinstance(management, dict) else None)
         own = own or value.get("update-json")
-        if path and path[-1] == "project_console" and isinstance(own, str) and any(flag + " update-json" in own for flag in ("--project_console",)):
+        if path and path[-1] == "project_console" and isinstance(own, str) and "vivado.console.update-json" in own:
             matches.append(".".join(path[:-1]))
         for name, child in value.items():
             if not name.startswith("#"):

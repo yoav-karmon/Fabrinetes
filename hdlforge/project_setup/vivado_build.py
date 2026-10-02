@@ -208,7 +208,8 @@ def execute_attempt(project: Path, config: dict, executable: str = "vivado") -> 
                 selector = f"{synthesis}.rerun.{config['synthesis_run_id']}"
                 if implementation:
                     selector = f"{synthesis}.{config['synthesis_run_id']}.{implementation}.rerun.{output.name}"
-                command = shlex.join(['hdlforge', '--project', str(project), '--tool', 'vivado', '--build', selector])
+                stage = 'impl' if implementation else 'synth'
+                command = shlex.join(['hdlforge', '--project', str(project), f'vivado.build.{stage}.' + selector])
                 raise ValueError(
                     f"Run blocked: another launcher holds this run's lock.\n"
                     f"Launcher PID: {pid}\nLock: {lock.name}\nLog: {output / 'logs/runme.log'}\n\n"
