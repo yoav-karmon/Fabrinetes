@@ -48,11 +48,8 @@ class ProjectFile:
         # Working directory: directory of the project file (single source of truth)
         self._working_path = self._project_file_path.parent.resolve()
         # Tool configurations - each tool has its own section
-        vivado_section = self._project_data.get("vivado", {})
         verilator_section = self._project_data.get("verilator", {})
         
-        self.vivado_config = vivado_section.get("config", {})
-        self.vivado_external_config = vivado_section.get("external_config", {})
         self.verilator_config = verilator_section.get("config", {})
         self.verilator_external_config = verilator_section.get("external_config", {})
         # Sources are now under verilator.config.sources (flat array format)
@@ -63,21 +60,6 @@ class ProjectFile:
         # Exposed for callers that expect a project root string; equals working_path.
         self.project_path = str(self._working_path)
 
-        # Vivado config - project identity must be explicit when Vivado is used
-        vivado_build_dir_str = self.vivado_config.get("build_dir", "_vivado")
-        self.vivado_build_dir = self._working_path / vivado_build_dir_str
-        self.vivado_project_name = self.vivado_config.get("project_name", "").strip()
-        # Note: part, top_module, set_var, runs_flow are now only in TCL file, not JSON
-        self.vivado_lint_ignore_error_codes = self.vivado_config.get("lint_ignore_error_codes", [])
-        self.vivado_lint_ignore_warning_codes = self.vivado_config.get("lint_ignore_warning_codes", [])
-        
-        if self.vivado_project_name:
-            self.vivado_project_xpr_path = self.vivado_build_dir / self.vivado_project_name / f"{self.vivado_project_name}.xpr"
-            self.vivado_project_xpr_relative = f"{self.vivado_project_name}/{self.vivado_project_name}.xpr"
-        else:
-            self.vivado_project_xpr_path = None
-            self.vivado_project_xpr_relative = None
-        
         # Verilator config
         verilator_build_dir_str = self.verilator_config.get("build_dir", "_verilator")
         self.verilator_build_dir = self._working_path / verilator_build_dir_str
@@ -291,15 +273,6 @@ class ProjectFile:
         
         return tool_source_files
     
-    def get_vivado_sources(self, verbose: bool = False) -> List[dict]:
-        """
-        Get source files for Vivado.
-        Note: Vivado sources are now managed in the TCL file, not in JSON.
-        This method returns an empty list.
-        """
-        # Vivado sources come from TCL file, not JSON
-        return []
-    
     def get_verilator_sources(self, verbose: bool = False) -> List[dict]:
         """Get source files for Verilator."""
         return self.get_file_list_for_tool("verilator", verbose)
@@ -330,18 +303,6 @@ class ProjectFile:
             print(f"Please run: update_repo_path")
             exit(1)
 
-    def require_vivado_project_name(self) -> None:
-        """Fail fast unless vivado.config.project_name is explicitly configured."""
-        if self.vivado_project_name:
-            return
-
-        print(
-            "[!x!] vivado.config.project_name is required for Vivado operations.\n"
-            f"[i] Project file: {self._project_file_path}\n"
-            "[i] HDLForge no longer falls back to settings.project_name, the project folder name, or the JSON filename."
-        )
-        exit(1)
-    
     def save_project_data(self) -> None:
         """
         Save the current project data back to the JSON file.

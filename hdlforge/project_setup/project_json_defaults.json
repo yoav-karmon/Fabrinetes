@@ -1,0 +1,80 @@
+{
+  "paths": {
+    "settings": {
+      "env": {}
+    }
+  },
+  "remote-ssh": {
+    "settings": {
+      "env": {}
+    }
+  },
+  "aliases": {
+    "LLM_orch": {}
+  },
+  "sim-verilator": {
+    "verilator": {
+      "config": {
+        "build_dir": "_verilator",
+        "sources": [],
+        "includes_paths": [],
+        "build_args": {
+          "verilator_flags": []
+        },
+        "sim_targets": {}
+      }
+    }
+  },
+  "vivado.build": {
+    "vivado": {
+      "non_project": {
+        "output_root": "compilation",
+        "vivado_version": "",
+        "runs": {}
+      }
+    }
+  },
+  "vivado.monitor": {
+    "vivado": {
+      "monitor": {
+        "poll_seconds": 5,
+        "stage_max_chars": 50,
+        "stale_timeout_seconds": 1800,
+        "daemon": {},
+        "execution_targets": {},
+        "event_tasks": {
+          "open": [],
+          "closed": []
+        },
+        "collection": {
+          "enabled": false,
+          "command": [],
+          "timeout_seconds": 3600
+        },
+        "notify": {
+          "on_state_change": true,
+          "on_stage_change": false,
+          "outputs": {
+            "stdout": {
+              "enabled": false
+            },
+            "write_user_all_ttys": {
+              "enabled": false,
+              "user": ""
+            },
+            "slack": {
+              "enabled": false,
+              "listen_enabled": false,
+              "listen_reconnect_seconds": 5,
+              "channel_id": "",
+              "allowed_user_ids": [],
+              "token_env": "SLACK_BOT_TOKEN",
+              "app_token_env": "SLACK_APP_TOKEN",
+              "user_settings": {}
+            }
+          }
+        }
+      }
+    }
+  }
+}

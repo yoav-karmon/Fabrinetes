@@ -619,7 +619,7 @@ hdlforge_print_all_host_and_user_environments() {
         fi
         env -u HDLFORGE_CALLED -u HDLFORGE_NESTED_CALL \
             HOST_MACHINE="$host_name" HDLFORGE_HOST_USER="$user_name" \
-            "$0" path_manager.show || return $?
+            "$0" paths.show || return $?
     done
 }
 

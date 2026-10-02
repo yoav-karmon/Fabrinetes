@@ -1,4 +1,4 @@
-"""Project path discovery and existing Vivado owner checks."""
+"""Discover the project JSON identifying a persistent Tcl console."""
 from pathlib import Path
 
 def discover_project_json(project_dir: Path) -> Path:

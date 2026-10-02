@@ -15,7 +15,7 @@ import time
 from uuid import uuid4
 
 from table_formatter import create_matrix_table_from_data
-from vivado_console.log_analysis import enrich
+from vivado_build_log import enrich
 from vivado_build_artifacts import cleanable
 from vivado_build_layout import descendant_runs, read_run, run_directories
 from vivado_build_processes import alive, find_user_vivado, group_members, local_identity, probe_process, process_info, signal_process, thread_activity, vivado_engine

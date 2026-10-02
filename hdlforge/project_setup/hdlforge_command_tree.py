@@ -115,7 +115,7 @@ def resolve_path(tree: dict, command: str, data: dict) -> tuple[dict, str, str, 
     for index, part in enumerate(parts):
         if part == 'help' and index == len(parts)-1:
             return node, '.'.join(prefix), '', False
-        if node.get('provider'):
+        if node.get('provider') and part not in entries(node.get('commands', {})):
             value = '.'.join(parts[index:])
             if node['provider'] == 'shortcuts':
                 selected = shortcut_node(data, value)

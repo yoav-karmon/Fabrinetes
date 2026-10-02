@@ -228,7 +228,6 @@ if __name__ == "__main__":
     console_parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
     console_parser.add_argument('--tool')
     console_parser.add_argument('--project')
-    console_parser.add_argument('--get_xpr_path', action='store_true')
     console_parser.add_argument('--project_console')
     console_parser.add_argument('--monitor', nargs='?', const='help')
     console_parser.add_argument('--build', nargs='?', const='')
@@ -250,14 +249,14 @@ if __name__ == "__main__":
         other_actions = any(getattr(console_args, flag) for flag in (
             'build_stop_all', 'build_find_all_user_runs', 'build_create',
             'build_status', 'build_status_all', 'create', 'monitor',
-            'project_console', 'get_xpr_path', 'init_build', 'init_build_example', 'build_lint'))
+            'project_console', 'init_build', 'init_build_example', 'build_lint'))
         if console_args.tool != 'vivado' or not cleanup or other_actions:
             console_parser.error('Native --dry-run supports artifact cleanup only; no action was executed')
         console_tail.append('--dry-run')
     management = [flag for flag in ('build_stop_all', 'build_find_all_user_runs', 'build_clean_ignore_artifacts', 'build_create') if getattr(console_args, flag)]
     if console_args.tool == 'vivado' and management:
         os.chdir(ORIGINAL_CWD)
-        if len(management) != 1 or console_args.build is not None or console_args.build_status or console_args.build_status_all or console_args.create or console_args.monitor or console_args.project_console or console_args.get_xpr_path or console_args.init_build or console_args.init_build_example or console_args.build_lint:
+        if len(management) != 1 or console_args.build is not None or console_args.build_status or console_args.build_status_all or console_args.create or console_args.monitor or console_args.project_console or console_args.init_build or console_args.init_build_example or console_args.build_lint:
             console_parser.error('Choose one build management action without --build')
         action = management[0]
         mapped = {'build_stop_all': '--stopall', 'build_find_all_user_runs': '--find_all_user_runs', 'build_clean_ignore_artifacts': '--clean_ignore_artifacts'}
@@ -268,7 +267,7 @@ if __name__ == "__main__":
         sys.exit(runner.main(action_argv + console_tail))
     if console_args.tool == 'vivado' and (console_args.build_status or console_args.build_status_all):
         os.chdir(ORIGINAL_CWD)
-        if (console_args.build_status and console_args.build_status_all) or console_args.build is not None or console_args.create or console_args.monitor or console_args.project_console or console_args.get_xpr_path or console_args.init_build_example or console_args.init_build or console_args.build_lint:
+        if (console_args.build_status and console_args.build_status_all) or console_args.build is not None or console_args.create or console_args.monitor or console_args.project_console or console_args.init_build_example or console_args.init_build or console_args.build_lint:
             console_parser.error('Choose --build_status or --build_status_all without other Vivado actions')
         status_argv = ['--build_status_all' if console_args.build_status_all else '--build_status']
         if console_args.project:
@@ -276,7 +275,7 @@ if __name__ == "__main__":
         sys.exit(vivado_build.main(status_argv + console_tail))
     if console_args.tool == 'vivado' and console_args.create is not None:
         os.chdir(ORIGINAL_CWD)
-        if console_args.build != '' or console_args.monitor or console_args.project_console or console_args.get_xpr_path or console_args.init_build_example or console_args.build_lint:
+        if console_args.build != '' or console_args.monitor or console_args.project_console or console_args.init_build_example or console_args.build_lint:
             console_parser.error('--create requires --build without a run selector or other action')
         config_argv = ['--create', console_args.create]
         if console_args.project:
@@ -284,7 +283,7 @@ if __name__ == "__main__":
         sys.exit(vivado_build_tools.main(config_argv + console_tail))
     if console_args.tool == 'vivado' and (console_args.init_build_example or console_args.init_build or console_args.build_lint):
         os.chdir(ORIGINAL_CWD)
-        if console_args.build is not None or console_args.monitor or console_args.project_console or console_args.get_xpr_path:
+        if console_args.build is not None or console_args.monitor or console_args.project_console:
             console_parser.error('Build configuration actions cannot be combined with other Vivado actions')
         config_argv = []
         if console_args.init_build:
@@ -298,7 +297,7 @@ if __name__ == "__main__":
         sys.exit(vivado_build_tools.main(config_argv + console_tail))
     if console_args.tool == 'vivado' and console_args.build is not None:
         os.chdir(ORIGINAL_CWD)
-        if console_args.monitor or console_args.project_console or console_args.get_xpr_path:
+        if console_args.monitor or console_args.project_console:
             console_parser.error('--build cannot be combined with other Vivado actions')
         build_argv = ['--build']
         if console_args.build:
@@ -308,7 +307,7 @@ if __name__ == "__main__":
         sys.exit(vivado_build.main(build_argv + console_tail))
     if console_args.tool == 'vivado' and console_args.monitor:
         os.chdir(ORIGINAL_CWD)
-        if console_args.project_console or console_args.get_xpr_path:
+        if console_args.project_console:
             console_parser.error('--monitor cannot be combined with project management actions')
         monitor_script = Path(os.environ.get('REPO_TOP', ORIGINAL_CWD)) / 'tools/vivado_monitor/vivado_monitor.py'
         if not monitor_script.is_file():
@@ -320,18 +319,8 @@ if __name__ == "__main__":
         if console_args.project:
             monitor_argv.extend(['--project', console_args.project])
         sys.exit(subprocess.call([*monitor_argv, action, *console_tail]))
-    if console_args.tool == 'vivado' and (console_args.get_xpr_path or console_args.project_console):
+    if console_args.tool == 'vivado' and console_args.project_console:
         os.chdir(ORIGINAL_CWD)
-        if console_args.get_xpr_path and console_args.project_console:
-            console_parser.error('--get_xpr_path and --project_console are separate actions')
-        if console_args.get_xpr_path:
-            if console_tail:
-                console_parser.error('--get_xpr_path takes no additional options')
-            with redirect_stdout(sys.stderr):
-                selected_project = ProjectFile(console_args.project)
-                selected_project.require_vivado_project_name()
-            print(selected_project.vivado_project_xpr_path.resolve())
-            sys.exit(0)
         console_argv = [console_args.project_console]
         if console_args.project:
             console_argv.extend(['--project-json', console_args.project])
@@ -428,7 +417,7 @@ if __name__ == "__main__":
         print("[!x!] Error: --get_modules_list does not accept arguments", file=sys.stderr)
         print(f"[i] Unrecognized arguments: {' '.join(unknown)}", file=sys.stderr)
         print("[i] Note: --get_modules_list is a flag (no arguments). If you want to filter modules:", file=sys.stderr)
-        print("[i]   Use grep: hdlforge vcd_analyzer.modules --vcdfilename <file> | grep 'pattern'", file=sys.stderr)
+        print("[i]   Use grep: hdlforge waveform.modules --vcdfilename <file> | grep 'pattern'", file=sys.stderr)
         print("[i]   Or quote wildcards to prevent shell expansion when typing the command", file=sys.stderr)
         sys.exit(1)
     

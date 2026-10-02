@@ -71,7 +71,7 @@ class DottedCommandsTest(unittest.TestCase):
         self.assertEqual(result.stdout, 'parent')
 
     def test_master_flags_exist_on_every_leaf(self):
-        for command in ('ssh.verify', 'path_manager.show', 'vivado.console.start', 'Verilator.sim', 'eval-cmd'):
+        for command in ('remote-ssh.verify', 'paths.show', 'vivado.console.start', 'sim-verilator.sim', 'eval-cmd'):
             with self.subTest(command=command):
                 result = self.run_command(command+'.help')
                 self.assertEqual(result.returncode, 0, result.stderr)
@@ -79,7 +79,7 @@ class DottedCommandsTest(unittest.TestCase):
                 self.assertIn('--env-python', result.stdout)
 
     def test_explicit_shortcut_executes_only_its_leaf(self):
-        result = self.run_command('project-shortcuts.nested')
+        result = self.run_command('aliases.nested')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), str(self.wrapper))
 
@@ -114,7 +114,7 @@ class DottedCommandsTest(unittest.TestCase):
         self.assertIn('--clean_ignore_artifacts', state['args'])
 
     def test_hardware_command_payload_preserves_spaces_and_dots(self):
-        state = parse(['hw_server.chain', '--commands', '["open device", "program path/file.bit", "q"]'], self.project)
+        state = parse(['hw-server.chain', '--commands', '["open device", "program path/file.bit", "q"]'], self.project)
         self.assertEqual(state['args'][-4:], ['--interactive-chain', 'open device', 'program path/file.bit', 'q'])
 
 

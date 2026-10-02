@@ -15,7 +15,6 @@ from .tcl_arguments import tcl_word
 from .terminal_output import log as log_message
 
 HELPER_TCL = Path(__file__).with_name("live_project_helpers.tcl")
-RUN_TCL = Path(__file__).with_name("run_commands.tcl")
 
 class ConsoleUnavailable(RuntimeError):
     """The console transport failed, rather than the requested Tcl command."""
@@ -54,7 +53,7 @@ class ProjectConsole:
     def helper(self, command: str) -> None:
         if command == "open":
             startup = self.directory / "startup.tcl"
-            startup.write_text(f"source {tcl_word(HELPER_TCL)}\nsource {tcl_word(RUN_TCL)}\n")
+            startup.write_text(f"source {tcl_word(HELPER_TCL)}\n")
             logs = self.logs_directory
             logs.mkdir(parents=True, exist_ok=True)
             invocation = shlex.join(["vivado", "-mode", "tcl", "-log", str(logs / "vivado.log"),
@@ -66,7 +65,6 @@ class ProjectConsole:
                                  check=True, capture_output=True, text=True).stdout.strip()
             log_message(f"Background console process started: {pid}\nLog: {logs / 'vivado.log'}\nTail: tail -f {shlex.quote(str(logs / 'vivado.log'))}", error=True)
         elif command == "close":
-            self.request("lvp_close_project")
             subprocess.run(["tmux", "kill-session", "-t", "=" + self.session], check=True, capture_output=True)
         else:
             raise ValueError(f"Unknown console lifecycle action: {command}")
@@ -78,7 +76,7 @@ class ProjectConsole:
             if self.exists() and not self.force_recovery:
                 raise ConsoleUnavailable(
                     f"{error}\nRestarting may interrupt pending work. "
-                    "Confirm by retrying with --append '--force'.") from error
+                    "Use vivado.console.restart to restart the console.") from error
             self.close(force=True)
             self.force_recovery = False
             self._open()
@@ -118,7 +116,7 @@ class ProjectConsole:
             f"set ::lvp_data_channel [open {tcl_word(data_file)} w]\n"
             "set ::lvp_result {}\nset ::lvp_error {}\n"
             "set ::lvp_code [catch {\n"
-            f"source {tcl_word(RUN_TCL)}\n"
+            f"source {tcl_word(HELPER_TCL)}\n"
             f"set ::lvp_result [uplevel #0 {tcl_word(command)}]\n"
             "} ::lvp_message ::lvp_options]\n"
             "if {$::lvp_code} {set ::lvp_error $::lvp_message; if {[dict exists $::lvp_options -errorinfo]} {set ::lvp_error [dict get $::lvp_options -errorinfo]}}\n"

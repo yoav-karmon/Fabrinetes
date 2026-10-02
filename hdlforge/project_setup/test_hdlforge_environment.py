@@ -111,7 +111,7 @@ class LauncherEnvironmentTest(unittest.TestCase):
         self.assertNotIn("SHOULD_NOT_RUN", result.stdout)
 
     def test_cold_shortcut_resolves_nested_launcher(self):
-        result = subprocess.run([str(self.wrapper), "--no-print", "project-shortcuts.nested"], cwd=self.project,
+        result = subprocess.run([str(self.wrapper), "--no-print", "aliases.nested"], cwd=self.project,
                                 env=self.env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.splitlines(), [str(self.wrapper)])
@@ -139,7 +139,7 @@ class LauncherEnvironmentTest(unittest.TestCase):
             "export PATH=\"/wrong/path:$PATH\" # hdlforge-path\n"
         )
 
-        first = subprocess.run([str(self.wrapper), "path_manager.install-shell"],
+        first = subprocess.run([str(self.wrapper), "paths.install-shell"],
                                env=self.env, capture_output=True, text=True)
         self.assertEqual(first.returncode, 0, first.stderr)
         expected = (
@@ -150,14 +150,14 @@ class LauncherEnvironmentTest(unittest.TestCase):
         self.assertEqual(bashrc.read_text(), expected)
         self.assertIn("Repaired HDLForge PATH entry", first.stdout)
 
-        second = subprocess.run([str(self.wrapper), "path_manager.install-shell"],
+        second = subprocess.run([str(self.wrapper), "paths.install-shell"],
                                 env=self.env, capture_output=True, text=True)
         self.assertEqual(second.returncode, 0, second.stderr)
         self.assertEqual(bashrc.read_text(), expected)
         self.assertIn("already correct", second.stdout)
 
     def test_print_env_shows_path_provenance(self):
-        result = subprocess.run([str(self.wrapper), "path_manager.show"], cwd=self.project,
+        result = subprocess.run([str(self.wrapper), "paths.show"], cwd=self.project,
                                 env=self.env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("HDLForge selected environment", result.stdout)
@@ -254,7 +254,7 @@ class LauncherEnvironmentTest(unittest.TestCase):
         for arguments in (["--vcdfilename", "capture.vcd"], ["--vcdfilename=capture.vcd"]):
             with self.subTest(arguments=arguments):
                 result = subprocess.run([str(self.wrapper), "--project", str(selected), "--dry-run",
-                                         "vcd_analyzer.modules", *arguments], cwd=self.project,
+                                         "waveform.modules", *arguments], cwd=self.project,
                                         env=self.env, capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 command = next(line.removeprefix("[i] Command: ") for line in result.stdout.splitlines()
@@ -269,7 +269,7 @@ class LauncherEnvironmentTest(unittest.TestCase):
         for flag in ("--lint-file", "--file"):
             with self.subTest(flag=flag):
                 result = subprocess.run([str(self.wrapper), "--project", str(selected), "--dry-run",
-                                         "Verilator.lint", flag, "outside.sv,second.sv"],
+                                         "sim-verilator.lint", flag, "outside.sv,second.sv"],
                                         cwd=self.project, env=self.env, capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 command = next(line.removeprefix("[i] Command: ") for line in result.stdout.splitlines()
@@ -304,7 +304,7 @@ class LauncherEnvironmentTest(unittest.TestCase):
         self.assertEqual(result.stdout.strip(), str(selected))
 
     def test_anonymous_passthrough_is_rejected(self):
-        result = subprocess.run([str(self.wrapper), 'Verilator.lint', '--', '--project', 'other.json'],
+        result = subprocess.run([str(self.wrapper), 'sim-verilator.lint', '--', '--project', 'other.json'],
                                 cwd=self.project, env=self.env, capture_output=True, text=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('Unexpected argument', result.stderr)

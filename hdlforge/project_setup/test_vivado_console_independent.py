@@ -40,7 +40,8 @@ class IndependentConsoleTest(unittest.TestCase):
 
     def test_retired_actions_absent(self):
         retired = {"build_run", "build_group", "build_bitstream", "reset_run", "reset_group",
-                   "export_open_project_to_tcl", "generate_project_from_tcl", "regenerate_project"}
+                   "export_open_project_to_tcl", "generate_project_from_tcl", "regenerate_project", "close_project", "follow", "get_groups", "get_runs",
+                   "group_info", "group_status", "reuse_status", "run_info", "run_status", "set_run_property"}
         self.assertTrue(retired.isdisjoint(COMMANDS))
         with self.assertRaises(SystemExit), patch("sys.stderr", new=io.StringIO()):
             parser().parse_args(["build_run"])

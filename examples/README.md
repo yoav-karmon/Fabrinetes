@@ -15,7 +15,7 @@ A complete example featuring:
 **Quick Start:**
 ```bash
 cd examples/addr_32bit
-hdlforge Verilator --project addr_32bit.hdlforge.toml --step sim --SimTargetName basic_test
+hdlforge sim-verilator --project addr_32bit.hdlforge.toml --step sim --SimTargetName basic_test
 ```
 
 > **Note**: All HDLForge commands now require the `--project` parameter. The old format `hdlforge <project_file> <command>` is no longer supported.
@@ -42,7 +42,7 @@ All examples use the HDLForge build system and can be run with:
 cd examples/example_name
 
 # Run Verilator simulation
-hdlforge Verilator --project example_name.hdlforge.toml --step sim --SimTargetName test_name
+hdlforge sim-verilator --project example_name.hdlforge.toml --step sim --SimTargetName test_name
 
 # Run Vivado synthesis
 hdlforge vivado --project example_name.hdlforge.toml --step syn --run-flow main

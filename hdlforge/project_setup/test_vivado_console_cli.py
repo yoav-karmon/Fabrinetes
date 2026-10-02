@@ -8,27 +8,17 @@ import subprocess
 import tempfile
 import unittest
 from unittest.mock import Mock, MagicMock, patch
-from vivado_console.follow import follow
 
-from vivado_console.project_console import display_response, main, parser, run_command
+from vivado_console.project_console import display_response, main, parser
 from vivado_console.project_console_commands import hdlforge_commands, install_commands
 from vivado_console.tcl_arguments import tcl_word
 
 
 class ConsoleTest(unittest.TestCase):
-    def test_follow_queries_console_once_then_only_logs(self):
-        console = MagicMock(xpr=Path('/tmp/test.xpr'))
-        console.last_response = {'records': [{'NAME': 'impl_1', 'PARENT': 'synth_1', 'STATUS': 'Running'}]}
-        ended = {'records': [{'NAME': 'impl_1', 'PARENT': 'synth_1', 'STATUS': 'RUN_PASS'}]}
-        with patch('vivado_console.follow.enrich', return_value=ended) as analyze, redirect_stdout(io.StringIO()):
-            self.assertEqual(follow(console), 0)
-        console.request.assert_called_once()
-        self.assertTrue(analyze.call_args.kwargs['log_only'])
-
     def test_terminate_kills_without_tcl_or_prompt(self):
         with tempfile.TemporaryDirectory() as directory:
             project = Path(directory) / 'test.hdlforge.json'
-            project.write_text(json.dumps({'vivado': {'external_config': {'filename': 'test.tcl'}}}))
+            project.write_text('{}')
             with patch('vivado_console.project_console.ProjectConsole') as factory, \
                     patch('builtins.input', side_effect=AssertionError('No prompt expected')), redirect_stdout(io.StringIO()):
                 self.assertEqual(main(['stop', '--project-json', str(project)]), 0)
@@ -36,26 +26,6 @@ class ConsoleTest(unittest.TestCase):
             console.close.assert_called_once_with(force=True)
             console.request.assert_not_called()
             console.locked.assert_not_called()
-
-
-
-    def test_grouped_runs_keep_identifiers_unwrapped(self):
-        name = 'i_impl_latency_test_1_ml_strat_1'
-        rows = [{'NAME': 'synth_latency_test', 'PARENT': '', 'STATUS': 'Not started', 'PROGRESS': '0%', 'ENABLED': '1'},
-                {'NAME': name, 'PARENT': 'synth_latency_test', 'STATUS': 'Running route_design...', 'PROGRESS': '80%', 'STATS.WNS': '-0.12', 'ENABLED': '1'},
-                {'NAME': 'synth_production', 'PARENT': '', 'STATUS': 'Not started', 'ENABLED': '1'}]
-        output = io.StringIO()
-        with redirect_stdout(output):
-            display_response(dict(request='r', command='lvp_get_runs', output='', result='', code=0, records=rows))
-        text = output.getvalue()
-        self.assertIn('Group: synth_latency_test', text)
-        self.assertIn('Group: synth_production', text)
-        self.assertIn(name, text)
-        self.assertIn('Timing', text)
-        self.assertNotIn('| Parent', text)
-        self.assertEqual(text.count('| Run '), 2)
-        self.assertIn('W/CW/E', text)
-
 
 
 

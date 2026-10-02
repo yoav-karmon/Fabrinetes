@@ -62,33 +62,6 @@ hdlforge_shell_quote_args() {
     printf '%s' "$command_text"
 }
 
-hdlforge_update_repo_json() {
-    local project_json="$1" host_name user_name tmp_json
-    host_name="${HOST_MACHINE:-$(hostname -s)}"
-    user_name="${HDLFORGE_HOST_USER:-$(id -un)}"
-    tmp_json="$(mktemp "${project_json}.XXXXXX")" || return 1
-    jq --arg host "$host_name" --arg user "$user_name" '
-      .settings //= {} | .settings.env //= {} | .settings.env[$host] //= {} |
-      .settings.env[$host][$user] //= {} |
-      .settings.env[$host][$user].path //= [] |
-      .settings.env[$host][$user].path_import //= [] |
-      .settings.env[$host][$user].pythonpath //= [] |
-      .settings.env[$host][$user].pythonpath_import //= [] |
-      .settings.env[$host][$user].variables //= {} |
-      .settings.env[$host][$user].variables_import //= [] |
-      .settings.env[$host][$user].tools //= {} |
-      .settings.env[$host][$user].tools.vivado //= "" |
-      .settings.env[$host][$user].tools.verilator //= ""
-    ' "$project_json" > "$tmp_json" || { rm -f "$tmp_json"; return 1; }
-    if cmp -s "$project_json" "$tmp_json"; then
-        rm -f "$tmp_json"
-        printf 'HDLForge JSON environment is complete: %s:%s\n' "$host_name" "$user_name"
-    else
-        mv "$tmp_json" "$project_json"
-        printf 'Added missing HDLForge JSON environment values: %s:%s\n' "$host_name" "$user_name"
-    fi
-}
-
 hdlforge_add_to_bashrc_path() {
     local bashrc_file="${HOME:?HDLForge requires HOME}/.bashrc"
     local managed_tag="# hdlforge-path"
@@ -223,6 +196,15 @@ done
 environment_args=("${route_args[@]}")
 set -- "${route_args[@]}" "${internal_args[@]}"
 
+# JSON maintenance is offline and can repair missing startup keys.
+if [ "${internal_args[0]}" = --json-schema ]; then
+    hdlforge_select_project "${environment_args[@]}" || exit 1
+    [ -n "$PROJECT_FILE_PATH" ] || { echo "error: select a project JSON with --project" >&2; exit 1; }
+    schema_args=("${internal_args[@]:1}" --project "$PROJECT_FILE_PATH")
+    [ "$DRY_RUN" != true ] || schema_args+=(--dry-run)
+    exec python3 "$HDLFORGE_INSTALL_DIR/hdlforge_json.py" "${schema_args[@]}"
+fi
+
 # Extract the tool anchor without interpreting values as independent actions.
 management_tool=""
 management_args=()
@@ -278,7 +260,7 @@ if [ "$management_tool" = path_manager ]; then
             --project) update_project="$2"; shift ;;
             --project=*) update_project="${1#*=}" ;;
             --help|-h)
-                echo 'usage: hdlforge path_manager. {show,show-all,init-base-path,init-base-pythonpath,install-shell,update-repo} [--project FILE]'
+                echo 'usage: hdlforge paths. {show,show-all,init-base-path,init-base-pythonpath,install-shell,update-repo} [--project FILE]'
                 exit 0 ;;
             *)
                 if [ -n "$management_action" ] || [[ "$1" == -* ]]; then
@@ -308,7 +290,7 @@ if [ "$management_tool" = path_manager ]; then
         update-repo)
             update_repo_top="$(git rev-parse --show-toplevel 2>/dev/null || true)"
             if [ -z "$update_repo_top" ]; then
-                echo "error: --tool path_manager update-repo must run inside a Git repository" >&2
+                echo "error: paths.update-repo must run inside a Git repository" >&2
                 exit 1
             fi
             if [ -z "$update_project" ]; then
@@ -316,21 +298,23 @@ if [ "$management_tool" = path_manager ]; then
             fi
             update_project="$(resolve_working_path "$update_project" "$(pwd -P)")"
             if [ "$(dirname "$update_project")" != "$update_repo_top" ]; then
-                    echo "error: path_manager.update-repo requires a JSON directly at repository top: $update_repo_top" >&2
+                    echo "error: paths.update-repo requires a JSON directly at repository top: $update_repo_top" >&2
                     exit 1
             fi
     if [ ! -f "$update_project" ]; then
         echo "error: project JSON not found: $update_project" >&2
         exit 1
     fi
-    hdlforge_update_repo_json "$update_project"
+    schema_args=(paths update-json --project "$update_project")
+    [ "$DRY_RUN" != true ] || schema_args+=(--dry-run)
+    python3 "$HDLFORGE_INSTALL_DIR/hdlforge_json.py" "${schema_args[@]}"
     exit $?
             ;;
         show|show-all)
             set -- --tool path_manager "$management_action"
             [ -z "$update_project" ] || set -- "$@" --project "$update_project"
             ;;
-        *) echo 'error: select a path_manager action; use --help' >&2; exit 2 ;;
+        *) echo 'error: select a paths action; use --help' >&2; exit 2 ;;
     esac
 fi
 

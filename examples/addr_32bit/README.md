@@ -52,15 +52,15 @@ addr_32bit/
 cd examples/addr_32bit
 
 # Build and run basic test
-hdlforge Verilator --project addr_32bit.hdlforge.toml --step build --SimTargetName basic_test
-hdlforge Verilator --project addr_32bit.hdlforge.toml --step sim --SimTargetName basic_test
+hdlforge sim-verilator --project addr_32bit.hdlforge.toml --step build --SimTargetName basic_test
+hdlforge sim-verilator --project addr_32bit.hdlforge.toml --step sim --SimTargetName basic_test
 
 # Run other test scenarios
-hdlforge Verilator --project addr_32bit.hdlforge.toml --step sim --SimTargetName reset_test
-hdlforge Verilator --project addr_32bit.hdlforge.toml --step sim --SimTargetName enable_test
-hdlforge Verilator --project addr_32bit.hdlforge.toml --step sim --SimTargetName increment_test
-hdlforge Verilator --project addr_32bit.hdlforge.toml --step sim --SimTargetName edge_cases_test
-hdlforge Verilator --project addr_32bit.hdlforge.toml --step sim --SimTargetName random_test
+hdlforge sim-verilator --project addr_32bit.hdlforge.toml --step sim --SimTargetName reset_test
+hdlforge sim-verilator --project addr_32bit.hdlforge.toml --step sim --SimTargetName enable_test
+hdlforge sim-verilator --project addr_32bit.hdlforge.toml --step sim --SimTargetName increment_test
+hdlforge sim-verilator --project addr_32bit.hdlforge.toml --step sim --SimTargetName edge_cases_test
+hdlforge sim-verilator --project addr_32bit.hdlforge.toml --step sim --SimTargetName random_test
 ```
 
 ### Running Vivado Synthesis

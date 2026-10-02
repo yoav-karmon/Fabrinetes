@@ -30,13 +30,13 @@ Run these from the repository root to use its `*.hdlforge.json`, or select
 they do not connect to hosts or execute SSH `Match exec` commands.
 
 ```bash
-hdlforge ssh.import --json fpga.hdlforge.json --ssh-config ~/.ssh/config --dry-run
-hdlforge ssh.import --json fpga.hdlforge.json
-hdlforge ssh.verify --json fpga.hdlforge.json
-hdlforge ssh.export --json fpga.hdlforge.json --dry-run
-hdlforge ssh.merge --json fpga.hdlforge.json --input laptop.json --input lab.json --dry-run
-hdlforge ssh.merge --json fpga.hdlforge.json --input lab.json --on-collision incoming
-hdlforge ssh.export --help
+hdlforge remote-ssh.import --json fpga.hdlforge.json --ssh-config ~/.ssh/config --dry-run
+hdlforge remote-ssh.import --json fpga.hdlforge.json
+hdlforge remote-ssh.verify --json fpga.hdlforge.json
+hdlforge remote-ssh.export --json fpga.hdlforge.json --dry-run
+hdlforge remote-ssh.merge --json fpga.hdlforge.json --input laptop.json --input lab.json --dry-run
+hdlforge remote-ssh.merge --json fpga.hdlforge.json --input lab.json --on-collision incoming
+hdlforge remote-ssh.export --help
 ```
 
 Actions accept `--help`; write actions support `--dry-run` and `--force`.
@@ -151,18 +151,18 @@ hdlforge vivado.build
 hdlforge vivado.build.synth.synth_example.new
 hdlforge vivado.build.impl.synth_example.latest.impl_example.new
 hdlforge vivado.build.synth.synth_example.continue
-hdlforge Verilator.sim --SimTargetName full_sim
+hdlforge sim-verilator.sim --SimTargetName full_sim
 hdlforge vivado.console.send --cmd 'open_checkpoint design.dcp'
 hdlforge eval-cmd 'python3 script.py --argument value' --dry-run
 hdlforge eval-cmd.help
-hdlforge project-shortcuts.testing.integration_test.sim.example.run_all
+hdlforge aliases.testing.integration_test.sim.example.run_all
 ```
 
 `continue` preserves the existing configured-run continuation behavior. `new`
 requests a new synthesis. Implementation selectors identify their synthesis,
 implementation and operation as shown by completion.
 
-Project shortcut lookup is explicit through `project-shortcuts.<path>` and
+Project shortcut lookup is explicit through `aliases.<path>` and
 limited to `LLM_orch`. Bare shortcut paths are not auto-detected. Project-file
 discovery for startup and environment setup remains automatic.
 
@@ -183,7 +183,7 @@ project; `--env-var` uses an array of single-key objects.
 
 ```bash
 hdlforge eval-cmd 'python3 -m integration_test.example' --env-python '["sources/tests"]'
-hdlforge project-shortcuts.testing.example --env-var '[{"TESTCASE":"example"}]'
+hdlforge aliases.testing.example --env-var '[{"TESTCASE":"example"}]'
 hdlforge eval-cmd 'printenv TESTCASE' --allow-env-overwrite --env-var '[{"TESTCASE":"changed"}]'
 ```
 
@@ -203,7 +203,7 @@ attempts match the root `_*` ignore rule. Existing historical output stays in
 place.
 
 A synthesis or implementation definition contains `script`, one `sources`
-array, optional `enabled_on_all`, and (for synthesis) `impl_runs`. IP producers
+array, `enabled_on_all`, and (for synthesis) `impl_runs`. IP producers
 use `kind: "ip"` so the launcher creates private writable IP inputs and records
 freshness hashes. The manifest has no part, top, defines or Vivado property maps.
 
@@ -239,11 +239,9 @@ The selected HDLForge JSON identifies the persistent tmux console. It needs no
 XPR or exported project Tcl and starts without opening or creating a project.
 Use `send` or `source` for unrestricted Tcl, including opening checkpoints or
 explicitly opening an existing project for inspection. Detach with Ctrl-b d.
-Inspection actions (`get_runs`, `run_info`, `group_info`, `run_status`) operate
-on the project explicitly opened in that console. `set_run_property` reads or
-edits its properties. `close_project` keeps the console alive and refuses to
-close active runs. Stop and restart terminate the managed console without
-export prompts. They do not manage non-project build workers.
+Use generic Tcl submission for interactive inspection. Stop and restart
+terminate the managed console without export prompts. They do not manage
+non-project build workers.
 
 Each response retains native output, Tcl results, errors and structured records.
 `--raw` suppresses summary tables; `--json` emits a response envelope.
@@ -266,7 +264,7 @@ another repository's environment. The root must contain exactly one
 `path`, `path_import`, `pythonpath`, `pythonpath_import`, `variables`,
 `variables_import`. Path/import fields are arrays; variables is an object.
 Empty arrays/objects are valid. Missing entries or invalid types fail before
-the command executes. Use `path_manager.update-repo` to initialize missing
+the command executes. Use `paths.update-repo` to initialize missing
 keys before normal startup; help and initialization do not load tool settings.
 
 Imports name same-typed leaves in that root JSON, for example
@@ -298,12 +296,12 @@ variables and PATH/PYTHONPATH cannot be replaced through `--env-var`.
 ## Path management
 
 ```bash
-hdlforge path_manager.show
-hdlforge path_manager.show-all
-hdlforge path_manager.init-base-path
-hdlforge path_manager.init-base-pythonpath
-hdlforge path_manager.install-shell
-hdlforge path_manager.update-repo --project repo.hdlforge.json
+hdlforge paths.show
+hdlforge paths.show-all
+hdlforge paths.init-base-path
+hdlforge paths.init-base-pythonpath
+hdlforge paths.install-shell
+hdlforge paths.update-repo --project repo.hdlforge.json
 ```
 
 `show` reports effective paths; `show-all` reports configured host/user pairs.
@@ -332,3 +330,79 @@ the eval payload as opaque. Double-Tab displays descriptions; normal completion
 inserts tokens only. Unknown commands/options and anonymous passthrough fail.
 
 Related references: `hdlforge_project_file.md`, `how_hdlforge_keeps_paths_clean.md`.
+
+
+## JSON maintenance
+
+Every tool that reads a configurable project section exposes `update-json`
+and `lint-json`: `paths`, `remote-ssh`, `aliases`, `sim-verilator`,
+`vivado.build`, `vivado.console`, and `vivado.monitor`.
+`vivado.update-json` / `vivado.lint-json` cover all three Vivado sections.
+
+```bash
+hdlforge paths.update-json --project fpga.hdlforge.json --dry-run
+hdlforge paths.update-json --project fpga.hdlforge.json
+hdlforge vivado.build.update-json --project chip.hdlforge.json --dry-run
+hdlforge vivado.build.update-json --project chip.hdlforge.json
+hdlforge vivado.build.lint-json --project chip.hdlforge.json
+hdlforge sim-verilator.lint-json --project simulation.hdlforge.json
+```
+
+Updates add missing required keys, including empty placeholders. Existing
+values, custom keys, comments represented by JSON `#` keys, and credentials
+remain intact. Invalid container types fail without rewriting the document.
+Dry-run reports only added key paths and does not write files. Unchanged
+documents retain their original bytes and modification time. Writes are atomic
+and reject a concurrent content change.
+
+Lint reports missing keys, invalid types, retired build fields, and unresolved
+configured source/script/include paths. Empty placeholders pass structural
+lint; they do not make an otherwise empty build runnable. Simulation inputs
+resolve relative to the selected project file. Environment lint uses the startup
+import resolver and validates paths for the selected host/user; filesystem checks
+reflect that machine. Output directories need not exist before a build.
+Alias lint parses native HDLForge invocations without executing shell commands.
+
+Schema maintenance runs after project selection and before environment
+initialization, so an incomplete environment document can be repaired.
+Select the repository-root JSON for `paths` and `remote-ssh`.
+`paths.update-repo` selects that root document automatically.
+Generic tools taking only command-line inputs need no project schema.
+
+The root commands are `aliases`, `discover`, `eval-cmd`, `hw-server`,
+`network`, `paths`, `remote-ssh`, `sim-verilator`, `tshark`,
+`vivado`, and `waveform`. They are lowercase with distinct initial letters.
+The command tree supplies the executable routes, help, and tab-completion.
+
+## Non-project monitoring
+
+`vivado.monitor` discovers attempts from recorded run metadata under
+`vivado.non_project.output_root`. Parent IDs connect synthesis,
+implementation and bitstream attempts. The monitor reads `logs/runme.log`
+and timing reports in `artifacts/` and `work/`; it does not consult XPRs.
+Use `vivado.build.status` for build-worker status and
+`vivado.console` for interactive Tcl.
+
+```bash
+hdlforge vivado.monitor.start
+hdlforge vivado.monitor.scan
+hdlforge vivado.monitor.status
+hdlforge vivado.monitor.tail --run PROJECT.SELECTOR.RUN_ID --no-follow
+hdlforge vivado.monitor.stop
+```
+
+Monitor settings live at `vivado.monitor`. Lifecycle hooks and optional
+collection execute explicitly configured argument arrays; `{run}` expands
+to the absolute non-project attempt directory and `{project}` to the project
+directory. No project-mode collector is configured. Builds keep snapshots and
+artifacts directly in each attempt. Monitor control does not stop build workers.
+
+## Bulk IP selection
+
+`enabled_on_all` is retained unchanged. In this FPGA repository,
+the IP batch generator and latest-XCIX publisher include IP entries with
+`kind: "ip"` and `enabled_on_all: true` (the runtime default is true).
+False opts an IP out of those bulk operations. Explicitly selecting a
+`vivado.build` run still works regardless of this value. The synthesis and
+implementation launcher validates the boolean but does not use it to suppress
+an explicitly requested build.

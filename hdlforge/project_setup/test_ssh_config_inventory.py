@@ -146,20 +146,20 @@ class SSHInventoryTests(unittest.TestCase):
     def test_wrapper_help_and_dry_run(self):
         wrapper = Path(__file__).with_name("hdlforge")
         for action in ("import", "export", "verify", "merge"):
-            result = subprocess.run([str(wrapper), "ssh."+action, "-h"], capture_output=True, text=True)
+            result = subprocess.run([str(wrapper), "remote-ssh."+action, "-h"], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("--allow-env-overwrite", result.stdout)
-        result = subprocess.run([str(wrapper), "ssh.import", "--json", str(self.project), "--ssh-config", str(self.config), "--dry-run"], capture_output=True, text=True)
+        result = subprocess.run([str(wrapper), "remote-ssh.import", "--json", str(self.project), "--ssh-config", str(self.config), "--dry-run"], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("DRY RUN", result.stdout)
         self.assertNotIn("ssh_config", self.project.read_text())
 
     def test_completion_actions_policies_and_files(self):
-        actions = complete_command([], "ssh.", self.root)[0].completions
-        self.assertTrue(set(("ssh.import", "ssh.export", "ssh.verify", "ssh.merge")).issubset(actions))
-        policies = complete_command(["ssh.merge", "--on-collision"], "", self.root)[0].completions
+        actions = complete_command([], "remote-ssh.", self.root)[0].completions
+        self.assertTrue(set(("remote-ssh.import", "remote-ssh.export", "remote-ssh.verify", "remote-ssh.merge")).issubset(actions))
+        policies = complete_command(["remote-ssh.merge", "--on-collision"], "", self.root)[0].completions
         self.assertEqual(policies, ["error", "keep", "incoming"])
-        files = complete_command(["ssh.import", "--ssh-config"], str(self.config), self.root)[0].completions
+        files = complete_command(["remote-ssh.import", "--ssh-config"], str(self.config), self.root)[0].completions
         self.assertIn(str(self.config), files)
 
     def test_new_files_permissions_symlinks_and_crlf(self):

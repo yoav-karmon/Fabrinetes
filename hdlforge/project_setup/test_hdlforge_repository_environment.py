@@ -94,7 +94,7 @@ class RepositoryEnvironmentTest(unittest.TestCase):
         child.mkdir()
         selected = child / "child.hdlforge.json"
         selected.write_text("{}")
-        result = subprocess.run([str(self.wrapper), "path_manager.update-repo"],
+        result = subprocess.run([str(self.wrapper), "paths.update-repo"],
                                 cwd=child, env=self.env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(selected.read_text(), "{}")

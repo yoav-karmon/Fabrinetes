@@ -13,13 +13,9 @@ COMMANDS = {name: (action, CATALOG["project_console"]["#" + name])
 GROUPS = {'aux': ('Execute Tcl commands or source Tcl files.', 'send source'),
  'management': ('Console lifecycle and terminal access.',
                 'status start stop restart interactive list_consoles console_output'),
- 'project': ('Close an explicitly opened project.', 'close_project'),
- 'runs': ('Inspect an explicitly opened project.',
-          'get_runs get_groups run_info run_status group_info group_status reuse_status follow'),
- 'settings': ('Inspect and edit properties through the console.', 'set_run_property'),
  'help': ('Command help and JSON installation.', 'help install-json print-json')}
 
-DISPLAY_NAMES = {'follow': 'follow_active_groups',
+DISPLAY_NAMES = {
  'send': 'execute_tcl',
  'source': 'source_tcl',
  'status': 'inspect_console',
@@ -29,15 +25,6 @@ DISPLAY_NAMES = {'follow': 'follow_active_groups',
  'interactive': 'attach_console',
  'list_consoles': 'list_consoles',
  'console_output': 'capture_output',
- 'close_project': 'close_project',
- 'get_runs': 'list_runs',
- 'get_groups': 'enumerate_groups',
- 'run_info': 'inspect_run',
- 'run_status': 'status_run',
- 'group_info': 'configuration_group',
- 'group_status': 'group_status',
- 'reuse_status': 'reuse_status',
- 'set_run_property': 'edit_run_property',
  'help': 'commands',
  'install-json': 'install-json',
  'print-json': 'print-json'}
@@ -60,7 +47,7 @@ def hdlforge_commands() -> dict:
         target = root
         for part in path[:-1]:
             if part not in target:
-                target["#" + part] = part.capitalize() + " a run or group." if part != "incremental" else "Enable or disable automatic incremental compilation."
+                target["#" + part] = part.capitalize() + " commands."
                 target[part] = {}
             target = target[part]
         leaf = path[-1]
@@ -98,31 +85,3 @@ def install_commands(filename: Path, key: str, overwrite: bool = False) -> None:
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
-
-
-def locate_own_key(filename: Path, invoked_key: str | None = None) -> str:
-    """Locate this update shortcut; require a unique match without invocation context."""
-    config = json.loads(filename.read_text())
-    matches = []
-
-    def visit(value: object, path: list[str]) -> None:
-        if not isinstance(value, dict):
-            return
-        management = value.get("management", {})
-        own = value.get("update-json") or (management.get("update-json") if isinstance(management, dict) else None)
-        own = own or value.get("update-json")
-        if path and path[-1] == "project_console" and isinstance(own, str) and "vivado.console.update-json" in own:
-            matches.append(".".join(path[:-1]))
-        for name, child in value.items():
-            if not name.startswith("#"):
-                visit(child, [*path, name])
-
-    visit(config, [])
-    if invoked_key:
-        for suffix in (".project_console.management.update-json", ".project_console.update-json"):
-            if invoked_key.endswith(suffix) and invoked_key[:-len(suffix)] in matches:
-                return invoked_key[:-len(suffix)]
-        raise ValueError("The invoking shortcut does not identify a project_console.management.update-json group in this file")
-    if len(matches) != 1:
-        raise ValueError(f"Cannot uniquely locate project_console: found {len(matches)} groups. Run the desired group's update-json shortcut.")
-    return matches[0]
