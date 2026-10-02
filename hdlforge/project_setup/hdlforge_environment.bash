@@ -1,27 +1,186 @@
-# Environment bootstrap owned by the HDLForge launcher.
-hdlforge_find_environment_project() {
-    local search_dir
-    local -a candidates
-    if [ -n "${HDLFORGE_PROJECT_FILE:-}" ] && [ -f "$HDLFORGE_PROJECT_FILE" ]; then
-        realpath "$HDLFORGE_PROJECT_FILE"
-        return 0
+# Resolve paths against an explicit base before changing the working directory.
+resolve_working_path() {
+    local raw_path="$1"
+    local base_dir="$2"
+    raw_path="${raw_path/#\~/$HOME}"
+    if [[ "$raw_path" != /* ]]; then
+        raw_path="$base_dir/$raw_path"
     fi
-    search_dir="$(pwd -P)"
+    realpath -m -- "$raw_path"
+}
+
+# Find the nearest unambiguous project without crossing a Git checkout boundary.
+# A recursive command can retain an explicit choice in that same directory.
+hdlforge_discover_project() {
+    local search_dir="$1"
+    local inherited_project="${HDLFORGE_PROJECT_FILE:-}"
+    local -a candidates
     while :; do
-        shopt -s nullglob
-        candidates=("$search_dir"/*.hdlforge.json)
-        shopt -u nullglob
+        if [ "${HDLFORGE_CALLED:-0}" = "1" ] && [ -f "$inherited_project" ] \
+            && [ "${inherited_project%/*}" = "$search_dir" ]; then
+            resolve_working_path "$inherited_project" "$search_dir"
+            return
+        fi
+        candidates=()
+        local candidate
+        for candidate in "$search_dir"/*.hdlforge.json "$search_dir"/*.hdlforge.toml; do
+            [ ! -f "$candidate" ] || candidates+=("$candidate")
+        done
         if [ "${#candidates[@]}" -eq 1 ]; then
-            realpath "${candidates[0]}"
+            resolve_working_path "${candidates[0]}" "$search_dir"
             return 0
         fi
-        [ "$search_dir" = "${REPO_TOP:-}" ] && break
+        if [ "${#candidates[@]}" -gt 1 ]; then
+            echo "error: multiple HDLForge project files in $search_dir; use --project <file>" >&2
+            return 2
+        fi
+        [ ! -e "$search_dir/.git" ] || break
         [ "$search_dir" = "/" ] && break
         search_dir="$(dirname "$search_dir")"
     done
     return 1
 }
 
+# Select once, from the launch directory, before bootstrap or command dispatch.
+# Strip --project from the forwarded arguments; native dispatch receives the
+# absolute selection explicitly and raw commands use the exported metadata.
+hdlforge_select_project() {
+    local explicit_project=""
+    local has_explicit_project=false
+    local status
+    HDLFORGE_LAUNCH_DIR="$(pwd -P)"
+    PROJECT_FILE_PATH=""
+    PROJECT_DIR="$HDLFORGE_LAUNCH_DIR"
+    TOOL_NAME=""
+    HDLFORGE_PROJECT_ARGS=()
+
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --)
+                HDLFORGE_PROJECT_ARGS+=("$@")
+                break
+                ;;
+            --project)
+                if [ "$#" -lt 2 ] || [ -z "$2" ] || [[ "$2" == -* ]]; then
+                    echo "error: --project requires a file" >&2
+                    return 1
+                fi
+                explicit_project="$2"
+                has_explicit_project=true
+                shift 2
+                ;;
+            --project=*)
+                explicit_project="${1#*=}"
+                has_explicit_project=true
+                shift
+                ;;
+            --tool=*)
+                TOOL_NAME="${1#*=}"
+                HDLFORGE_PROJECT_ARGS+=(--tool "$TOOL_NAME")
+                shift
+                ;;
+            --tool|--cmd|--append|--eval_json|--env-python|--env-path|--env-var|--flags|--file|--lint-file|--vcdfilename)
+                # Opaque argument values must not be interpreted as --project.
+                HDLFORGE_PROJECT_ARGS+=("$1")
+                if [ "$#" -ge 2 ]; then
+                    [ "$1" != --tool ] || TOOL_NAME="$2"
+                    HDLFORGE_PROJECT_ARGS+=("$2")
+                    shift
+                fi
+                shift
+                ;;
+            *)
+                HDLFORGE_PROJECT_ARGS+=("$1")
+                shift
+                ;;
+        esac
+    done
+
+    if [ "$has_explicit_project" = true ]; then
+        if [ -z "$explicit_project" ]; then
+            echo "error: --project requires a file" >&2
+            return 1
+        fi
+        PROJECT_FILE_PATH="$(resolve_working_path "$explicit_project" "$HDLFORGE_LAUNCH_DIR")" || return 1
+        if [ ! -f "$PROJECT_FILE_PATH" ]; then
+            echo "error: project file not found: $PROJECT_FILE_PATH" >&2
+            return 1
+        fi
+    elif PROJECT_FILE_PATH="$(hdlforge_discover_project "$HDLFORGE_LAUNCH_DIR")"; then
+        :
+    else
+        status=$?
+        [ "$status" -eq 1 ] || return "$status"
+    fi
+
+    if [ -n "$PROJECT_FILE_PATH" ]; then
+        PROJECT_DIR="$(dirname "$PROJECT_FILE_PATH")"
+    fi
+    export HDLFORGE_PROJECT_FILE="$PROJECT_FILE_PATH"
+    export ROOT_FOLDER="$PROJECT_DIR"
+    export HDLFORGE_ORIG_DIR="$HDLFORGE_LAUNCH_DIR"
+    hdlforge_normalize_file_arguments "${HDLFORGE_PROJECT_ARGS[@]}"
+}
+
+# Preserve invocation-relative source lists and captures when selecting another
+# project directory. Resolve each source independently, without shell globbing.
+hdlforge_resolve_source_list() {
+    local value="$1"
+    local item resolved=""
+    local -a items
+    IFS=',' read -r -a items <<< "$value"
+    for item in "${items[@]}"; do
+        item="${item#"${item%%[![:space:]]*}"}"
+        item="${item%"${item##*[![:space:]]}"}"
+        [ -n "$item" ] || continue
+        item="$(resolve_working_path "$item" "$HDLFORGE_LAUNCH_DIR")" || return 1
+        resolved="${resolved:+$resolved,}$item"
+    done
+    printf '%s' "$resolved"
+}
+
+hdlforge_normalize_file_arguments() {
+    local flag value
+    HDLFORGE_PROJECT_ARGS=()
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --)
+                HDLFORGE_PROJECT_ARGS+=("$@")
+                break
+                ;;
+            --vcdfilename|--vcdfilename=*|--lint-file|--lint-file=*|--file|--file=*)
+                flag="${1%%=*}"
+                if [[ "$1" == *=* ]]; then
+                    value="${1#*=}"
+                elif [ "$#" -ge 2 ]; then
+                    value="$2"
+                    shift
+                else
+                    HDLFORGE_PROJECT_ARGS+=("$1")
+                    break
+                fi
+                if [ "$flag" = --vcdfilename ]; then
+                    value="$(resolve_working_path "$value" "$HDLFORGE_LAUNCH_DIR")" || return 1
+                elif [ "$TOOL_NAME" = Verilator ] && [ "$PROJECT_DIR" != "$HDLFORGE_LAUNCH_DIR" ]; then
+                    value="$(hdlforge_resolve_source_list "$value")" || return 1
+                fi
+                HDLFORGE_PROJECT_ARGS+=("$flag" "$value")
+                ;;
+            --cmd|--append|--eval_json|--env-python|--env-path|--env-var|--flags|--tool)
+                HDLFORGE_PROJECT_ARGS+=("$1")
+                if [ "$#" -ge 2 ]; then
+                    HDLFORGE_PROJECT_ARGS+=("$2")
+                    shift
+                fi
+                ;;
+            *) HDLFORGE_PROJECT_ARGS+=("$1") ;;
+        esac
+        shift
+    done
+}
+
+# Environment bootstrap consumes the selection above; it never discovers a
+# second project with different precedence from the command being executed.
 hdlforge_find_repo_environment_project() {
     local -a candidates
     shopt -s nullglob
@@ -112,7 +271,8 @@ hdlforge_prepare_environment() {
     export HDLFORGE_SELECTED_USER="${HDLFORGE_HOST_USER:-$(id -un)}"
     export HDLFORGE_SELECTED_HOST_AND_USER="${HDLFORGE_SELECTED_HOST}:${HDLFORGE_SELECTED_USER}"
     repo_json="$(hdlforge_find_repo_environment_project)" || return 1
-    project_json="$(hdlforge_find_environment_project || true)"
+    project_json="${PROJECT_FILE_PATH:-}"
+    [[ "$project_json" == *.json ]] || project_json=""
     export HDLFORGE_ENV_REPO_JSON="$repo_json"
     export HDLFORGE_ENV_PROJECT_JSON="${project_json:-$repo_json}"
     repo_environment="$(hdlforge_read_json_environment "$repo_json" "$HDLFORGE_SELECTED_HOST" "$HDLFORGE_SELECTED_USER")" || return 1

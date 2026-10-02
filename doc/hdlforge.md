@@ -1,5 +1,28 @@
 HDLForge
 
+## Project selection and working directory
+
+Startup selects the project once in `hdlforge_environment.bash`. It searches
+from the launch directory upward for the nearest `.hdlforge.json` or
+`.hdlforge.toml`, stopping at a Git checkout boundary. Multiple candidates in
+one directory require an explicit selection. `--project FILE` and
+`--project=FILE` override discovery; relative filenames resolve against the
+original launch directory. Symlinks resolve to the actual project file.
+
+Commands execute from the selected file's containing directory. The launcher
+passes its absolute filename to native tools and exports it as
+`HDLFORGE_PROJECT_FILE`, with the working directory in `ROOT_FOLDER`.
+Environment leaf lookup and JSON shortcuts consume that same selection.
+Relative VCD capture paths and externally invoked Verilator source lists keep
+their original launch-directory base. Source-file arguments do not select a
+different project; use `--project` for an external source's project.
+
+Nested commands retain an explicit project choice when searching that same
+directory, including directories with multiple project files. Changing to a
+different project selects the nearest project there. Fresh launches ignore an
+inherited project filename. A raw `--cmd` with no selected project retains its
+launch directory when the repository environment is otherwise available.
+
 ## SSH configuration inventory
 
 Run these from the repository root to use its `*.hdlforge.json`, or select

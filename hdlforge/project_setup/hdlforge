@@ -6,6 +6,7 @@ set -o pipefail
 HDLFORGE_INSTALL_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
 export FABRINETES="$(cd "$HDLFORGE_INSTALL_DIR/../.." && pwd -P)"
 export HDLFORGE="$HDLFORGE_INSTALL_DIR"
+source "$HDLFORGE_INSTALL_DIR/hdlforge_environment.bash"
 
 # SSH inventory operations do not require project tools or HDL dependencies.
 for hdlforge_arg in "$@"; do
@@ -269,158 +270,7 @@ hdlforge_join_colon() {
 }
 
 hdlforge_resolve_project_path() {
-    local raw_path="$1"
-
-    raw_path="${raw_path/#\~/$HOME}"
-    if [[ "$raw_path" == /* ]]; then
-        realpath -m "$raw_path"
-    else
-        realpath -m "$ROOT_FOLDER/$raw_path"
-    fi
-}
-
-hdlforge_project_file_from_dir() {
-    local search_dir="$1"
-    local candidates=()
-
-    [ -d "$search_dir" ] || return 1
-    shopt -s nullglob
-    candidates=("$search_dir"/*.hdlforge.json "$search_dir"/*.hdlforge.toml)
-    shopt -u nullglob
-
-    if [ ${#candidates[@]} -gt 0 ]; then
-        realpath "${candidates[0]}"
-        return 0
-    fi
-    return 1
-}
-
-hdlforge_trim() {
-    local value="$1"
-    value="${value#"${value%%[![:space:]]*}"}"
-    value="${value%"${value##*[![:space:]]}"}"
-    printf '%s' "$value"
-}
-
-hdlforge_infer_project_from_source_path() {
-    local raw_path="$1"
-    local first_path
-    local resolved_path
-    local search_dir
-    local project_file
-
-    first_path="$(hdlforge_trim "${raw_path%%,*}")"
-    [ -n "$first_path" ] || return 1
-
-    first_path="${first_path/#\~/$HOME}"
-    if [[ "$first_path" == /* ]]; then
-        resolved_path="$(realpath -m "$first_path")"
-    else
-        resolved_path="$(realpath -m "$(pwd -P)/$first_path")"
-    fi
-
-    if [ -f "$resolved_path" ]; then
-        search_dir="$(dirname "$resolved_path")"
-    elif [ -d "$resolved_path" ]; then
-        search_dir="$resolved_path"
-    else
-        return 1
-    fi
-
-    while [ -n "$search_dir" ]; do
-        project_file="$(hdlforge_project_file_from_dir "$search_dir" || true)"
-        if [ -n "$project_file" ]; then
-            printf '%s\n' "$project_file"
-            return 0
-        fi
-        [ "$search_dir" = "/" ] && break
-        search_dir="$(dirname "$search_dir")"
-    done
-
-    return 1
-}
-
-hdlforge_infer_project_from_verilator_file_args() {
-    local arg
-    local expect_file_value=false
-    local project_file
-
-    for arg in "$@"; do
-        if [[ "$arg" == "--" ]]; then
-            break
-        fi
-
-        if [ "$expect_file_value" = true ]; then
-            project_file="$(hdlforge_infer_project_from_source_path "$arg" || true)"
-            if [ -n "$project_file" ]; then
-                printf '%s\n' "$project_file"
-                return 0
-            fi
-            expect_file_value=false
-            continue
-        fi
-
-        case "$arg" in
-            --lint-file|--file)
-                expect_file_value=true
-                ;;
-            --lint-file=*|--file=*)
-                project_file="$(hdlforge_infer_project_from_source_path "${arg#*=}" || true)"
-                if [ -n "$project_file" ]; then
-                    printf '%s\n' "$project_file"
-                    return 0
-                fi
-                ;;
-        esac
-    done
-
-    return 1
-}
-
-hdlforge_rewrite_selected_source_value() {
-    local raw_value="$1"
-    local invocation_dir="$2"
-    local project_dir="$3"
-    local old_ifs="$IFS"
-    local part
-    local trimmed_part
-    local resolved_part
-    local rewritten_part
-    local rewritten_value=""
-
-    IFS=','
-    for part in $raw_value; do
-        trimmed_part="$(hdlforge_trim "$part")"
-        [ -n "$trimmed_part" ] || continue
-
-        trimmed_part="${trimmed_part/#\~/$HOME}"
-        if [[ "$trimmed_part" == /* ]]; then
-            resolved_part="$(realpath -m "$trimmed_part")"
-        else
-            resolved_part="$(realpath -m "$invocation_dir/$trimmed_part")"
-        fi
-
-        if [[ "$resolved_part" == "$project_dir" ]]; then
-            rewritten_part="."
-        elif [[ "$resolved_part" == "$project_dir"/* ]]; then
-            rewritten_part="$(realpath --relative-to="$project_dir" "$resolved_part" 2>/dev/null || printf '%s' "$resolved_part")"
-        else
-            rewritten_part="$resolved_part"
-        fi
-
-        if [ -z "$rewritten_value" ]; then
-            rewritten_value="$rewritten_part"
-        else
-            rewritten_value="${rewritten_value},${rewritten_part}"
-        fi
-    done
-    IFS="$old_ifs"
-
-    if [ -n "$rewritten_value" ]; then
-        printf '%s' "$rewritten_value"
-    else
-        printf '%s' "$raw_value"
-    fi
+    resolve_working_path "$1" "$ROOT_FOLDER"
 }
 
 hdlforge_collect_colon_paths() {
@@ -604,34 +454,11 @@ hdlforge_clean_env_json() {
 }
 
 hdlforge_find_project_json() {
-    local candidates=()
-
-    if [ -n "${PROJECT_FILE_PATH:-}" ] && [[ "$PROJECT_FILE_PATH" == *.json ]] && [ -f "$PROJECT_FILE_PATH" ]; then
-        realpath "$PROJECT_FILE_PATH"
+    if [[ "${PROJECT_FILE_PATH:-}" == *.json ]] && [ -f "$PROJECT_FILE_PATH" ]; then
+        printf '%s\n' "$PROJECT_FILE_PATH"
         return 0
     fi
-
-    if [ -z "${ROOT_FOLDER:-}" ] || [ ! -d "$ROOT_FOLDER" ]; then
-        echo "[!x!] Cannot resolve HDLForge project JSON: ROOT_FOLDER is not set" >&2
-        return 1
-    fi
-
-    shopt -s nullglob
-    candidates=("$ROOT_FOLDER"/*.hdlforge.json)
-    shopt -u nullglob
-
-    if [ ${#candidates[@]} -eq 1 ]; then
-        realpath "${candidates[0]}"
-        return 0
-    fi
-
-    if [ ${#candidates[@]} -gt 1 ]; then
-        echo "[!x!] Cannot resolve HDLForge project JSON: multiple *.hdlforge.json files under $ROOT_FOLDER" >&2
-        echo "[i] Use --project <project_file> for env leaf resolution" >&2
-        return 1
-    fi
-
-    echo "[!x!] Cannot resolve HDLForge project JSON under $ROOT_FOLDER" >&2
+    echo "error: no selected project JSON; use --project <file>" >&2
     return 1
 }
 
@@ -1156,23 +983,9 @@ if [ "$1" = "--update-repo-json" ]; then
         exit 1
     fi
     if [ -z "$update_project" ]; then
-        update_search_dir="$(pwd -P)"
-        while :; do
-            shopt -s nullglob
-            update_candidates=("$update_search_dir"/*.hdlforge.json)
-            shopt -u nullglob
-            if [ "${#update_candidates[@]}" -eq 1 ]; then
-                update_project="${update_candidates[0]}"
-                break
-            fi
-            if [ "$update_search_dir" = "$update_repo_top" ] || [ "$update_search_dir" = "/" ]; then
-                echo "error: --update-repo-json cannot find a project .hdlforge.json" >&2
-                exit 1
-            fi
-            update_search_dir="$(dirname "$update_search_dir")"
-        done
+        update_project="$(hdlforge_discover_project "$(pwd -P)")" || exit 1
     fi
-    update_project="$(realpath "$update_project")"
+    update_project="$(resolve_working_path "$update_project" "$(pwd -P)")"
     case "$update_project" in
         "$update_repo_top"/*) ;;
         *)
@@ -1188,158 +1001,9 @@ if [ "$1" = "--update-repo-json" ]; then
     exit $?
 fi
 
-# Check if command requires --project argument
-if [[ "$1" == "help" || "$1" == "projects" ]]; then
-    # Commands that don't need --project parameter
-    PROJECT_FILE=""
-    PROJECT_FILE_PATH=""
-    PROJECT_DIR=""
-    PROJECT_FILENAME=""
-else
-    # Commands that need --project parameter
-    # Extract project file from --project argument
-    PROJECT_FILE=""
-    PROJECT_FILE_PATH=""
-    PROJECT_DIR=""
-    PROJECT_FILENAME=""
-    TOOL_NAME=""
-    
-    # Parse arguments to find --project and --tool
-    args=("$@")
-    for i in "${!args[@]}"; do
-        if [[ "${args[i]}" == "--project" && $((i+1)) -lt ${#args[@]} ]]; then
-            PROJECT_FILE="${args[i+1]}"
-            continue
-        fi
-        if [[ "${args[i]}" == --project=* ]]; then
-            PROJECT_FILE="${args[i]#--project=}"
-            continue
-        fi
-        if [[ "${args[i]}" == "--tool" && $((i+1)) -lt ${#args[@]} ]]; then
-            TOOL_NAME="${args[i+1]}"
-            continue
-        fi
-        if [[ "${args[i]}" == --tool=* ]]; then
-            TOOL_NAME="${args[i]#--tool=}"
-            continue
-        fi
-    done
-    
-    # Note: --project is now optional; Python layer will handle auto-detection
-    
-    # Only process project file if it was provided
-    if [ -n "$PROJECT_FILE" ]; then
-        # Resolve project file path (handle both relative and absolute paths)
-        if [[ "$PROJECT_FILE" == /* ]]; then
-            # Absolute path
-            PROJECT_FILE_PATH="$PROJECT_FILE"
-        else
-            # Relative path - resolve relative to current directory
-            PROJECT_FILE_PATH="$(realpath "$PROJECT_FILE")"
-        fi
-        
-        # Check if project file exists
-        if [ ! -f "$PROJECT_FILE_PATH" ]; then
-            echo "❌ Project file not found: $PROJECT_FILE_PATH"
-            exit 1
-        fi
-        
-        # Get the directory containing the project file
-        PROJECT_DIR="$(dirname "$PROJECT_FILE_PATH")"
-        PROJECT_FILENAME="$(basename "$PROJECT_FILE_PATH")"
-    elif [ "$TOOL_NAME" = "Verilator" ]; then
-        PROJECT_FILE_PATH="$(hdlforge_infer_project_from_verilator_file_args "$@" || true)"
-        if [ -n "$PROJECT_FILE_PATH" ]; then
-            PROJECT_DIR="$(dirname "$PROJECT_FILE_PATH")"
-            PROJECT_FILENAME="$(basename "$PROJECT_FILE_PATH")"
-        else
-            PROJECT_DIR="$(pwd)"
-            PROJECT_FILENAME=""
-        fi
-    else
-        # No project file specified - will be auto-detected by Python
-        # Set PROJECT_DIR to current directory
-        PROJECT_DIR="$(pwd)"
-        PROJECT_FILENAME=""
-    fi
-fi
-
-# Normalize external project invocations so they behave exactly like:
-#   cd <project-dir> && hdlforge --project <project-file> ...
-# This keeps project-root-relative behavior stable even when launched elsewhere.
-if [ -n "$PROJECT_FILE_PATH" ] && [ -n "$PROJECT_DIR" ] && [ -n "$PROJECT_FILENAME" ] && [ "${HDLFORGE_PROJECT_DIR_NORMALIZED:-0}" != "1" ]; then
-    CURRENT_DIR="$(pwd -P)"
-    PROJECT_DIR_REAL="$(cd "$PROJECT_DIR" && pwd -P)"
-
-    if [ "$CURRENT_DIR" != "$PROJECT_DIR_REAL" ]; then
-        normalized_args=()
-        skip_next=false
-        rewrite_next_selected_source=false
-
-        for arg in "$@"; do
-            if [ "$skip_next" = true ]; then
-                skip_next=false
-                continue
-            fi
-
-            if [ "$rewrite_next_selected_source" = true ]; then
-                normalized_args+=("$(hdlforge_rewrite_selected_source_value "$arg" "$CURRENT_DIR" "$PROJECT_DIR_REAL")")
-                rewrite_next_selected_source=false
-                continue
-            fi
-
-            if [[ "$arg" == "--project" ]]; then
-                skip_next=true
-                normalized_args+=("--project" "$PROJECT_FILENAME")
-            elif [[ "$arg" == --project=* ]]; then
-                normalized_args+=("--project=$PROJECT_FILENAME")
-            elif [[ "$arg" == "--lint-file" || "$arg" == "--file" ]]; then
-                normalized_args+=("$arg")
-                rewrite_next_selected_source=true
-            elif [[ "$arg" == --lint-file=* ]]; then
-                normalized_args+=("--lint-file=$(hdlforge_rewrite_selected_source_value "${arg#--lint-file=}" "$CURRENT_DIR" "$PROJECT_DIR_REAL")")
-            elif [[ "$arg" == --file=* ]]; then
-                normalized_args+=("--file=$(hdlforge_rewrite_selected_source_value "${arg#--file=}" "$CURRENT_DIR" "$PROJECT_DIR_REAL")")
-            else
-                normalized_args+=("$arg")
-            fi
-        done
-
-        cd "$PROJECT_DIR_REAL" || {
-            echo "❌ Failed to cd into project directory: $PROJECT_DIR_REAL"
-            exit 1
-        }
-
-        exec env HDLFORGE_PROJECT_DIR_NORMALIZED=1 "$0" "${normalized_args[@]}"
-    fi
-fi
-
-# Resolve --vcdfilename path to absolute BEFORE changing directories
-# This ensures relative paths work from the invocation location
-ORIG_DIR="$(pwd)"
-args_resolved=()
-skip_next=false
-for i in $(seq 1 $#); do
-    if [ "$skip_next" = true ]; then
-        skip_next=false
-        continue
-    fi
-    arg="${!i}"
-    next_i=$((i + 1))
-    if [[ "$arg" == "--vcdfilename" && $next_i -le $# ]]; then
-        vcd_arg="${!next_i}"
-        skip_next=true
-        # Resolve to absolute path if relative
-        if [[ "$vcd_arg" != /* ]]; then
-            vcd_arg="$(cd "$ORIG_DIR" && realpath "$vcd_arg" 2>/dev/null || echo "$ORIG_DIR/$vcd_arg")"
-        fi
-        args_resolved+=("--vcdfilename" "$vcd_arg")
-    else
-        args_resolved+=("$arg")
-    fi
-done
-# Replace positional parameters with resolved args
-set -- "${args_resolved[@]}"
+# Resolve the project and invocation-relative paths once, without re-launching.
+hdlforge_select_project "$@" || exit 1
+set -- "${HDLFORGE_PROJECT_ARGS[@]}"
 
 # Global output control for LLM_orch recursion.
 # Only consume --no-print before the passthrough separator (`--`);
@@ -1411,8 +1075,6 @@ if [ -n "$PROJECT_DIR" ]; then
 fi
 
 # Prepare tool and repository paths without depending on interactive startup.
-[ -z "${PROJECT_FILE_PATH:-}" ] || export HDLFORGE_PROJECT_FILE="$PROJECT_FILE_PATH"
-source "$HDLFORGE_INSTALL_DIR/hdlforge_environment.bash"
 hdlforge_prepare_environment || exit 1
 
 if [ -z "$REPO_TOP" ]; then
@@ -1426,14 +1088,6 @@ SCRIPT_PATH="$TASKS_DIR/hdlforge"
 shell_id="$PPID"
 timestamp=$(date +%Y%m%d)
 time=$(date +%H%M%S)
-
-# Set ROOT_FOLDER to project file location (was HDLFORGE_ORIG_PATH)
-# Only set if PROJECT_DIR is available
-if [ -n "$PROJECT_DIR" ]; then
-    export ROOT_FOLDER="$PROJECT_DIR"
-else
-    export ROOT_FOLDER="$(pwd)"
-fi
 
 hdlforge_apply_env_state "$@"
 set -- "${HDLFORGE_FILTERED_ARGS[@]}"
@@ -1450,13 +1104,6 @@ fi
 
 mkdir -p "$TASKS_DIR/logs"
 log_file="$TASKS_DIR/logs/hdlforge_${timestamp}_pid${shell_id}.log"
-
-# Change to the tasks directory before running python
-cd "$TASKS_DIR" || {
-    echo "❌ Failed to cd into $TASKS_DIR"
-    echo "run update_repo_path correctly."
-    exit 1
-}
 
 # If no commands are passed, default to --list
 if [ $# -eq 0 ]; then
@@ -1524,40 +1171,17 @@ if [ "$has_tool_flag" = false ]; then
         exit 1
     fi
 
-    # Find project JSON file
-    PROJECT_JSON=""
-    PROJECT_JSON_DIR=""
-    SEARCH_DIR="${PROJECT_DIR:-$(pwd)}"
-    
-    # First, try to use PROJECT_FILE_PATH if it was set
-    if [ -n "$PROJECT_FILE_PATH" ] && [[ "$PROJECT_FILE_PATH" == *.json ]]; then
-        PROJECT_JSON="$PROJECT_FILE_PATH"
-    else
-        # Look for project files in current directory or PROJECT_DIR
-        cd "$SEARCH_DIR" || {
-            echo "[!x!] Failed to cd into directory: $SEARCH_DIR"
-            exit 1
-        }
-        
-        hdlforge_json_files=$(ls *.hdlforge.json 2>/dev/null | head -1)
-        if [ -n "$hdlforge_json_files" ]; then
-            PROJECT_JSON="$(realpath "$hdlforge_json_files")"
-        fi
-    fi
-    
-    if [ -z "$PROJECT_JSON" ] || [ ! -f "$PROJECT_JSON" ]; then
-        if [ "$cmd_mode" = true ]; then
-            PROJECT_JSON=""
-            PROJECT_JSON_DIR="$(realpath -m "$SEARCH_DIR")"
-        else
-            echo "[!x!] Error: --tool is required or project JSON file not found"
-            hdlforge_print_usage
+    # Startup owns project selection for both raw commands and JSON shortcuts.
+    PROJECT_JSON="$PROJECT_FILE_PATH"
+    PROJECT_JSON_DIR="$PROJECT_DIR"
+    if [[ "$PROJECT_JSON" != *.json ]]; then
+        PROJECT_JSON=""
+        if [ "$cmd_mode" != true ]; then
+            echo "error: a project JSON is required for shortcuts; use --project <file>" >&2
             exit 1
         fi
-    else
-        PROJECT_JSON_DIR="$(dirname "$PROJECT_JSON")"
     fi
-    
+
     # Check if jq is available
     if [ "$cmd_mode" != true ] && ! command -v jq >/dev/null 2>&1; then
         echo "[!x!] Error: jq is required for LLM orchestration mode"
@@ -1765,7 +1389,7 @@ if [ "$has_tool_flag" = false ]; then
     }
     
     # Carry the exact selection into reusable nested native-tool commands.
-    export HDLFORGE_PROJECT_FILE="$PROJECT_JSON"
+    export HDLFORGE_PROJECT_FILE="$PROJECT_FILE_PATH"
     export HDLFORGE_JSON_COMMAND_PATH="$JSON_PATH"
     # Execute the command (recursive call to hdlforge).
     # Use eval to properly handle quoted arguments in the command. Disable
@@ -1778,8 +1402,10 @@ fi
 
 echo "--------$(pwd): $Date: $timestamp Time $time------" >> "$log_file"
 
-# Export original directory for Python scripts that need to resolve relative paths
-export HDLFORGE_ORIG_DIR="$ORIG_DIR"
+# Native tools receive the same absolute project selected during startup.
+if [ -n "$PROJECT_FILE_PATH" ]; then
+    set -- --project "$PROJECT_FILE_PATH" "$@"
+fi
 
 if [ "$DRY_RUN" = true ]; then
     # Cleanup has a read-only preview that lists actual artifact candidates.
