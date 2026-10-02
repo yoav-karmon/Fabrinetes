@@ -531,11 +531,12 @@ hdlforge_print_environment_list() {
 
 hdlforge_print_tool_location() {
     local tool_name="$1"
-    local tool_path tool_source
+    local tool_path tool_source command_name="$1"
+    [ "$tool_name" != verilator ] || command_name=sim-verilator
 
     tool_path="$(command -v "$tool_name" 2>/dev/null || true)"
     if [ -z "$tool_path" ]; then
-        printf '  %-10s unavailable\n' "$tool_name"
+        printf '  %-14s unavailable\n' "$command_name"
         return 0
     fi
 
@@ -552,7 +553,7 @@ hdlforge_print_tool_location() {
             tool_source="project JSON: tools.vivado"
             ;;
     esac
-    printf '  --tool %-9s uses %-62s [%s]\n' "$tool_name" "$tool_path" "$tool_source"
+    printf '  %-14s uses %-62s [%s]\n' "$command_name" "$tool_path" "$tool_source"
 }
 
 hdlforge_print_environment() {

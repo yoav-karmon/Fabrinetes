@@ -29,9 +29,9 @@ class LauncherEnvironmentTest(unittest.TestCase):
 
     def test_build_selector_is_not_a_shortcut(self):
         for arguments in (
-            ["vivado.build.synth.synth_production.new"],
-            ["vivado.build.synth.synth_production.new"],
-            ["vivado.build.synth.synth_production.new"],
+            ["vivado.build.synth_production.run"],
+            ["vivado.build.synth_production.run"],
+            ["vivado.build.synth_production.run"],
         ):
             with self.subTest(arguments=arguments):
                 result = subprocess.run([str(self.wrapper), "--dry-run", *arguments],
@@ -41,7 +41,7 @@ class LauncherEnvironmentTest(unittest.TestCase):
                 self.assertNotIn("--eval_json", result.stdout)
 
     def test_build_does_not_hide_a_conflicting_shortcut(self):
-        result = subprocess.run([str(self.wrapper), "--dry-run", "vivado.build.synth.synth_production.new", "other.shortcut"],
+        result = subprocess.run([str(self.wrapper), "--dry-run", "vivado.build.synth_production.run", "other.shortcut"],
                                 cwd=self.project, env=self.env, capture_output=True, text=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Unexpected argument", result.stderr)
