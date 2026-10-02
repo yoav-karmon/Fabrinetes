@@ -15,7 +15,7 @@ from vivado_build_hash import hash_source
 CONFIG = Path('manifest.json')
 LEGACY_CONFIG = Path('snapshot/scripts/run.json')
 IDENTITY = Path('snapshot/scripts/_run_id')
-PATH_FIELDS = {'project_file', 'script', 'output', 'output_root', 'project_root', 'input_dcp',
+PATH_FIELDS = {'project_file', 'snapshot_root', 'script', 'output', 'output_root', 'project_root', 'input_dcp',
                'bitstream_source', 'logs_dir', 'artifacts_dir', 'work_dir'}
 PATH_LISTS = {'input_files', 'bitstream_probes'}
 

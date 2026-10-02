@@ -28,7 +28,8 @@ Run layout:
   compilation/RUN/_TIMESTAMP/impl_runs/IMPL/snapshot/
   compilation/RUN/_TIMESTAMP/impl_runs/IMPL/_TIMESTAMP/{manifest.json,build.log,snapshot,artifacts,work}
   Each attempt owns an atomic manifest; schema paths are relative to it.
-  snapshot/<original-name>.hdlforge.json is the full unchanged project copy.
+  snapshot/<repo-relative-project-path> is the full unchanged project JSON copy.
+  Snapshots mirror repository-relative paths; inputs outside the repo are rejected.
   Implementations read script/sources from that saved JSON and copy only saved inputs.
   Synthesis prepares every implementation's own snapshot before starting Vivado.
   Edit that prepared implementation Tcl/XDC before the next .run.

@@ -100,6 +100,9 @@ def select_run(project: Path, selector: str, timestamp: str | None = None) -> di
             raise ValueError(f'Missing synthesis checkpoint: {checkpoint}')
         saved_project, selected = implementation_definition(parent, parent_config, synthesis, implementation)
         config = normalize_run(saved_project, selected, 'impl')
+        prepared_snapshot = parent / 'impl_runs' / implementation / 'snapshot'
+        config['snapshot_root'] = str(prepared_snapshot)
+        config['project_root'] = str(prepared_snapshot / saved_project.parent.relative_to(parent / 'snapshot'))
         saved_data = json.loads(saved_project.read_text())
         declared = saved_data['vivado']['non_project']['runs'][synthesis]['impl_runs'][implementation]
         config['script_name'] = declared['script']
@@ -124,7 +127,8 @@ def select_run(project: Path, selector: str, timestamp: str | None = None) -> di
     config.update(new_identity())
     config.setdefault('synthesis_run_id', config['run_id'])
     config['timestamp'] = config['created_at']
-    config.update(project_root=str(project.parent), output=str(output), output_root=str(root),
+    config.setdefault('project_root', str(project.parent))
+    config.update(output=str(output), output_root=str(root),
                   selector=synthesis + ('.' + implementation if implementation else ''),
                   vivado_version=(saved_data['vivado']['non_project'] if implementation else settings).get('vivado_version', ''))
     return config
@@ -229,7 +233,7 @@ def execute_locked(project: Path, config: dict, executable: str = "vivado") -> i
                           else snapshot_inputs(config))
         if config['stage'] == 'ip':
             record_source_hashes(project, runtime_config)
-        scripts = output / 'snapshot/scripts'
+        scripts = Path(runtime_config['script']).parent
         helper = scripts / '_hdlforge'
         helper.mkdir()
         shutil.copyfile(Path(__file__).with_name('vivado_build_runtime.tcl'), helper / 'runtime.tcl')
@@ -242,7 +246,7 @@ def execute_locked(project: Path, config: dict, executable: str = "vivado") -> i
                    "-tclargs", str(metadata_path(output)), runtime_config['run_id']]
         write_run(output, {'command': command})
         print(f"Build: {config['selector']}\nSynthesis run ID: {config['synthesis_run_id']}\nArtifacts: {output}", flush=True)
-        snapshot_root = Path(runtime_config["project_root"]).parent
+        snapshot_root = Path(runtime_config["project_root"])
         if config['stage'] == 'bitstream':
             snapshot_root = Path(runtime_config['project_root'])
         source_metadata = (

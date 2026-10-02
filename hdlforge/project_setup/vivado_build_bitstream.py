@@ -75,17 +75,19 @@ def snapshot_bitstream(config: dict) -> dict:
     runtime = dict(config)
     source = Path(config['bitstream_source'])
     output = Path(config['output'])
-    inputs = output / 'snapshot/source'
+    inputs = output / 'snapshot/artifacts'
     inputs.mkdir(parents=True)
-    scripts = output / 'snapshot/scripts'
-    scripts.mkdir(parents=True)
-    shutil.copy2(config['script'], scripts / 'run.tcl')
-    runtime['script'] = str(scripts / 'run.tcl')
-    runtime['project_root'] = str(inputs)
+    scripts = output / 'snapshot'
+    script = scripts / Path(config['script']).name
+    shutil.copy2(config['script'], script)
+    runtime['script'] = str(script)
     project = Path(config['project_file'])
-    saved_project = output / 'snapshot' / project.name
+    saved_project = output / 'snapshot' / project.relative_to(source / 'snapshot')
+    saved_project.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(project, saved_project)
     runtime['project_file'] = str(saved_project)
+    runtime['project_root'] = str(saved_project.parent)
+    runtime['snapshot_root'] = str(scripts)
     runtime['bitstream_probes'] = []
     for probes in sorted((source / 'artifacts').glob('*.ltx')):
         target = inputs / probes.name

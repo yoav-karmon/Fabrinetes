@@ -438,7 +438,11 @@ every `impl_runs/<implementation>/snapshot/`. Only actual synthesis and implemen
 attempts get `work/` and `artifacts/`; configured run folders hold inputs.
 Each prepared snapshot copies only that implementation's declared files from the
 synthesis snapshot, plus the project JSON. Edit the prepared Tcl/XDC for timing
-experiments; each implementation `.run` freezes its
+experiments. Implementation Tcl filenames are preserved in every snapshot.
+The synthesis snapshot's project JSON selects the implementation's `script`;
+HDLForge resolves its relative path inside the prepared `snapshot/`, then
+copies and executes it inside the new attempt. Missing copies fail without
+falling back to live sources. Each implementation `.run` freezes its
 current settings into a new attempt against that synthesis checkpoint. Multiple
 attempts can run independently, preserving earlier settings/results. There are no `.new`, `.continue`, or `.rerun` build actions.
 
@@ -459,3 +463,10 @@ files. For timing experiments, edit that implementation's prepared Tcl/XDC;
 every `.run` copies those inputs into a fresh attempt. Source selection remains
 in the synthesis snapshot's project JSON and must reference that implementation's
 prepared inputs. Earlier attempts remain unchanged. Constraints stay in snapshots.
+
+Snapshot copies preserve repository-relative directories and filenames directly
+beneath `snapshot/`, including the run Tcl. There are no added `source/` or
+`scripts/` input containers. The repository root is the top of every snapshot. The saved JSON stays at
+its repository-relative project path; its script paths resolve relative to that
+project folder inside the snapshot. Only the attempt copy is executed. Inputs
+outside the repository are rejected; no `_external` directory is created.

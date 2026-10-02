@@ -94,6 +94,36 @@ class NativeBuildTest(unittest.TestCase):
         explicit = select_run(self.project, f"synth_one.{first['run_id']}.impl_one.run")
         self.assertEqual(Path(explicit['input_dcp']).parent.parent, older)
 
+    def test_snapshots_preserve_repository_paths_for_sibling_inputs(self) -> None:
+        # Put the project below the repo root and declare a sibling input.
+        repository = self.root
+        nested = repository / 'project'
+        nested.mkdir()
+        for path in list(repository.iterdir()):
+            if path.name not in {'.git', '.gitignore', 'project'}:
+                shutil.move(str(path), nested / path.name)
+        self.root = nested
+        self.project = nested / self.project.name
+        self.executable = nested / self.executable.name
+        shared = repository / 'shared'
+        shared.mkdir()
+        (shared / 'timing.xdc').write_text('# sibling constraint\n')
+        self.synth['sources'].append('../shared/timing.xdc')
+        self.impl['sources'].append('../shared/timing.xdc')
+        self.project.write_text(json.dumps(self.data))
+        parent = self.build_synthesis()
+        snapshot = Path(parent['output']) / 'snapshot'
+        self.assertTrue((snapshot / 'project' / self.project.name).is_file())
+        self.assertTrue((snapshot / 'project/static.xdc').is_file())
+        self.assertTrue((snapshot / 'shared/timing.xdc').is_file())
+        self.assertFalse((snapshot / '_external').exists())
+        child = select_run(self.project, 'synth_one.latest.impl_one.run')
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(execute(self.project, child, str(self.executable)), 0)
+        child_snapshot = Path(child['output']) / 'snapshot'
+        self.assertTrue((child_snapshot / 'project/results/synth_one/impl_one.tcl').is_file())
+        self.assertEqual((child_snapshot / 'shared/timing.xdc').read_text(), '# sibling constraint\n')
+
     def test_completion_uses_attempt_folder_names(self) -> None:
         config = self.build_synthesis()
         choices = selector_choices(self.project, self.data, '')
@@ -147,6 +177,17 @@ class NativeBuildTest(unittest.TestCase):
         saved_project.write_text(json.dumps(document))
         selected = select_run(self.project, 'synth_one.latest.impl_one.run')
         self.assertEqual([entry['name'] for entry in selected['sources']], ['static.xdc'])
+        # Only the synthesis JSON selects the script; metadata does not override it.
+        script = Path(selected['script'])
+        renamed = script.with_name('timing_trial.tcl')
+        script.rename(renamed)
+        document['vivado']['non_project']['runs']['synth_one']['impl_runs']['impl_one']['script'] = 'results/synth_one/timing_trial.tcl'
+        saved_project.write_text(json.dumps(document))
+        self.assertEqual(select_run(self.project, 'synth_one.latest.impl_one.run')['script'], str(renamed))
+        renamed.unlink()
+        (self.root / 'results/synth_one/timing_trial.tcl').write_text('# live source must never be used\n')
+        with self.assertRaisesRegex(ValueError, 'Missing prepared implementation script'):
+            select_run(self.project, 'synth_one.latest.impl_one.run')
 
     def test_implementation_cannot_borrow_a_siblings_snapshot(self) -> None:
         # Remove one implementation's indexed input while its sibling retains it.
@@ -174,9 +215,9 @@ class NativeBuildTest(unittest.TestCase):
             self.assertEqual((implementation_folder / 'snapshot' / self.project.name).read_bytes(), self.project.read_bytes())
             self.assertFalse((folder / 'snapshot/scripts' / f'{name}.json').exists())
             definition = saved['implementation_configs'][name]
-            self.assertEqual(definition['script'], f'impl_runs/{name}/snapshot/scripts/run.tcl')
+            self.assertEqual(definition['script'], f'impl_runs/{name}/snapshot/results/synth_one/{name}.tcl')
             source = self.root / 'results/synth_one' / f'{name}.tcl'
-            snapshot = folder / 'snapshot/scripts/impl' / name / 'run.tcl'
+            snapshot = folder / 'snapshot/results/synth_one' / f'{name}.tcl'
             self.assertEqual(snapshot.read_bytes(), source.read_bytes())
             source.write_text('# changed after synthesis\n')
             self.assertNotEqual(snapshot.read_bytes(), source.read_bytes())
@@ -399,13 +440,16 @@ class NativeBuildTest(unittest.TestCase):
         output = Path(config['output'])
         saved = json.loads((output / CONFIG).read_text())
         self.assertEqual(saved['output'], '.')
-        self.assertEqual(saved['script'], 'snapshot/scripts/run.tcl')
+        self.assertEqual(saved['script'], 'snapshot/results/synth_one/run.tcl')
         self.assertEqual(saved['work_dir'], 'work')
-        self.assertEqual((output / 'snapshot/scripts/run.tcl').read_bytes(), Path(config['script']).read_bytes())
+        self.assertTrue((output / 'snapshot/static.xdc').is_file())
+        self.assertFalse((output / 'snapshot/scripts').exists())
+        self.assertFalse((output / 'snapshot/source').exists())
+        self.assertEqual((output / 'snapshot/results/synth_one/run.tcl').read_bytes(), Path(config['script']).read_bytes())
         self.assertFalse((output / '.gitignore').exists())
         self.assertFalse((output / 'logs/config.tcl').exists())
         self.assertTrue(output.name.startswith('_'))
-        self.assertIn('-source ' + str(output / 'snapshot/scripts/run.tcl'),
+        self.assertIn('-source ' + str(output / 'snapshot/results/synth_one/run.tcl'),
                       shlex.join(saved['command']).replace("'", ""))
 
     def test_implementation_uses_parent_checkpoint_and_only_declared_inputs(self) -> None:
@@ -417,8 +461,10 @@ class NativeBuildTest(unittest.TestCase):
         self.assertEqual(output.parent, Path(parent['output']) / 'impl_runs' / 'impl_one')
         saved = read_run(output)
         self.assertEqual(saved['input_dcp'], str(Path(parent['output']) / 'artifacts/design.dcp'))
-        self.assertFalse(list((output / 'snapshot/source').rglob('*.sv')))
-        self.assertFalse(list((output / 'snapshot/source').rglob('*.dcp')))
+        self.assertEqual(Path(saved['script']), output / 'snapshot/results/synth_one/impl_one.tcl')
+        self.assertIn(str(output / 'snapshot/results/synth_one/impl_one.tcl'), saved['command'])
+        self.assertFalse(list((output / 'snapshot').rglob('*.sv')))
+        self.assertFalse(list((output / 'snapshot').rglob('*.dcp')))
         self.assertEqual(saved['parent_run_id'], parent['run_id'])
 
     def test_selected_checkpoint_change_refuses_new_attempt(self) -> None:
@@ -477,7 +523,7 @@ class NativeBuildTest(unittest.TestCase):
         output = Path(config['output'])
         self.assertTrue((output / 'artifacts/design.bit').is_file())
         self.assertEqual(read_run(output)['bitstream_epoch'], implementation['launch_epoch'])
-        self.assertFalse(list((output / 'snapshot/source').rglob('*.dcp')))
+        self.assertFalse(list((output / 'snapshot').rglob('*.dcp')))
 
     def test_fresh_ip_attempts_have_private_work_inputs(self) -> None:
         scripts = self.root / 'results/ip_one'
@@ -533,8 +579,8 @@ class NativeBuildTest(unittest.TestCase):
         self.synth['sources'].append(str(helper.relative_to(self.root)))
         self.project.write_text(json.dumps(self.data))
         config = self.build_synthesis()
-        scripts = Path(config['output']) / 'snapshot/scripts'
-        self.assertTrue(list((Path(config['output']) / 'snapshot/source').rglob('helper.tcl')))
+        scripts = Path(config['output']) / 'snapshot/results/synth_one'
+        self.assertTrue(list((Path(config['output']) / 'snapshot').rglob('helper.tcl')))
         self.assertFalse((scripts / 'unrelated.tcl').exists())
 
     def test_registry_finds_renamed_run_by_id(self) -> None:

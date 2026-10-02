@@ -18,14 +18,14 @@ HDLForge copies the selected script unchanged; it generates data, not run code.
   run.tcl                     maintained synthesis Tcl
   impl_run_example.tcl        initial implementation Tcl
   _<attempt>/
-    snapshot/{{PROJECT}}.hdlforge.json  full project copy with original filename
+    snapshot/<project-path>/{{PROJECT}}.hdlforge.json  full project copy with original filename
     manifest.json             resolved paths, inputs/hashes, status/result
     build.log                 launcher, runner and Vivado console output
-    snapshot/{source,scripts}/
+    snapshot/
     artifacts/                checkpoints, reports, BIT/LTX/MMI
     work/                     temporary Vivado files
     impl_runs/<implementation>/
-      snapshot/{source,scripts}/  prepared inputs copied from synthesis snapshot
+      snapshot/  prepared inputs copied from synthesis snapshot
       _<attempt>/             own manifest, log, snapshot, artifacts and work
 ```
 
@@ -43,7 +43,7 @@ and freshness checks. Synthesis/implementation need no stage declaration.
 
 List every input and helper in one `sources` array. Tcl obtains its saved
 location with `::hdlforge::source_path <declared-path>`. HDLForge preserves
-input subdirectories in snapshot/source and does not infer dynamic Tcl/Python
+repository-relative input paths in snapshot and does not infer dynamic Tcl/Python
 dependencies. Source properties and language options belong beside the Tcl
 read command.
 
@@ -108,3 +108,10 @@ files. For timing experiments, edit that implementation's prepared Tcl/XDC;
 every `.run` copies those inputs into a fresh attempt. Source selection remains
 in the synthesis snapshot's project JSON and must reference that implementation's
 prepared inputs. Earlier attempts remain unchanged. Constraints stay in snapshots.
+
+Snapshot copies preserve repository-relative directories and filenames directly
+beneath `snapshot/`, including the run Tcl. There are no added `source/` or
+`scripts/` input containers. The repository root is the top of every snapshot. The saved JSON stays at
+its repository-relative project path; its script paths resolve relative to that
+project folder inside the snapshot. Only the attempt copy is executed. Inputs
+outside the repository are rejected; no `_external` directory is created.

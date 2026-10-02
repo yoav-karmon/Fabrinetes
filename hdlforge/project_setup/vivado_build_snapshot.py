@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import re
 import shutil
+import subprocess
 
 from vivado_build_hash import hash_source, verify_source_hashes
 from vivado_build_layout import CONFIG, LEGACY_CONFIG, IDENTITY, read_run
@@ -16,24 +17,19 @@ def snapshot_inputs(config: dict) -> dict:
     """Return a runtime configuration whose inputs point only at saved copies."""
     output = Path(config['output'])
     root = Path(config['project_root'])
-    destination = Path(config.get('input_destination', output / 'snapshot/source'))
+    snapshot_root = Path(config['snapshot_root']) if config.get('snapshot_root') else Path(
+        subprocess.check_output(['git', '-C', str(root), 'rev-parse', '--show-toplevel'], text=True).strip())
+    destination = output / 'snapshot'
     copied = {}
-    # Prepared implementation inputs retain their paths beneath snapshot/source.
-    frozen_root = (next(parent for parent in Path(config['script']).parents if parent.name == 'snapshot') / 'source'
-                   if config.get('stage') == 'impl' else None)
 
     def save(path: Path) -> Path:
-        path = path.absolute()
+        path = path.resolve()
         if str(path) in copied:
             return Path(copied[str(path)])
-        # Strip the parent snapshot prefix instead of nesting its artifacts tree.
-        if frozen_root is not None and path.is_relative_to(frozen_root):
-            relative = path.relative_to(frozen_root)
-        else:
-            try:
-                relative = path.relative_to(root.parent)
-            except ValueError:
-                relative = Path('_external') / path.relative_to(path.anchor)
+        try:
+            relative = path.relative_to(snapshot_root)
+        except ValueError:
+            raise ValueError(f'Snapshot input is outside the repository: {path}') from None
         target = destination / relative
         previous_source = next((source for source, saved in copied.items()
                                 if saved == str(target) and source != str(path)), None)
@@ -68,13 +64,9 @@ def snapshot_inputs(config: dict) -> dict:
                 save(included)
         return target
 
-    def freeze(run: dict, name: str = '') -> dict:
+    def freeze(run: dict) -> dict:
         frozen = copy.deepcopy(run)
         script = Path(run['script'])
-        scripts = output / 'snapshot/scripts'
-        if name:
-            scripts /= 'impl/' + name
-        scripts.mkdir(parents=True, exist_ok=True)
         for entry in frozen.get('sources', []):
             source = Path(entry['path'])
             if config.get('stage') != 'impl' and source.suffix.lower() == '.xci':
@@ -82,18 +74,14 @@ def snapshot_inputs(config: dict) -> dict:
                     if sibling.is_file():
                         save(sibling)
             entry['path'] = str(save(source))
-        target_script = scripts / 'run.tcl'
-        if target_script.exists() and copied.get(str(script)) != str(target_script):
-            raise ValueError(f'Script snapshot collision: {script} -> {target_script}')
-        shutil.copy2(script, target_script)
-        frozen['script'] = str(target_script)
-        copied[str(script)] = str(target_script)
-        frozen['project_root'] = str(destination / root.name)
+        frozen['script'] = str(save(script))
+        frozen['project_root'] = str(destination / root.relative_to(snapshot_root))
+        frozen['snapshot_root'] = str(destination)
         frozen['vivado_version'] = config.get('vivado_version', '')
         return frozen
 
     selected_project = Path(config['project_file'])
-    saved_project = output / 'snapshot' / selected_project.name
+    saved_project = destination / root.relative_to(snapshot_root) / selected_project.name
     saved_project.parent.mkdir(parents=True, exist_ok=True)
     if hash_source(selected_project) != config['project_sha256']:
         raise ValueError('Selected project JSON changed before snapshot creation; select the run again')
@@ -101,7 +89,7 @@ def snapshot_inputs(config: dict) -> dict:
     runtime = freeze(config)
     runtime['project_file'] = str(saved_project)
     runtime['implementation_configs'] = {
-        name: freeze(child, name) for name, child in config.get('implementation_configs', {}).items()
+        name: freeze(child) for name, child in config.get('implementation_configs', {}).items()
     }
     runtime.pop('implementation_scripts', None)
     runtime.pop('impl_json', None)
@@ -113,10 +101,7 @@ def snapshot_inputs(config: dict) -> dict:
         prepared = output / 'impl_runs' / name
         child.update(output=str(prepared), project_file=str(saved_project),
                      project_sha256=hash_source(saved_project), stage='impl')
-        # This first copy originates in the synthesis snapshot/source tree.
-        child['input_destination'] = str(prepared / 'snapshot/source')
         prepared_config = snapshot_inputs(child)
-        prepared_config.pop('input_destination', None)
         runtime['implementation_configs'][name] = prepared_config
     return runtime
 
@@ -133,10 +118,17 @@ def implementation_definition(parent: Path, config: dict, synthesis: str, implem
     # The manifest is a path index; the saved project JSON owns the file list.
     prepared = config.get('implementation_configs', {}).get(implementation, {})
     available = {entry['name']: entry['path'] for entry in prepared.get('sources', [])}
-    scripts = {prepared.get('script_name'): prepared['script']} if 'script' in prepared else {}
     selected = dict(definition)
+    # The synthesis JSON selects the filename; execute only a prepared copy.
+    snapshot = parent / 'impl_runs' / implementation / 'snapshot'
+    project_relative = project.relative_to(parent / 'snapshot')
+    script = (snapshot / project_relative.parent / definition['script']).resolve()
+    if not script.is_relative_to(snapshot):
+        raise ValueError(f'Implementation script must remain inside its snapshot: {script}')
+    if not script.is_file():
+        raise ValueError(f'Missing prepared implementation script: {script}')
+    selected['script'] = str(script)
     try:
-        selected['script'] = scripts[definition['script']]
         selected['sources'] = [available[name] for name in definition.get('sources', [])]
     except KeyError as error:
         raise ValueError(f'Declared implementation input is absent from its prepared snapshot: {error.args[0]}') from None
