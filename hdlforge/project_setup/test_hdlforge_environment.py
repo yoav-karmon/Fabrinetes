@@ -62,6 +62,8 @@ class LauncherEnvironmentTest(unittest.TestCase):
             "LLM_orch": {"nested": "hdlforge --no-print eval-cmd 'command -v hdlforge'"},
             "settings": {"env": {"test-host": {"test-user": {
                 "path": [str(Path(shutil.which("jq")).parent)],
+                "path_import": [], "pythonpath": [], "pythonpath_import": [],
+                "variables": {}, "variables_import": [],
             }}}},
         }))
         self.bin_dir = self.root / "vendor bin"
@@ -89,6 +91,7 @@ class LauncherEnvironmentTest(unittest.TestCase):
         self.project.joinpath("sample.hdlforge.json").write_text(json.dumps({
             "settings": {"env": {"test-host": {"test-user": {
                 "path": [str(self.bin_dir)], "pythonpath": [str(self.root)],
+                "path_import": [], "pythonpath_import": [], "variables": {}, "variables_import": [],
             }}}},
         }))
         result = subprocess.run([str(self.wrapper), "--no-print", "eval-cmd",
@@ -275,18 +278,17 @@ class LauncherEnvironmentTest(unittest.TestCase):
                 self.assertEqual(tokens[tokens.index(flag) + 1],
                                  f"{self.project}/outside.sv,{self.project}/second.sv")
 
-    def test_project_free_command_stays_at_launch_directory(self):
-        # An active nested environment can run a raw command outside any repo.
+    def test_project_free_command_outside_repository_is_rejected(self):
         command = f"cd {shlex.quote(str(self.home))} && hdlforge --no-print eval-cmd pwd"
         result = subprocess.run([str(self.wrapper), "--no-print", "eval-cmd", command],
                                 cwd=self.project, env=self.env, capture_output=True, text=True)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(result.stdout.strip(), str(self.home))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("inside a Git repository", result.stderr)
 
     def test_discovery_does_not_escape_git_boundary(self):
         nested_repo = self.project / "nested-repo"
         nested_repo.mkdir()
-        (nested_repo / ".git").write_text("gitdir: unused-fixture\n")
+        subprocess.run(["git", "init", "--quiet", str(nested_repo)], check=True)
         self.env["HDLFORGE_CALLED"] = "1"
         self.env["REPO_TOP"] = str(nested_repo)
         result = self.run_selection(nested_repo)

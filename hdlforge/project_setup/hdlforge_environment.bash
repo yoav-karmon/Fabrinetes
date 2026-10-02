@@ -207,6 +207,51 @@ hdlforge_read_json_environment() {
         '.settings.env[$host][$user] // empty' < "$project_json"
 }
 
+# Resolve repository-only imports before changing the environment. Each import
+# names a same-typed JSON leaf; its sibling *_import list is expanded first.
+# Longest matching keys also support host/user names containing dots.
+hdlforge_read_repository_environment() {
+    "$HDLFORGE_JQ" -c --arg host "$2" --arg user "$3" '
+      . as $root |
+      def locate($node; $name; $path):
+        if $node | type != "object" then error("Invalid environment import: " + $name)
+        else [$node | keys[] as $key | select($name == $key or ($name | startswith($key + "."))) | $key]
+          | sort_by(length) | last as $key |
+          if $key == null then error("Missing environment import: " + $name)
+          elif $name == $key then $path + [$key]
+          else locate($node[$key]; $name[($key|length)+1:]; $path + [$key]) end
+        end;
+      def expand($path; $field; $seen):
+        ($path | tojson) as $identity |
+        if $seen | index($identity) then error("Environment import cycle: " + $identity) else
+          ($root | getpath($path)) as $value |
+          (if $field == "variables" then "object" else "array" end) as $expected |
+          if ($value | type) != $expected then error("Invalid environment import type: " + $identity) else
+            ($root | getpath($path[0:-1] + [($path[-1] + "_import")]) // []) as $imports |
+            if ($imports | type) != "array" or any($imports[]; type != "string" or length == 0)
+            then error("Invalid environment import list: " + $identity) else
+              [ $imports[] | locate($root; .; []) as $target | expand($target; $field; $seen + [$identity]) ]
+              + [{($field): $value}]
+            end
+          end
+        end;
+      .settings.env[$host][$user] as $env |
+      if ($env | type) != "object" then error("Missing repository environment for " + $host + ":" + $user) else
+        ["path", "path_import", "pythonpath", "pythonpath_import", "variables", "variables_import"] as $required |
+        if any($required[]; . as $key | $env | has($key) | not)
+        then error("Repository environment requires path, path_import, pythonpath, pythonpath_import, variables, variables_import")
+        elif any(["path_import", "pythonpath_import", "variables_import"][];
+                 . as $key | ($env[$key] | type) != "array")
+        then error("Repository environment import fields must be arrays")
+        else [ ["path", "pythonpath"][] as $field |
+            expand(["settings", "env", $host, $user, $field]; $field; []) ]
+            | flatten | . + (expand(["settings", "env", $host, $user, "variables"]; "variables"; []) | flatten)
+            | .[-1].tools = ($env.tools // {})
+        end
+      end
+    ' < "$1"
+}
+
 # Validate complete layers before applying any environment mutation.
 hdlforge_validate_environment() {
     local environment_json="$1"
@@ -341,9 +386,11 @@ hdlforge_prepare_environment() {
         selected_user="${HDLFORGE_HOST_USER:-$(id -un)}"
         export REPO_TOP="$repo_root"
         repo_json="$(hdlforge_find_repo_environment_project)" || return 1
-        repo_environment="$(hdlforge_read_json_environment "$repo_json" "$selected_host" "$selected_user")" || return 1
-        [ -n "$repo_environment" ] || repo_environment='{}'
-        hdlforge_validate_environment "$repo_environment" || return 1
+        repo_environment="$(hdlforge_read_repository_environment "$repo_json" "$selected_host" "$selected_user")" || return 1
+        local layer
+        while IFS= read -r layer; do
+            hdlforge_validate_environment "$layer" || return 1
+        done < <("$jq_bin" -c '.[]' <<< "$repo_environment")
     fi
     if [ -n "$project_json" ] && [ "$project_json" != "$repo_json" ]; then
         project_environment="$(hdlforge_read_json_environment "$project_json" "$selected_host" "$selected_user")" || return 1
@@ -360,8 +407,10 @@ hdlforge_prepare_environment() {
         add_to_path "$installation_dir"
         export HDLFORGE_INHERITED_PATH="$PATH" HDLFORGE_INHERITED_PYTHONPATH=""
         export HDLFORGE_BOOTSTRAP_PATH="$PATH" HDLFORGE_BOOTSTRAP_PYTHONPATH=""
-        hdlforge_apply_json_environment "$repo_environment" "$jq_bin" "$repo_root" "repository" || return 1
         export HDLFORGE_NESTED_CALL=0
+        while IFS= read -r layer; do
+            hdlforge_apply_json_environment "$layer" "$jq_bin" "$repo_root" "repository" || return 1
+        done < <("$jq_bin" -c '.[]' <<< "$repo_environment")
     else
         export HDLFORGE_NESTED_CALL=1
     fi
@@ -570,7 +619,7 @@ hdlforge_print_all_host_and_user_environments() {
         fi
         env -u HDLFORGE_CALLED -u HDLFORGE_NESTED_CALL \
             HOST_MACHINE="$host_name" HDLFORGE_HOST_USER="$user_name" \
-            "$0" --tool path_manager show || return $?
+            "$0" path_manager.show || return $?
     done
 }
 

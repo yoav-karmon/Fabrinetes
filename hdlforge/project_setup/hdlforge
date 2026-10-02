@@ -8,6 +8,16 @@ export FABRINETES="$(cd "$HDLFORGE_INSTALL_DIR/../.." && pwd -P)"
 export HDLFORGE="$HDLFORGE_INSTALL_DIR"
 source "$HDLFORGE_INSTALL_DIR/hdlforge_environment.bash"
 
+# Validate the launch location even when a nested command inherited REPO_TOP.
+launch_repo="$(git rev-parse --show-toplevel 2>/dev/null)" || {
+    echo 'error: HDLForge must run inside a Git repository' >&2
+    exit 1
+}
+if [ "${HDLFORGE_CALLED:-0}" = 1 ] && [ "${REPO_TOP:-}" != "$launch_repo" ]; then
+    echo 'error: nested HDLForge cannot reuse an environment from another repository' >&2
+    exit 1
+fi
+
 if [ "${HDLFORGE_ENV_STATE_ACTIVE:-0}" != "1" ]; then
     unset HDLFORGE_ADD_PYTHONPATH
     unset HDLFORGE_ADD_PATH
@@ -55,13 +65,17 @@ hdlforge_shell_quote_args() {
 hdlforge_update_repo_json() {
     local project_json="$1" host_name user_name tmp_json
     host_name="${HOST_MACHINE:-$(hostname -s)}"
-    user_name="$(id -un)"
+    user_name="${HDLFORGE_HOST_USER:-$(id -un)}"
     tmp_json="$(mktemp "${project_json}.XXXXXX")" || return 1
     jq --arg host "$host_name" --arg user "$user_name" '
       .settings //= {} | .settings.env //= {} | .settings.env[$host] //= {} |
       .settings.env[$host][$user] //= {} |
       .settings.env[$host][$user].path //= [] |
+      .settings.env[$host][$user].path_import //= [] |
       .settings.env[$host][$user].pythonpath //= [] |
+      .settings.env[$host][$user].pythonpath_import //= [] |
+      .settings.env[$host][$user].variables //= {} |
+      .settings.env[$host][$user].variables_import //= [] |
       .settings.env[$host][$user].tools //= {} |
       .settings.env[$host][$user].tools.vivado //= "" |
       .settings.env[$host][$user].tools.verilator //= ""
@@ -234,9 +248,8 @@ for ((management_index=0; management_index<${#management_input[@]}; management_i
     esac
 done
 if [ "$management_tool" = ssh ]; then
-    # SSH remains usable outside a repository. Explicit environment additions
-    # opt into the normal project bootstrap before entering its standalone CLI.
-    ssh_environment=false
+    # SSH actions use the same repository environment as other executors.
+    ssh_environment=true
     for route_arg in "${environment_args[@]}"; do
         case "$route_arg" in --env-path|--env-python|--env-var) ssh_environment=true ;; esac
     done
@@ -299,16 +312,13 @@ if [ "$management_tool" = path_manager ]; then
                 exit 1
             fi
             if [ -z "$update_project" ]; then
-                update_project="$(hdlforge_discover_project "$(pwd -P)")" || exit 1
+                update_project="$(REPO_TOP="$update_repo_top" hdlforge_find_repo_environment_project)" || exit 1
             fi
             update_project="$(resolve_working_path "$update_project" "$(pwd -P)")"
-            case "$update_project" in
-                "$update_repo_top"/*) ;;
-                *)
-                    echo "error: --tool path_manager update-repo project must be inside repository top: $update_repo_top" >&2
+            if [ "$(dirname "$update_project")" != "$update_repo_top" ]; then
+                    echo "error: path_manager.update-repo requires a JSON directly at repository top: $update_repo_top" >&2
                     exit 1
-            ;;
-    esac
+            fi
     if [ ! -f "$update_project" ]; then
         echo "error: project JSON not found: $update_project" >&2
         exit 1
