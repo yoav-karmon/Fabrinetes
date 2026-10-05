@@ -377,3 +377,11 @@ inside the repository. The update uses `ssh -F` with its resolved absolute
 path. It changes only local Git configuration, not the SSH file or global Git
 settings. Separate checkouts are independent; users sharing a checkout share
 its local Git setting. Submodules are not updated automatically.
+
+New compilation attempts store their execution/checkpoint-use lock in
+`<attempt>/.run.lock`. Synthesis, implementation and bitstream consumers use
+that same lock, and artifact cleanup takes it exclusively before deletion.
+The file may remain after completion: only a held OS lock means it is busy.
+It is deleted together with the attempt. Existing external run-ID locks are
+still honored for older attempts so running workers retain protection; the
+existing orphan-lock cleanup handles those after their attempts are removed.

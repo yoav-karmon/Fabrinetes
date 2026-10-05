@@ -23,7 +23,7 @@ from vivado_build_follow import background_follow
 from vivado_build_selector import parse_selector, resolve_selector, selected_run_folder
 from vivado_build_snapshot import implementation_definition, snapshot_inputs
 from vivado_build_hash import record_source_hashes, hash_source
-from vivado_build_layout import CONFIG, find_run, read_run, write_run, new_identity, new_label, verify_checkpoint, metadata_path
+from vivado_build_layout import run_lock_path, CONFIG, find_run, read_run, write_run, new_identity, new_label, verify_checkpoint, metadata_path
 from vivado_build_bitstream import select_bitstream, lock_implementation, snapshot_bitstream
 from vivado_build_processes import group_members, local_identity, process_info, signal_process
 
@@ -140,7 +140,7 @@ def execute(project: Path, config: dict, executable: str = "vivado") -> int:
             return execute_attempt(project, config, executable)
     if config['stage'] == 'impl':
         parent = Path(config['input_dcp']).parent.parent
-        with (parent.parent / f'_{read_run(parent)["run_id"]}.run.lock').open('a') as lock:
+        with run_lock_path(parent, read_run(parent)["run_id"]).open('a') as lock:
             # Keep the parent checkpoint protected from cleanup during use.
             fcntl.flock(lock, fcntl.LOCK_SH | fcntl.LOCK_NB)
             return execute_attempt(project, config, executable)
@@ -167,17 +167,20 @@ def execute_attempt(project: Path, config: dict, executable: str = "vivado") -> 
     """Claim a fresh attempt exactly once, preserving all previous attempts."""
     output = Path(config['output'])
     output.parent.mkdir(parents=True, exist_ok=True)
-    with (output.parent / f'_{config["run_id"]}.run.lock').open('a') as lock:
+    try:
+        output.mkdir()
+        created = True
+    except FileExistsError:
+        created = False
+    with run_lock_path(output, config["run_id"]).open('a') as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             raise ValueError(f'Attempt already active: {output}') from None
-        if output.exists():
+        if not created:
             saved = read_run(output)
             if saved.get('status') != 'queued' or saved['run_id'] != config['run_id']:
                 raise ValueError(f'Attempt already exists; use .run for a fresh attempt: {output}')
-        else:
-            output.mkdir()
         write_run(output, dict(config, status='starting'))
         with (output / 'build.log').open('a', buffering=1) as stream:
             with redirect_stdout(BuildLog(stream, sys.stdout)), redirect_stderr(BuildLog(stream, sys.stderr)):

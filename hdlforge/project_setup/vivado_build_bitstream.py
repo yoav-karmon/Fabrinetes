@@ -7,7 +7,7 @@ from pathlib import Path
 import shutil
 
 from vivado_build_hash import hash_source
-from vivado_build_layout import find_run, read_run, new_identity, new_label
+from vivado_build_layout import run_lock_path, find_run, read_run, new_identity, new_label
 
 
 def select_bitstream(project: Path, parsed: dict) -> dict:
@@ -54,7 +54,7 @@ def select_bitstream(project: Path, parsed: dict) -> dict:
 def lock_implementation(config: dict):
     """Protect the selected DCP against cleanup while it is in use."""
     source = Path(config['bitstream_source'])
-    paths = [source.parent / f'_{read_run(source)["run_id"]}.run.lock']
+    paths = [run_lock_path(source, read_run(source)["run_id"])]
     with ExitStack() as stack:
         for path in paths:
             handle = stack.enter_context(path.open('a'))

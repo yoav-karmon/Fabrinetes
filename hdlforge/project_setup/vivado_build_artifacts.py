@@ -10,7 +10,7 @@ import shutil
 import subprocess
 
 from vivado_build_config import build_names
-from vivado_build_layout import CONFIG, IDENTITY, LEGACY_CONFIG, descendant_runs, find_run, read_run, run_directories
+from vivado_build_layout import run_lock_path, CONFIG, IDENTITY, LEGACY_CONFIG, descendant_runs, find_run, read_run, run_directories
 from vivado_build_selector import parse_selector, resolve_selector
 
 def selected_folders(project: Path, selector: str, timestamp: str | None) -> list[Path]:
@@ -150,7 +150,7 @@ def manage_artifacts(project: Path, selector: str, action: str, timestamp: str |
                 descendants = descendant_runs(folder)
                 for child in sorted(set(descendants)):
                     identity = read_run(child)['run_id']
-                    lock = stack.enter_context((child.parent / f'_{identity}.run.lock').open('a'))
+                    lock = stack.enter_context(run_lock_path(child, identity).open('a'))
                     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 allowed, reason = cleanable(folder)
             except (OSError, ValueError) as error:

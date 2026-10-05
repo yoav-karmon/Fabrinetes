@@ -9,7 +9,7 @@ import shutil
 import subprocess
 
 from vivado_build_hash import hash_source, verify_source_hashes
-from vivado_build_layout import CONFIG, LEGACY_CONFIG, IDENTITY, read_run
+from vivado_build_layout import run_lock_path, CONFIG, LEGACY_CONFIG, IDENTITY, read_run
 from vivado_build_paths import require_complete
 
 
@@ -41,7 +41,7 @@ def snapshot_inputs(config: dict) -> dict:
         producer = next((parent for parent in path.parents
                          if any((parent / marker).is_file() for marker in (CONFIG, LEGACY_CONFIG, IDENTITY))), None)
         if producer is not None and config.get('stage') != 'impl':
-            with (producer.parent / f'_{read_run(producer)["run_id"]}.run.lock').open('a') as lock:
+            with run_lock_path(producer, read_run(producer)["run_id"]).open('a') as lock:
                 fcntl.flock(lock, fcntl.LOCK_SH | fcntl.LOCK_NB)
                 require_complete(producer)
                 if path.suffix.lower() in {".xcix", ".xci"}:

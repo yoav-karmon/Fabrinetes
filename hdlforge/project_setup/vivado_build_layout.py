@@ -175,3 +175,9 @@ def verify_checkpoint(config: dict) -> None:
         parent = read_run(checkpoint.parent.parent)
         if parent['run_id'] != config['parent_run_id']:
             raise ValueError('Parent synthesis identity changed; create a new implementation run')
+
+
+def run_lock_path(folder: Path, run_id: str) -> Path:
+    """Keep new locks inside attempts; honor locks owned by older workers."""
+    legacy = folder.parent / f'_{run_id}.run.lock'
+    return legacy if legacy.exists() else folder / '.run.lock'

@@ -15,6 +15,17 @@ from vivado_build_layout import read_run, write_run, new_identity
 
 
 class RecursiveCleanupTest(unittest.TestCase):
+    def test_internal_run_lock_blocks_cleanup_then_is_deleted_with_attempt(self):
+        lock = self.run / '.run.lock'
+        with lock.open('a') as handle:
+            fcntl.flock(handle, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            with patch('vivado_build_artifacts.selected_folders', return_value=[self.run]):
+                manage_artifacts(self.project, 'synth', '--clean_ignore_artifacts')
+            self.assertTrue(self.run.exists())
+        with patch('vivado_build_artifacts.selected_folders', return_value=[self.run]):
+            manage_artifacts(self.project, 'synth', '--clean_ignore_artifacts')
+        self.assertFalse(self.run.exists())
+
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory(prefix='hdlforge cleanup ')
         self.addCleanup(self.temporary.cleanup)
