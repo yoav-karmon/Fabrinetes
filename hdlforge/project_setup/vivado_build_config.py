@@ -56,6 +56,8 @@ Cleanup:
   A single _* rule in the root .gitignore excludes generated attempts.
   Save a generated attempt explicitly with git add -f <run-directory>.
   Cleanup refuses tracked/non-ignored descendants, nested repositories and locks.
+  Orphan run locks are removed only when ignored, untracked and not held.
+  Locks for existing attempts are retained. --dry-run also previews orphan locks.
   Historical output directories are neither migrated nor deleted.
 """
 

@@ -1,6 +1,7 @@
 """Recursive cleanup eligibility against real Git ignore rules and indexes."""
 
 import contextlib
+import fcntl
 import io
 import json
 from pathlib import Path
@@ -9,8 +10,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from vivado_build_artifacts import cleanable, manage_artifacts
-from vivado_build_layout import write_run, new_identity
+from vivado_build_artifacts import cleanable, cleanup_orphan_locks, manage_artifacts
+from vivado_build_layout import read_run, write_run, new_identity
 
 
 class RecursiveCleanupTest(unittest.TestCase):
@@ -88,9 +89,94 @@ class RecursiveCleanupTest(unittest.TestCase):
         self.assertTrue(sibling.is_file())
 
     def test_cleanup_deletes_tree_only_when_every_file_is_ignored(self) -> None:
+        with self.rules.open('a') as rules:
+            rules.write('*.run.lock\n')
+        lock = self.run.parent / f'_{read_run(self.run)["run_id"]}.run.lock'
         with patch('vivado_build_artifacts.selected_folders', return_value=[self.run]), contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(manage_artifacts(self.project, 'synth', '--clean_ignore_artifacts'), 0)
         self.assertFalse(self.run.exists())
+        self.assertFalse(lock.exists())
+
+    def orphan_lock(self) -> Path:
+        with self.rules.open('a') as rules:
+            rules.write('*.run.lock\n')
+        lock = self.root / ('_' + 'a' * 32 + '.run.lock')
+        lock.touch()
+        return lock
+
+    def test_cleanup_removes_preexisting_orphan(self) -> None:
+        lock = self.orphan_lock()
+        cleanup_orphan_locks(self.root)
+        self.assertFalse(lock.exists())
+
+    def test_cleanup_finds_orphan_without_any_remaining_attempt(self) -> None:
+        lock = self.orphan_lock()
+        container = self.root / 'synth'
+        container.mkdir()
+        moved = container / lock.name
+        lock.rename(moved)
+        manage_artifacts(self.project, 'synth', '--clean_ignore_artifacts')
+        self.assertFalse(moved.exists())
+
+    def test_cleanup_preserves_running_attempt_and_its_lock(self) -> None:
+        self.orphan_lock()
+        lock = self.root / f'_{read_run(self.run)["run_id"]}.run.lock'
+        with lock.open('w') as handle:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            with patch('vivado_build_artifacts.selected_folders', return_value=[self.run]):
+                manage_artifacts(self.project, 'synth', '--clean_ignore_artifacts')
+        self.assertTrue(self.payload.is_file())
+        self.assertTrue(lock.is_file())
+
+    def test_cleanup_preserves_symlink_lock(self) -> None:
+        lock = self.orphan_lock()
+        lock.unlink()
+        lock.symlink_to(self.payload)
+        cleanup_orphan_locks(self.root)
+        self.assertTrue(lock.is_symlink())
+        self.assertTrue(self.payload.is_file())
+
+    def test_dry_run_preserves_orphan(self) -> None:
+        lock = self.orphan_lock()
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            cleanup_orphan_locks(self.root, dry_run=True)
+        self.assertTrue(lock.exists())
+        self.assertIn('Would delete orphan run lock', output.getvalue())
+
+    def test_cleanup_preserves_held_orphan(self) -> None:
+        lock = self.orphan_lock()
+        with lock.open('r') as handle:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            cleanup_orphan_locks(self.root)
+            self.assertTrue(lock.exists())
+        cleanup_orphan_locks(self.root)
+        self.assertFalse(lock.exists())
+
+    def test_cleanup_preserves_existing_attempt_lock(self) -> None:
+        self.orphan_lock()
+        lock = self.root / f'_{read_run(self.run)["run_id"]}.run.lock'
+        lock.touch()
+        cleanup_orphan_locks(self.root)
+        self.assertTrue(lock.exists())
+
+    def test_cleanup_preserves_tracked_orphan(self) -> None:
+        lock = self.orphan_lock()
+        subprocess.run(['git', '-C', str(self.root), 'add', '-f', str(lock)], check=True)
+        cleanup_orphan_locks(self.root)
+        self.assertTrue(lock.exists())
+
+    def test_cleanup_preserves_nonignored_orphan(self) -> None:
+        lock = self.orphan_lock()
+        with self.rules.open('a') as rules:
+            rules.write('!' + lock.name + '\n')
+        cleanup_orphan_locks(self.root)
+        self.assertTrue(lock.exists())
+
+    def test_cleanup_preserves_locks_when_manifest_is_unreadable(self) -> None:
+        lock = self.orphan_lock()
+        (self.run / 'manifest.json').write_text('{broken')
+        cleanup_orphan_locks(self.root)
+        self.assertTrue(lock.exists())
 
 
 if __name__ == '__main__':

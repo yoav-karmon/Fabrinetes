@@ -433,6 +433,16 @@ runner and Vivado output). Snapshot inputs stay under `snapshot/`, results under
 `artifacts/`, and auxiliary Vivado files under `work/`. The global run registry
 indexes manifests. Small internal lock files protect atomic updates.
 
+`vivado.build.clean_ignore_artifacts` also removes orphan `_<run-id>.run.lock`
+files after their attempts have been deleted, including leftovers from earlier
+cleanup calls. It preserves held locks, locks for existing attempts, tracked or
+non-ignored files, symlinks and locks whose ownership cannot be established.
+Use `--dry-run` to preview both attempt and orphan-lock cleanup.
+
+Build lint checks existing declared inputs and literal `::hdlforge::source_path`
+references in run Tcl and declared Tcl helpers against each run's JSON `sources`.
+Dynamic Tcl expressions are still checked at execution time.
+
 Synthesis saves the project JSON and declared implementation Tcl/XDC, then prepares
 every `impl_runs/<implementation>/snapshot/`. Only actual synthesis and implementation
 attempts get `work/` and `artifacts/`; configured run folders hold inputs.
