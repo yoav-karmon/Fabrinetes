@@ -229,22 +229,10 @@ for ((management_index=0; management_index<${#management_input[@]}; management_i
         *) management_args+=("$management_arg") ;;
     esac
 done
-if [ "$management_tool" = ssh ]; then
-    # SSH actions use the same repository environment as other executors.
-    ssh_environment=true
-    for route_arg in "${environment_args[@]}"; do
-        case "$route_arg" in --env-path|--env-python|--env-var) ssh_environment=true ;; esac
-    done
-    if [ "$ssh_environment" = true ]; then
-        hdlforge_select_project "${environment_args[@]}" || exit 1
-        cd "$PROJECT_DIR" || exit 1
-        hdlforge_prepare_environment || exit 1
-        hdlforge_apply_env_state "${environment_args[@]}"
-        management_args=("${internal_args[@]:2}")
-        [ -z "$PROJECT_FILE_PATH" ] || management_args+=(--project "$PROJECT_FILE_PATH")
-    fi
-    [ "$DRY_RUN" != true ] || management_args+=(--dry-run)
-    exec python3 "$HDLFORGE_INSTALL_DIR/ssh_config_cli.py" "${management_args[@]}"
+if [ "$management_tool" = git_config ]; then
+    git_config_args=("${internal_args[@]:2}")
+    [ "$DRY_RUN" != true ] || git_config_args+=(--dry-run)
+    exec python3 "$HDLFORGE_INSTALL_DIR/git_config_cli.py" "${git_config_args[@]}"
 fi
 if [ "$management_tool" = path_manager ]; then
     if [ "$DRY_RUN" = true ]; then

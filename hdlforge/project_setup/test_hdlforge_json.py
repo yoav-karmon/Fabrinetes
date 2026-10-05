@@ -99,11 +99,6 @@ class ProjectJsonTest(unittest.TestCase):
         (self.root / "test.py").touch()
         self.assertEqual(lint(data, "sim-verilator", self.project, "host", "user"), [])
 
-    def test_ssh_inventory_is_validated(self):
-        data, _ = normalize({}, "remote-ssh", "host", "user")
-        data["settings"]["env"]["host"]["user"]["ssh_config"] = {"remote": {"Port": []}}
-        self.assertTrue(any("Empty values" in error for error in lint(data, "remote-ssh", self.project, "host", "user")))
-
     def test_environment_import_cycle_is_reported(self):
         data, _ = normalize({}, "paths", "host", "user")
         env = data["settings"]["env"]["host"]["user"]

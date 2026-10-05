@@ -23,120 +23,6 @@ different project selects the nearest project there. Fresh launches ignore an
 inherited project filename. An `eval-cmd` invocation with no selected project retains its
 launch directory when the repository environment is otherwise available.
 
-## SSH configuration inventory
-
-Run these from the repository root to use its `*.hdlforge.json`, or select
-`--json PATH` explicitly. These commands need only Python's standard library;
-they do not connect to hosts or execute SSH `Match exec` commands.
-
-```bash
-hdlforge remote-ssh.import --json fpga.hdlforge.json --ssh-config ~/.ssh/config --dry-run
-hdlforge remote-ssh.import --json fpga.hdlforge.json
-hdlforge remote-ssh.verify --json fpga.hdlforge.json
-hdlforge remote-ssh.export --json fpga.hdlforge.json --dry-run
-hdlforge remote-ssh.merge --json fpga.hdlforge.json --input laptop.json --input lab.json --dry-run
-hdlforge remote-ssh.merge --json fpga.hdlforge.json --input lab.json --on-collision incoming
-hdlforge remote-ssh.export --help
-```
-
-Actions accept `--help`; write actions support `--dry-run` and `--force`.
-
-The inventory belongs to the **local** hostname and local user:
-`settings.env.<local-host>.<local-user>.ssh_config`. Defaults come from the
-current machine and login user; select another environment with
-`--local-host NAME --local-user NAME`. These select inventory ownership, not
-remote login credentials. Each input to merge uses this same explicit scope;
-other hosts, users, and repository settings are preserved.
-
-```json
-{
-  "settings": {
-    "env": {
-      "fpga-dev-1": {
-        "ykarmon": {
-          "ssh_config": {
-            "ch4dev-03": {
-              "HostName": "ch4dev-03",
-              "User": "yoav.karmon",
-              "Port": 22
-            },
-            "ch4fpgadev-01": {
-              "HostName": "ch4fpgadev-01",
-              "User": "yoav.karmon",
-              "Port": 22
-            }
-          }
-        }
-      }
-    }
-  }
-}
-```
-
-There is no version, preamble, host list or multiline configuration blob.
-The destination host is the dictionary key; its value is an SSH option
-dictionary. Repeated directives such as `IdentityFile` use arrays of values.
-Import discards standalone comments and whitespace; export generates consistent
-SSH syntax. Values retain SSH quoting, and numeric ports are stored as integers.
-Global settings, `Include`, `Match`, wildcard/negated patterns, multi-alias
-blocks and repeated Host blocks are rejected before import writes anything:
-this scoped host dictionary cannot preserve their precedence. SSH directives
-are never executed during import or verification.
-
-Import replaces only the selected environment's inventory. Export replaces the
-selected SSH file, so review its diff before applying. Verification compares
-host options rather than whitespace or comments and reports host collisions;
-it does not certify SSH syntax or reachability.
-
-The connection **Host alias**, compared case-insensitively, is the merge key.
-Different aliases sharing one `HostName` remain separate. Duplicate JSON object
-keys are rejected. Merge reads the destination's selected inventory first,
-followed by each `--input` in order. Identical settings are reported as
-`DUPLICATE` and deduplicated; differing settings for the same host are reported
-as `COLLISION` with source filenames. Default collision policy is `error`
-(no write). Explicit `--on-collision keep` keeps the first entry; `incoming`
-uses the last. `--force` skips approval but never chooses a collision policy.
-
-Writes show a unified diff and prompt `Apply changes? [y/N]`; EOF or declining
-leaves files untouched. `--force` retains the diff and backup but skips the
-prompt. Every changed existing destination gets a sibling backup named
-`<filename>.<YYYYMMDDTHHMMSS.microsecondsZ>.bak`, with private permissions.
-New files have no previous content to back up and are created with mode 0600.
-Existing destination permissions are retained. Writes use atomic replacement;
-symlink destinations are refused (select the resolved path explicitly).
-Changes detected during approval abort the write.
-
-Dry-run, verification, cancellation, and unchanged files create no backups or
-other writes. Exit codes: 0 for success/clean verification, 1 for cancellation
-or verification differences/collisions, 2 for invalid input/unresolved merge
-collisions. Inventories and diffs can contain sensitive SSH options; review
-their contents before committing or sharing.
-
-Bitstream-only regeneration uses the normal Vivado build selector:
-
-```bash
-hdlforge vivado.build.synth_production.latest.impl.impl_production.bitstream.<impl_timestamp>
-```
-
-Select a dated synthesis in place of `latest` when needed. Completion lists
-existing completed implementation attempts after `.bitstream.`; a literal
-newest timestamped implementation must be complete to select `latest`.
-HDLForge snapshots the final routed checkpoint and original paired LTX files,
-then writes a new bitstream in the implementation's `bitstream_runs/<timestamp>/`.
-The original implementation's USERID timestamp is retained. No synthesis,
-placement, routing, physical optimization or current-source/XDC reload occurs.
-Original implementation outputs remain intact. Regeneration uses the normal
-background launcher, `build.log`, `vivado.build.status`, Ctrl-C detach and
-`vivado.build.stop_all`. No extra JSON setting or project Tcl helper is required.
-New attempts record the final routed checkpoint in `manifest.json`.
-
-Non-project implementation bitstream identity:
-  The shared runtime sets BITSTREAM.CONFIG.USERID immediately before write_bitstream
-  from launch_epoch (UTC Unix seconds), fixed for that implementation launch.
-  Each fresh implementation launch gets a value. Its manifest records the epoch
-  and USERID. Source XDC files are not rewritten; USR_ACCESS/version remains
-  design-controlled. Existing bitstreams and saved runtime snapshots are unchanged.
-
 ## Dotted commands
 
 The installed `native_command_help.json` is the source of truth for executable
@@ -333,7 +219,7 @@ Related references: `hdlforge_project_file.md`, `how_hdlforge_keeps_paths_clean.
 ## JSON maintenance
 
 Every tool that reads a configurable project section exposes `update-json`
-and `lint-json`: `paths`, `remote-ssh`, `aliases`, `sim-verilator`,
+and `lint-json`: `paths`, `aliases`, `sim-verilator`,
 `vivado.build`, `vivado.console`, and `vivado.monitor`.
 `vivado.update-json` / `vivado.lint-json` cover all three Vivado sections.
 
@@ -363,12 +249,12 @@ Alias lint parses native HDLForge invocations without executing shell commands.
 
 Schema maintenance runs after project selection and before environment
 initialization, so an incomplete environment document can be repaired.
-Select the repository-root JSON for `paths` and `remote-ssh`.
+Select the repository-root JSON for `paths`.
 `paths.update-repo` selects that root document automatically.
 Generic tools taking only command-line inputs need no project schema.
 
 The root commands are `aliases`, `discover`, `eval-cmd`, `hw-server`,
-`network`, `paths`, `remote-ssh`, `sim-verilator`, `tshark`,
+`network`, `paths`, `sim-verilator`, `tshark`,
 `vivado`, and `waveform`. They are lowercase with distinct initial letters.
 The command tree supplies the executable routes, help, and tab-completion.
 
@@ -480,3 +366,14 @@ beneath `snapshot/`, including the run Tcl. There are no added `source/` or
 its repository-relative project path; its script paths resolve relative to that
 project folder inside the snapshot. Only the attempt copy is executed. Inputs
 outside the repository are rejected; no `_external` directory is created.
+
+## Checkout-local Git SSH configuration
+
+Use `git-config.update-dry-run` to preview, `git-config.update` to apply, and
+`git-config.verify` to compare the checkout's local `core.sshCommand` with the
+current local host/user's `settings.env.<host>.<user>.ssh_config_file` in the
+repository-root JSON. The file path is repository-relative and must exist
+inside the repository. The update uses `ssh -F` with its resolved absolute
+path. It changes only local Git configuration, not the SSH file or global Git
+settings. Separate checkouts are independent; users sharing a checkout share
+its local Git setting. Submodules are not updated automatically.

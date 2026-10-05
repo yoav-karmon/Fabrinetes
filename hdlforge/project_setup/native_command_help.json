@@ -2027,181 +2027,6 @@
         }
       },
       "#discover": "Discover HDLForge project files.",
-      "remote-ssh": {
-        "commands": {
-          "import": {
-            "dispatch": [
-              "--tool",
-              "ssh",
-              "import"
-            ],
-            "flags": {
-              "--json": {
-                "arity": 1,
-                "provider": "files"
-              },
-              "#--json": "Print machine-readable run inventory or saved values.",
-              "--local-host": {
-                "arity": 1
-              },
-              "#--local-host": "Local host",
-              "--local-user": {
-                "arity": 1
-              },
-              "#--local-user": "Local user",
-              "--ssh-config": {
-                "arity": 1,
-                "provider": "files"
-              },
-              "#--ssh-config": "Ssh config",
-              "--force": {
-                "arity": 0
-              },
-              "#--force": "Skip confirmation prompts for the selected operation.",
-              "-f": {
-                "arity": 0
-              },
-              "#-f": "Skip confirmation prompts for the selected operation."
-            }
-          },
-          "#import": "Import SSH inventory",
-          "export": {
-            "dispatch": [
-              "--tool",
-              "ssh",
-              "export"
-            ],
-            "flags": {
-              "--json": {
-                "arity": 1,
-                "provider": "files"
-              },
-              "#--json": "Print machine-readable run inventory or saved values.",
-              "--local-host": {
-                "arity": 1
-              },
-              "#--local-host": "Local host",
-              "--local-user": {
-                "arity": 1
-              },
-              "#--local-user": "Local user",
-              "--ssh-config": {
-                "arity": 1,
-                "provider": "files"
-              },
-              "#--ssh-config": "Ssh config",
-              "--force": {
-                "arity": 0
-              },
-              "#--force": "Skip confirmation prompts for the selected operation.",
-              "-f": {
-                "arity": 0
-              },
-              "#-f": "Skip confirmation prompts for the selected operation."
-            }
-          },
-          "#export": "Export SSH inventory",
-          "verify": {
-            "dispatch": [
-              "--tool",
-              "ssh",
-              "verify"
-            ],
-            "flags": {
-              "--json": {
-                "arity": 1,
-                "provider": "files"
-              },
-              "#--json": "Print machine-readable run inventory or saved values.",
-              "--local-host": {
-                "arity": 1
-              },
-              "#--local-host": "Local host",
-              "--local-user": {
-                "arity": 1
-              },
-              "#--local-user": "Local user",
-              "--ssh-config": {
-                "arity": 1,
-                "provider": "files"
-              },
-              "#--ssh-config": "Ssh config"
-            }
-          },
-          "#verify": "Verify SSH inventory",
-          "merge": {
-            "dispatch": [
-              "--tool",
-              "ssh",
-              "merge"
-            ],
-            "flags": {
-              "--json": {
-                "arity": 1,
-                "provider": "files"
-              },
-              "#--json": "Print machine-readable run inventory or saved values.",
-              "--local-host": {
-                "arity": 1
-              },
-              "#--local-host": "Local host",
-              "--local-user": {
-                "arity": 1
-              },
-              "#--local-user": "Local user",
-              "--input": {
-                "arity": 1,
-                "provider": "files",
-                "repeatable": true
-              },
-              "#--input": "Input",
-              "--on-collision": {
-                "arity": 1,
-                "values": {
-                  "error": {},
-                  "#error": "Reject collisions",
-                  "keep": {},
-                  "#keep": "Keep the first value",
-                  "incoming": {},
-                  "#incoming": "Use the incoming value"
-                }
-              },
-              "#--on-collision": "On collision",
-              "--force": {
-                "arity": 0
-              },
-              "#--force": "Skip confirmation prompts for the selected operation.",
-              "-f": {
-                "arity": 0
-              },
-              "#-f": "Skip confirmation prompts for the selected operation."
-            },
-            "required_flags": [
-              "--input"
-            ]
-          },
-          "#merge": "Merge SSH inventory",
-          "update-json": {
-            "dispatch": [
-              "--json-schema",
-              "remote-ssh",
-              "update-json"
-            ],
-            "flags": {}
-          },
-          "#update-json": "Add missing JSON fields without replacing existing values; --dry-run previews additions.",
-          "lint-json": {
-            "dispatch": [
-              "--json-schema",
-              "remote-ssh",
-              "lint-json"
-            ],
-            "flags": {}
-          },
-          "#lint-json": "Validate required JSON keys, values and configured input paths."
-        }
-      },
-      "#remote-ssh": "Manage SSH configuration inventories",
       "paths": {
         "commands": {
           "show": {
@@ -2278,7 +2103,39 @@
           "#lint-json": "Validate required JSON keys, values and configured input paths."
         }
       },
-      "#paths": "Inspect and initialize environment paths"
+      "#paths": "Inspect and initialize environment paths",
+      "git-config": {
+        "commands": {
+          "verify": {
+            "dispatch": [
+              "--tool",
+              "git_config",
+              "verify"
+            ],
+            "flags": {}
+          },
+          "#verify": "Verify checkout-local Git SSH configuration",
+          "update": {
+            "dispatch": [
+              "--tool",
+              "git_config",
+              "update"
+            ],
+            "flags": {}
+          },
+          "#update": "Point local Git at the repository SSH config for this host/user",
+          "update-dry-run": {
+            "dispatch": [
+              "--tool",
+              "git_config",
+              "update-dry-run"
+            ],
+            "flags": {}
+          },
+          "#update-dry-run": "Preview the local Git SSH update without writing"
+        }
+      },
+      "#git-config": "Manage checkout-local Git SSH configuration"
     },
     "master_commands": {
       "help": {},

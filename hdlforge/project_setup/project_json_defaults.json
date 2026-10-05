@@ -4,11 +4,6 @@
       "env": {}
     }
   },
-  "remote-ssh": {
-    "settings": {
-      "env": {}
-    }
-  },
   "aliases": {
     "LLM_orch": {}
   },

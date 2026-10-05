@@ -12,7 +12,6 @@ import subprocess
 import tempfile
 
 from hdlforge_command_tree import parse
-from ssh_config_inventory import render as render_ssh, unique_object
 from vivado_console.project_console_commands import hdlforge_commands
 from vivado_build import file_path
 
@@ -24,6 +23,16 @@ TARGET = {"top_module": "", "python_file": "", "build_args": [], "lint_args": []
           "env": {"pythonpath": []}}
 RUN = {"script": "", "sources": []}
 DEFAULTS = json.loads(Path(__file__).with_name("project_json_defaults.json").read_text())
+
+
+def unique_object(pairs: list) -> dict:
+    """Reject duplicate JSON keys instead of silently overwriting values."""
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"Duplicate JSON key: {key}")
+        result[key] = value
+    return result
 
 
 def fill(value, defaults, path, changes):
@@ -68,12 +77,12 @@ def normalize(data, scope, host, user):
     result = copy.deepcopy(data)
     changes = []
     fill(result, scope_defaults(scope), "", changes)
-    if scope in {"paths", "remote-ssh"}:
+    if scope == "paths":
         envs = result["settings"]["env"]
         fill(envs, {host: {user: {}}}, "settings.env", changes)
         for machine, users in objects(envs, "settings.env"):
             for login, env in objects(users, f"settings.env.{machine}"):
-                fill(env, ENV if scope == "paths" else {"ssh_config": {}}, f"settings.env.{machine}.{login}", changes)
+                fill(env, ENV, f"settings.env.{machine}.{login}", changes)
     if scope in {"vivado", "vivado.build"}:
         for name, run in objects(result["vivado"]["non_project"]["runs"], "vivado.non_project.runs"):
             path = f"vivado.non_project.runs.{name}"
@@ -216,13 +225,6 @@ def lint(data, scope, project, host, user):
                     except (ValueError, IndexError) as error:
                         errors.append(f"{path}.{name}: {error}")
         visit(proposed["LLM_orch"], "LLM_orch")
-    if scope == "remote-ssh":
-        for machine, users in objects(proposed["settings"]["env"], "settings.env"):
-            for login, env in objects(users, machine):
-                try:
-                    render_ssh(env["ssh_config"])
-                except ValueError as error:
-                    errors.append(f"settings.env.{machine}.{login}.ssh_config: {error}")
     if scope in {"vivado", "vivado.monitor"}:
         monitor = proposed["vivado"]["monitor"]
         for name, target in objects(monitor["execution_targets"], "execution_targets"):

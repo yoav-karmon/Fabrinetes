@@ -13,41 +13,67 @@ from vivado_build_layout import new_identity, write_run
 
 
 class CompletionTreeTest(unittest.TestCase):
+    def test_removed_ssh_tool_is_not_routable(self):
+        with self.assertRaises(ValueError):
+            parse(['remote-ssh.export'], Path.cwd())
+        self.assertEqual(self.complete([], 'remote-ssh.'), [])
+
+    def setUp(self):
+        catalog = deepcopy(completion.NATIVE_HELP)
+        catalog['tree']['commands']['fixture'] = {
+            'commands': {
+                'merge': {'flags': {
+                    '--input': {'arity': 1, 'repeatable': True}, '#--input': 'Input file',
+                    '--local-host': {'arity': 1}, '#--local-host': 'Local host',
+                    '--on-collision': {'arity': 1, 'values': {
+                        'incoming': {}, '#incoming': 'Use incoming',
+                        'existing': {}, '#existing': 'Keep existing'}},
+                    '#--on-collision': 'Collision policy'},
+                    'dispatch': ['--tool', 'fixture']},
+                '#merge': 'Merge fixture inputs',
+                'verify': {'dispatch': ['--tool', 'fixture']}, '#verify': 'Verify fixture'},
+        }
+        catalog['tree']['commands']['#fixture'] = 'Test-only command'
+        self.catalog = catalog
+        self.tree_patch = patch.object(completion.command_tree, 'load_tree', return_value=catalog['tree'])
+        self.tree_patch.start()
+        self.addCleanup(self.tree_patch.stop)
+
     def complete(self, tokens: list[str], current: str = "") -> list[str]:
         return completion.complete_command(tokens, current, Path.cwd())[0].completions
 
     def test_tool_inline_assignment(self):
-        self.assertIn("remote-ssh.merge", self.complete([] , "remote-ssh."))
+        self.assertIn("fixture.merge", self.complete([] , "fixture."))
 
     def test_action_limits_modifiers(self):
-        self.assertIn("--input", self.complete(["remote-ssh.merge"]))
-        self.assertNotIn("--input", self.complete(["remote-ssh.verify"]))
+        self.assertIn("--input", self.complete(["fixture.merge"]))
+        self.assertNotIn("--input", self.complete(["fixture.verify"]))
 
     def test_values_that_look_like_flags_do_not_change_anchors(self):
-        result = self.complete(["remote-ssh.merge", "--local-host", "--tool"])
+        result = self.complete(["fixture.merge", "--local-host", "--tool"])
         self.assertIn("--input", result)
         self.assertNotIn("--local-host", result)
 
     def test_inline_value_completion(self):
-        self.assertEqual(self.complete(["remote-ssh.merge"], "--on-collision=in"),
+        self.assertEqual(self.complete(["fixture.merge"], "--on-collision=in"),
                          ["--on-collision=incoming"])
 
     def test_passthrough_ends_native_completion(self):
         with self.assertRaises(ValueError):
-            self.complete(["remote-ssh.merge", "--"])
+            self.complete(["fixture.merge", "--"])
 
     def test_repeatable_input_remains_available(self):
-        self.assertIn("--input", self.complete(["remote-ssh.merge", "--input", "one.json"]))
+        self.assertIn("--input", self.complete(["fixture.merge", "--input", "one.json"]))
 
     def test_schema_extension_requires_no_engine_change(self):
-        catalog = deepcopy(completion.NATIVE_HELP)
-        flags = catalog["tree"]["commands"]["remote-ssh"]["commands"]["merge"]["flags"]
+        catalog = deepcopy(self.catalog)
+        flags = catalog["tree"]["commands"]["fixture"]["commands"]["merge"]["flags"]
         flags["--fixture-option"] = {"arity": 0, "when": {"present": "--input"}}
         flags["#--fixture-option"] = "Fixture option after an input"
         with patch.object(completion.command_tree, "load_tree", return_value=catalog["tree"]):
             completion.command_tree.validate(catalog["tree"])
-            self.assertNotIn("--fixture-option", self.complete(["remote-ssh.merge"]))
-            self.assertIn("--fixture-option", self.complete(["remote-ssh.merge", "--input", "one.json"]))
+            self.assertNotIn("--fixture-option", self.complete(["fixture.merge"]))
+            self.assertIn("--fixture-option", self.complete(["fixture.merge", "--input", "one.json"]))
 
     def test_undocumented_argument_is_rejected(self):
         catalog = deepcopy(completion.NATIVE_HELP)

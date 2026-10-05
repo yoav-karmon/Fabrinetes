@@ -71,7 +71,7 @@ class DottedCommandsTest(unittest.TestCase):
         self.assertEqual(result.stdout, 'parent')
 
     def test_master_flags_exist_on_every_leaf(self):
-        for command in ('remote-ssh.verify', 'paths.show', 'vivado.console.start', 'sim-verilator.sim', 'eval-cmd'):
+        for command in ('paths.show', 'vivado.console.start', 'sim-verilator.sim', 'eval-cmd'):
             with self.subTest(command=command):
                 result = self.run_command(command+'.help')
                 self.assertEqual(result.returncode, 0, result.stderr)
