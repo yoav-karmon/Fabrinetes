@@ -5,6 +5,7 @@ import copy
 import json
 import os
 from pathlib import Path
+import re
 import shlex
 import tempfile
 import sys
@@ -68,6 +69,20 @@ def lint_run(project: Path, selector: str, run: dict, stage: str) -> list[str]:
                         errors.append(f"{selector}: no XCI in {path}")
             except (OSError, zipfile.BadZipFile) as error:
                 errors.append(f"{selector}: invalid XCIX {path}: {error}")
+    # Check literal runtime lookups against the JSON-owned input list. Dynamic
+    # Tcl expressions remain runtime-validated; lint never evaluates run Tcl.
+    declared = set(run.get('sources', []))
+    scripts = [Path(config['script']), *[Path(entry['path']) for entry in config['sources']
+                                       if Path(entry['path']).suffix == '.tcl']]
+    pattern = r'::hdlforge::source_path\s+(?:"([^"\n]+)"|\{([^}\n]+)\}|([^\s\]]+))'
+    for script in scripts:
+        for number, line in enumerate(script.read_text().splitlines(), 1):
+            if line.lstrip().startswith('#'):
+                continue
+            for match in re.findall(pattern, line):
+                name = next(value for value in match if value)
+                if '$' not in name and '[' not in name and name not in declared:
+                    errors.append(f'{selector}: {script}:{number}: source_path input not declared in sources: {name}')
     return errors
 
 

@@ -358,6 +358,18 @@ class NativeBuildTest(unittest.TestCase):
         self.assertTrue(any("source $literal" in error for error in errors))
         self.assertFalse((self.root / "results/synth_one/artifacts").exists())
 
+    def test_lint_rejects_existing_but_undeclared_tcl_input(self) -> None:
+        self.synth['sources'].remove('static.xdc')
+        self.project.write_text(json.dumps(self.data))
+        errors = lint_project(self.project)
+        self.assertTrue(any('synth_one:' in error and 'not declared in sources: static.xdc' in error for error in errors))
+
+    def test_lint_rejects_undeclared_implementation_input(self) -> None:
+        self.impl['sources'].remove('static.xdc')
+        self.project.write_text(json.dumps(self.data))
+        errors = lint_project(self.project)
+        self.assertTrue(any('synth_one.impl_one:' in error and 'not declared in sources: static.xdc' in error for error in errors))
+
     def test_lint_reports_invalid_ip_archive(self) -> None:
         (self.root / "core.xcix").write_text("invalid archive")
         self.assertTrue(any("invalid XCIX" in error for error in lint_project(self.project)))
