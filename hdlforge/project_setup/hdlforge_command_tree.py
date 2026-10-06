@@ -7,6 +7,8 @@ import sys
 from vivado_build_selector import first_path_component, parse_selector, selector_choices
 
 CATALOG = Path(__file__).with_name('native_command_help.json')
+TAIL_COMMANDS = {'eval-cmd', 'eval-cmd-argv'}
+COMMON_CHILD_FLAGS = {'--help', '-h'}
 
 
 def entries(mapping: dict) -> dict:
@@ -159,7 +161,7 @@ def condition_matches(condition: dict, seen: set, values: dict) -> bool:
 
 
 def parse(tokens: list[str], cwd: Path, *, partial: bool = False) -> dict:
-    """Consume values by arity; a quoted payload never becomes a command anchor."""
+    """Consume master options, one command anchor and its owned arguments."""
     tree = load_tree()
     master = entries(tree['master_flags'])
     index = 0
@@ -174,13 +176,14 @@ def parse(tokens: list[str], cwd: Path, *, partial: bool = False) -> dict:
             raise ValueError('Unknown master flag: '+flag)
         index += 1 + (int(bool(master[flag].get('arity'))) if not sep else 0)
     command_index = index if command else -1
-    # Collect only recognized master options when looking up the project. Never
-    # inspect shell payloads or action-local values as independent options.
-    project_tokens = []
+    # Evaluation commands own every token after their anchor. Other commands
+    # retain the legacy ability to place master flags before or after it.
+    owns_tail = command in TAIL_COMMANDS
+    project_tokens = tokens[:command_index] if owns_tail else []
     scan = 0
-    while scan < len(tokens):
+    while not owns_tail and scan < len(tokens):
         if scan == command_index:
-            scan += 2 if command in ('eval-cmd', 'eval-cmd.help') and scan+1 < len(tokens) and not tokens[scan+1].startswith('--') else 1
+            scan += 1
             continue
         flag, separator, value = tokens[scan].partition('=')
         if flag in master:
@@ -200,6 +203,9 @@ def parse(tokens: list[str], cwd: Path, *, partial: bool = False) -> dict:
         if index == command_index:
             index += 1
             continue
+        if owns_tail and command_index >= 0 and index > command_index:
+            payload.extend(tokens[index:])
+            break
         token = tokens[index]
         flag, sep, flag_value = token.partition('=')
         spec = specs.get(flag)
@@ -241,8 +247,6 @@ def parse(tokens: list[str], cwd: Path, *, partial: bool = False) -> dict:
                 if partial and index+1 == len(tokens):
                     pending = (flag, spec)
         index += 1
-    if len(payload) > 1:
-        raise ValueError('eval-cmd takes one quoted shell command')
     if node.get('payload') and not payload:
         ready = False
     if any(flag not in seen for flag in node.get('required_flags', [])):
@@ -252,12 +256,15 @@ def parse(tokens: list[str], cwd: Path, *, partial: bool = False) -> dict:
     for part in node.get('dispatch', []):
         if part == '{value}' and node.get('split_value'):
             internal.extend(dispatch_value.split(node['split_value']))
+        elif part == '{payload}':
+            internal.extend(payload)
         else:
-            internal.append(part.replace('{value}', dispatch_value).replace('{payload}', payload[0] if payload else ''))
-    for offset, item in enumerate(internal[:-1]):
-        if item.startswith('--'):
-            seen.add(item)
-            values[item] = internal[offset+1]
+            internal.append(part.replace('{value}', dispatch_value))
+    if not owns_tail:
+        for offset, item in enumerate(internal[:-1]):
+            if item.startswith('--'):
+                seen.add(item)
+                values[item] = internal[offset+1]
     if '--build' in values:
         parsed = parse_selector(values['--build'])
         values.update(build_action=parsed.get("action") if parsed else None, build_valid=bool(parsed), build_stage='impl' if parsed and parsed.get('impl') else 'synth',
@@ -268,13 +275,18 @@ def parse(tokens: list[str], cwd: Path, *, partial: bool = False) -> dict:
             raise ValueError(flag+' is unavailable for this command state')
     return dict(tree=tree, node=node, command=command, prefix=prefix, value=value,
                 ready=ready, specs=specs, seen=seen, values=values, pending=pending,
-                master=master_args, args=internal+forwarded, project=project, data=data)
+                master=master_args, args=internal+forwarded, project=project, data=data,
+                payload=payload)
 
 
 def help_text(state: dict) -> str:
     node = state['node']
     prefix = state['prefix']
-    lines = ['Usage: hdlforge '+(state['command'] or '<command>')+' [modifiers]']
+    if node.get('payload'):
+        suffix = 'PROGRAM [ARG ...]' if prefix == 'eval-cmd-argv' else 'COMMAND [COMMAND PART ...]'
+        lines = [f'Usage: hdlforge [master flags] {prefix} {suffix}']
+    else:
+        lines = ['Usage: hdlforge '+(state['command'] or '<command>')+' [modifiers]']
     mapping = {} if state['value'] else node.get('commands', {})
     choices = {((prefix+'.') if prefix else '')+name: mapping['#'+name] for name in entries(mapping)}
     if node.get('provider'):
@@ -285,8 +297,6 @@ def help_text(state: dict) -> str:
                 continue
             child = stem+first_path_component(name[len(stem):])
             choices.setdefault(prefix+'.'+child, dynamic.get(child, 'Select '+child))
-    if node.get('payload'):
-        lines.append("  eval-cmd 'quoted shell command' [--dry-run]")
     if choices:
         lines.append('Commands:')
         lines.extend('  '+name+'  # '+description for name, description in choices.items())
@@ -298,9 +308,26 @@ def help_text(state: dict) -> str:
     return '\n'.join(lines)
 
 
+def warn_misplaced_eval_argv_flags(state: dict) -> None:
+    """Warn when argv payload tokens look like misplaced HDLForge flags."""
+    if state['command'] != 'eval-cmd-argv':
+        return
+    master_flags = entries(state['tree']['master_flags'])
+    warned = set()
+    for token in state['payload']:
+        flag = token.partition('=')[0]
+        if flag not in master_flags or flag in COMMON_CHILD_FLAGS or flag in warned:
+            continue
+        warned.add(flag)
+        print(f'warning: {flag} appears after eval-cmd-argv; it will be passed to the program, '
+              f'not processed by HDLForge; move it before eval-cmd-argv to use it as an HDLForge flag',
+              file=sys.stderr)
+
+
 def main() -> int:
     try:
         state = parse(sys.argv[1:], Path.cwd())
+        warn_misplaced_eval_argv_flags(state)
         if not state['ready'] or {'--help', '-h'} & state['seen'] or state['command'].endswith('.help'):
             output = ['HELP', help_text(state)]
         else:

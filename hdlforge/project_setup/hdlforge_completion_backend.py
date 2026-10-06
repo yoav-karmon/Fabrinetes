@@ -366,6 +366,10 @@ def complete_command(tokens: list[str], cur: str, cwd: Path) -> tuple[Completion
                 result.completions[index] = item.rstrip('.')
         descriptions = {item: candidates.get(item.rstrip('.'), 'Command group') for item in result.completions}
         return result, descriptions
+    if state['command'] in command_tree.TAIL_COMMANDS:
+        # The complete tail belongs to the selected command, including tokens
+        # that look like HDLForge master flags.
+        return CompletionResult([]), descriptions
     flags = [flag for flag, spec in specs.items()
              if (flag not in state['seen'] or spec.get('repeatable'))
              and command_tree.condition_matches(spec.get('when', {}), state['seen'], state['values'])]

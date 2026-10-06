@@ -79,7 +79,12 @@ hdlforge_select_project() {
                 HDLFORGE_PROJECT_ARGS+=(--tool "$TOOL_NAME")
                 shift
                 ;;
-            --tool|--cmd|--eval_json|--env-python|--env-path|--env-var|--flags|--file|--lint-file|--vcdfilename)
+            --cmd|--cmd-argv)
+                # Evaluation commands own the complete remaining argv.
+                HDLFORGE_PROJECT_ARGS+=("$@")
+                break
+                ;;
+            --tool|--eval_json|--env-python|--env-path|--env-var|--flags|--file|--lint-file|--vcdfilename)
                 # Opaque argument values must not be interpreted as --project.
                 HDLFORGE_PROJECT_ARGS+=("$1")
                 if [ "$#" -ge 2 ]; then
@@ -116,8 +121,14 @@ hdlforge_select_project() {
     if [ -n "$PROJECT_FILE_PATH" ]; then
         PROJECT_DIR="$(dirname "$PROJECT_FILE_PATH")"
     fi
+    if [ "$has_explicit_project" = true ]; then
+        HDLFORGE_EXPLICIT_PROJECT=1
+    else
+        HDLFORGE_EXPLICIT_PROJECT=0
+    fi
     export HDLFORGE_PROJECT_FILE="$PROJECT_FILE_PATH"
-    export ROOT_FOLDER="$PROJECT_DIR"
+    export HDLFORGE_EXPLICIT_PROJECT
+    export HDLFORGE_PROJECT_FOLDER="$PROJECT_DIR"
     export HDLFORGE_ORIG_DIR="$HDLFORGE_LAUNCH_DIR"
     hdlforge_normalize_file_arguments "${HDLFORGE_PROJECT_ARGS[@]}"
 }
@@ -166,7 +177,11 @@ hdlforge_normalize_file_arguments() {
                 fi
                 HDLFORGE_PROJECT_ARGS+=("$flag" "$value")
                 ;;
-            --cmd|--eval_json|--env-python|--env-path|--env-var|--flags|--tool)
+            --cmd|--cmd-argv)
+                HDLFORGE_PROJECT_ARGS+=("$@")
+                break
+                ;;
+            --eval_json|--env-python|--env-path|--env-var|--flags|--tool)
                 HDLFORGE_PROJECT_ARGS+=("$1")
                 if [ "$#" -ge 2 ]; then
                     HDLFORGE_PROJECT_ARGS+=("$2")
@@ -263,7 +278,7 @@ hdlforge_validate_environment() {
                 and (explode | index(0) == null))) and
         ((.variables // {}) | type == "object" and all(to_entries[];
             (.key | test("^[A-Za-z_][A-Za-z0-9_]*$")) and
-            (.key | test("^(PATH|PYTHONPATH|REPO_TOP|ROOT_FOLDER|FABRINETES|HDLFORGE.*|BASH.*|UID|EUID|PPID|SHELLOPTS)$") | not) and
+            (.key | test("^(PATH|PYTHONPATH|REPO_TOP|FABRINETES|HDLFORGE.*|BASH.*|UID|EUID|PPID|SHELLOPTS)$") | not) and
             (.value | type == "string" and (explode | index(0) == null)))) and
         ((.tools // {}) | type == "object" and all(.[]; type == "string"))
     ' <<< "$environment_json" >/dev/null || {
@@ -342,7 +357,7 @@ hdlforge_clear_environment() {
                 ;;
             PWD|OLDPWD|SHLVL|_|BASHOPTS|SHELLOPTS|UID|EUID|PPID)
                 ;;
-            FABRINETES|HDLFORGE|HDLFORGE_INSTALL_DIR|ROOT_FOLDER|HDLFORGE_PROJECT_FILE|HDLFORGE_ORIG_DIR|HDLFORGE_NOPRINT|HDLFORGE_DRY_RUN)
+            FABRINETES|HDLFORGE|HDLFORGE_INSTALL_DIR|HDLFORGE_PROJECT_FOLDER|HDLFORGE_PROJECT_FILE|HDLFORGE_ORIG_DIR|HDLFORGE_NOPRINT|HDLFORGE_DRY_RUN)
                 ;;
             *) unset -v "$environment_name" 2>/dev/null || export -n "$environment_name" ;;
         esac
@@ -355,9 +370,10 @@ hdlforge_prepare_environment() {
     local installation_dir="$HDLFORGE_INSTALL_DIR" installation_root="$FABRINETES"
     local repo_json="${HDLFORGE_ENV_REPO_JSON:-}" project_json="${PROJECT_FILE_PATH:-}"
     local repo_environment="{}" project_environment="{}" repo_root="${REPO_TOP:-}"
+    local repo_search_dir="${PROJECT_DIR:-$(pwd -P)}"
     local selected_host="${HDLFORGE_SELECTED_HOST:-${HOST_MACHINE:-}}"
     local selected_user="${HDLFORGE_SELECTED_USER:-${HDLFORGE_HOST_USER:-}}"
-    local jq_bin first_launch=false
+    local detected_repo_json detected_repo_root jq_bin first_launch=false
     local parent_name parent_path="${PATH:-}" parent_pythonpath="${PYTHONPATH:-}"
     local -A parent_values=()
     # Vendor setup scripts can export or unset variables too. Preserve the
@@ -365,7 +381,7 @@ hdlforge_prepare_environment() {
     if [ "${HDLFORGE_CALLED:-0}" = 1 ] && [ "${HDLFORGE_ALLOW_ENV_OVERWRITE:-0}" != 1 ]; then
         while IFS= read -r parent_name; do
             case "$parent_name" in
-                HDLFORGE*|REPO_TOP|ROOT_FOLDER|FABRINETES|PATH|PYTHONPATH|PWD|OLDPWD|SHLVL|_|BASHOPTS|SHELLOPTS) ;;
+                HDLFORGE*|REPO_TOP|FABRINETES|PATH|PYTHONPATH|PWD|OLDPWD|SHLVL|_|BASHOPTS|SHELLOPTS) ;;
                 *) parent_values["$parent_name"]="${!parent_name}" ;;
             esac
         done < <(compgen -e)
@@ -377,15 +393,27 @@ hdlforge_prepare_environment() {
     export HDLFORGE_JQ="$jq_bin"
     [[ "$project_json" == *.json ]] || project_json=""
 
+    detected_repo_root="$(git -C "$repo_search_dir" rev-parse --show-toplevel 2>/dev/null)" || {
+        echo "error: HDLForge project must belong to a Git repository" >&2
+        return 1
+    }
+    if [ "${HDLFORGE_CALLED:-0}" = 1 ] && [ "$repo_root" != "$detected_repo_root" ]; then
+        echo "error: nested HDLForge cannot reuse an environment from another repository" >&2
+        return 1
+    fi
+    repo_root="$detected_repo_root"
+    detected_repo_json="$(REPO_TOP="$repo_root" hdlforge_find_repo_environment_project)" || return 1
+    if [ "${HDLFORGE_CALLED:-0}" = 1 ] && [ "$repo_json" != "$detected_repo_json" ]; then
+        echo "error: nested HDLForge repository JSON does not match the inherited environment" >&2
+        return 1
+    fi
+
     if [ "${HDLFORGE_CALLED:-0}" != "1" ]; then
         first_launch=true
-        repo_root="$(git rev-parse --show-toplevel 2>/dev/null)" || {
-            echo "error: HDLForge must run inside a Git repository" >&2; return 1;
-        }
         selected_host="${HOST_MACHINE:-$(hostname -s)}"
         selected_user="${HDLFORGE_HOST_USER:-$(id -un)}"
         export REPO_TOP="$repo_root"
-        repo_json="$(hdlforge_find_repo_environment_project)" || return 1
+        repo_json="$detected_repo_json"
         repo_environment="$(hdlforge_read_repository_environment "$repo_json" "$selected_host" "$selected_user")" || return 1
         local layer
         while IFS= read -r layer; do
@@ -468,7 +496,7 @@ hdlforge_join_colon() {
 }
 
 hdlforge_resolve_project_path() {
-    resolve_working_path "$1" "$ROOT_FOLDER"
+    resolve_working_path "$1" "$HDLFORGE_PROJECT_FOLDER"
 }
 
 hdlforge_path_contains() {
@@ -559,7 +587,7 @@ hdlforge_print_tool_location() {
 hdlforge_print_environment() {
     printf 'HDLForge selected environment\n'
     printf '  Repository top: %s\n' "${REPO_TOP:-n/a}"
-    printf '  Project folder: %s\n' "${ROOT_FOLDER:-n/a}"
+    printf '  Project folder: %s\n' "${HDLFORGE_PROJECT_FOLDER:-n/a}"
     printf '  Repository JSON: %s\n' "${HDLFORGE_ENV_REPO_JSON:-n/a}"
     printf '  Project JSON: %s\n' "${HDLFORGE_ENV_PROJECT_JSON:-n/a}"
     printf '  Active host/user: %s\n\n' "${HDLFORGE_SELECTED_HOST_AND_USER:-unknown}"
@@ -686,7 +714,7 @@ hdlforge_validate_env_key() {
         return 1
     fi
     case "$key" in
-        PATH|PYTHONPATH|REPO_TOP|ROOT_FOLDER|FABRINETES|HDLFORGE*|BASH*|UID|EUID|PPID|SHELLOPTS)
+        PATH|PYTHONPATH|REPO_TOP|FABRINETES|HDLFORGE*|BASH*|UID|EUID|PPID|SHELLOPTS)
             printf 'error: reserved environment variable: %s\n' "$key" >&2
             return 1
             ;;
@@ -768,7 +796,7 @@ hdlforge_collect_path_array_json() {
         resolved_path="$(hdlforge_resolve_project_path "$path_value")"
         if [ ! -e "$resolved_path" ]; then
             echo "[!x!] HDLForge $label path does not exist: $resolved_path" >&2
-            echo "[i] Relative $label paths are resolved from project folder: $ROOT_FOLDER" >&2
+            echo "[i] Relative $label paths are resolved from project folder: $HDLFORGE_PROJECT_FOLDER" >&2
             return 1
         fi
         hdlforge_append_unique "$array_name" "$resolved_path" "$label"

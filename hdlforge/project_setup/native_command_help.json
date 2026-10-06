@@ -362,7 +362,16 @@
         "flags": {},
         "payload": true
       },
-      "#eval-cmd": "Evaluate one quoted shell command in the HDLForge environment; --dry-run previews it.",
+      "#eval-cmd": "Evaluate all remaining command parts in the HDLForge environment; place master flags before eval-cmd.",
+      "eval-cmd-argv": {
+        "dispatch": [
+          "--cmd-argv",
+          "{payload}"
+        ],
+        "flags": {},
+        "payload": true
+      },
+      "#eval-cmd-argv": "Execute a program with every remaining argument preserved exactly; place master flags before eval-cmd-argv; misplaced master-looking flags warn but remain program arguments.",
       "aliases": {
         "provider": "shortcuts",
         "dispatch": [

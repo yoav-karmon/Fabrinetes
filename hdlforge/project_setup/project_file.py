@@ -115,15 +115,15 @@ class ProjectFile:
         Returns:
             Path to the project file
         """
-        ROOT_FOLDER = Path(os.environ["ROOT_FOLDER"])
+        project_folder = Path(os.environ["HDLFORGE_PROJECT_FOLDER"])
         
         if project_file is None:
             # Auto-detection mode
-            detected_file = detect_project_file(ROOT_FOLDER)
+            detected_file = detect_project_file(project_folder)
             
             if detected_file is None:
                 # Detection failed - get all files and show error
-                hdlforge_files = get_project_files(ROOT_FOLDER)
+                hdlforge_files = get_project_files(project_folder)
                 handle_project_detection_errors(hdlforge_files)
             
             print(f"ℹ️  Auto-detected project file: {detected_file.name}")
@@ -136,9 +136,9 @@ class ProjectFile:
                     project_file_path = p
                 else:
                     original_cwd = Path(
-                        os.environ.get("HDLFORGE_ORIG_DIR", str(ROOT_FOLDER))
+                        os.environ.get("HDLFORGE_ORIG_DIR", str(project_folder))
                     )
-                    cand_root = (ROOT_FOLDER / project_file).resolve()
+                    cand_root = (project_folder / project_file).resolve()
                     cand_orig = (original_cwd / project_file).resolve()
                     if cand_root.exists():
                         project_file_path = cand_root
@@ -151,7 +151,7 @@ class ProjectFile:
 
             if not project_file_path.exists():
                 print(f"❌ Project file not found: {project_file_path}")
-                hdlforge_files = get_project_files(ROOT_FOLDER)
+                hdlforge_files = get_project_files(project_folder)
                 if hdlforge_files:
                     print("Available project files in current directory:")
                     for file in hdlforge_files:

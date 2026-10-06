@@ -106,10 +106,14 @@ class ProjectJsonTest(unittest.TestCase):
         self.project.write_text(json.dumps(data))
         self.assertTrue(any("cycle" in error for error in lint(data, "paths", self.project, "host", "user")))
 
-    def test_roots_are_lowercase_and_have_distinct_initials(self):
+    def test_roots_are_lowercase_and_only_eval_commands_share_an_initial(self):
         roots = [name for name in load_tree()["commands"] if not name.startswith("#")]
         self.assertTrue(all(name == name.lower() for name in roots))
-        self.assertEqual(len(roots), len({name[0] for name in roots}))
+        roots_by_initial = {}
+        for name in roots:
+            roots_by_initial.setdefault(name[0], []).append(name)
+        repeated = {initial: names for initial, names in roots_by_initial.items() if len(names) > 1}
+        self.assertEqual(repeated, {"e": ["eval-cmd", "eval-cmd-argv"]})
         for scope in [*DEFAULTS, "vivado", "vivado.console"]:
             for action in ("update-json", "lint-json"):
                 route = parse([scope + "." + action, "--project", str(self.project)], self.root)
@@ -138,23 +142,28 @@ class ProjectJsonTest(unittest.TestCase):
 
     def test_paths_update_repo_dry_run_is_read_only(self):
         subprocess.run(["git", "init", "-q", str(self.root)], check=True)
+        data, _ = normalize({}, "paths", "test-host", "test-user")
+        self.project.write_text(json.dumps(data))
+        original = self.project.read_text()
         environment = {key: value for key, value in os.environ.items()
                        if not key.startswith("HDLFORGE_") and key not in {"REPO_TOP", "PYTHONPATH"}}
+        environment.update(HOST_MACHINE="test-host", HDLFORGE_HOST_USER="test-user")
         result = subprocess.run([str(Path(__file__).with_name("hdlforge")), "paths.update-repo",
                                  "--project", str(self.project), "--dry-run"],
                                 cwd=self.root, env=environment, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.project.read_text(), "{}")
+        self.assertEqual(self.project.read_text(), original)
 
-    def test_repair_runs_before_strict_environment_bootstrap(self):
+    def test_schema_maintenance_requires_valid_repository_bootstrap(self):
         subprocess.run(["git", "init", "-q", str(self.root)], check=True)
         launcher = Path(__file__).with_name("hdlforge")
         environment = {key: value for key, value in os.environ.items()
                        if not key.startswith("HDLFORGE_") and key != "REPO_TOP"}
         result = subprocess.run([str(launcher), "paths.update-json", "--project", str(self.project)],
                                 cwd=self.root, env=environment, capture_output=True, text=True)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("settings", json.loads(self.project.read_text()))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Missing repository environment", result.stderr)
+        self.assertEqual(self.project.read_text(), "{}")
 
 
 if __name__ == "__main__":

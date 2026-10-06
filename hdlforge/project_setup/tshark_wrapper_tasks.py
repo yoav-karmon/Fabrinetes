@@ -97,12 +97,12 @@ def tshark_wrapper(c, pcap_file: str, output_format: str = 'to_plain_text',
     cmd.extend(checksum_opts)
     
     # Load FPGA config protocol dissector (if available)
-    # Look for it in project-relative locations (current working directory, PCAP file location, or ROOT_FOLDER)
+    # Look in project-relative locations (cwd, PCAP location, or the HDLForge project folder).
     # Note: This is project-specific, not part of HDLForge itself
     dissector_paths = []
     
-    # Method 1: Check ROOT_FOLDER environment variable first (highest priority)
-    root_folder = os.environ.get("ROOT_FOLDER")
+    # Method 1: Check the selected HDLForge project folder first (highest priority).
+    root_folder = os.environ.get("HDLFORGE_PROJECT_FOLDER")
     if root_folder:
         dissector_paths.append(Path(root_folder) / "sources" / "PY" / "TEST_UTILS" / "fpga_config_protocol.lua")
     

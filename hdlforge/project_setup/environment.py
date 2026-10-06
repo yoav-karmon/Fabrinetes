@@ -15,7 +15,7 @@ ENVIRONMENT_VARIABLES = ("REPO_TOP", "PATH", "PYTHONPATH")
 def capture_environment_variables(c: invoke.Context):
     """Capture inherited HDLForge environment variables and validate them."""
     _ = c
-    invoked_dir = os.environ.get("ROOT_FOLDER", os.getcwd())
+    invoked_dir = os.environ.get("HDLFORGE_PROJECT_FOLDER", os.getcwd())
     captured_vars = {
         var_name: os.environ.get(var_name, "")
         for var_name in ENVIRONMENT_VARIABLES

@@ -25,7 +25,7 @@ class DottedCommandsTest(unittest.TestCase):
 
     def test_eval_dry_run_does_not_execute_payload(self):
         marker = self.root / 'must-not-exist'
-        result = self.run_command('eval-cmd', 'touch '+shlex.quote(str(marker)), '--dry-run')
+        result = self.run_command('--dry-run', 'eval-cmd', 'touch '+shlex.quote(str(marker)))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('execution skipped', result.stdout)
         self.assertFalse(marker.exists())
@@ -41,37 +41,88 @@ class DottedCommandsTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, '--project --tool --allow-env-overwrite')
 
+    def test_eval_multiple_command_parts_are_joined_by_bash(self):
+        result = self.run_command('eval-cmd', 'printf "%s|%s"', 'first', 'second')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, 'first|second')
+
+    def test_eval_argv_runs_script_with_exact_argument_boundaries(self):
+        script = self.root / 'eval-target.sh'
+        script.write_text('#!/bin/bash\nprintf "%s|%s" "$1" "$2"\n')
+        script.chmod(0o755)
+        launcher = ('wrapper=$1; script_path=$2; shift 2; '
+                    'exec "$wrapper" --no-print eval-cmd-argv "$script_path" "$@"')
+        result = subprocess.run(
+            ['bash', '-c', launcher, 'launcher', str(self.wrapper), str(script),
+             'hello world', 'a|b;*'],
+            cwd=self.project,
+            env=self.env,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, 'hello world|a|b;*')
+
+    def test_eval_argv_dry_run_quotes_argument_boundaries(self):
+        result = self.run_command('--dry-run', 'eval-cmd-argv', 'printf', '%s', 'hello world')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(r'printf %s hello\ world', result.stdout)
+        self.assertIn('execution skipped', result.stdout)
+
+    def test_eval_argv_warns_about_misplaced_hdlforge_flags(self):
+        for argument in ('--env-python', '--project=child.hdlforge.json'):
+            with self.subTest(argument=argument):
+                result = self.run_command('eval-cmd-argv', 'printf', '%s', argument)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout, argument)
+                self.assertIn(f'warning: {argument.partition("=")[0]} appears after eval-cmd-argv',
+                              result.stderr)
+                self.assertIn('will be passed to the program', result.stderr)
+
+    def test_eval_argv_allows_common_child_help_flag_without_warning(self):
+        result = self.run_command('eval-cmd-argv', 'printf', '%s', '--help')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, '--help')
+        self.assertEqual(result.stderr, '')
+
+    def test_eval_owns_master_looking_command_parts(self):
+        result = self.run_command('eval-cmd', 'printf "%s|%s"', '--project', 'child-value')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, '--project|child-value')
+
     def test_legacy_action_flags_are_rejected(self):
         for args in [('--tool', 'vivado'), ('--cmd', 'true'), ('--eval_json', 'nested'),
-                     ('nested',), ('eval-cmd', 'true', '--append', 'bad')]:
+                     ('nested',)]:
             with self.subTest(args=args):
                 result = self.run_command(*args)
                 self.assertNotEqual(result.returncode, 0)
 
     def test_nested_values_are_preserved_by_default(self):
-        child = 'hdlforge eval-cmd '+shlex.quote('printf "%s|%s" "$VALUE" "$ADDED"')
-        child += ' --env-var '+shlex.quote('[{"VALUE":"child"},{"ADDED":"new"}]')
-        result = self.run_command('eval-cmd', child, '--env-var', '[{"VALUE":"parent"}]')
+        child = shlex.join(['hdlforge', '--env-var', '[{"VALUE":"child"},{"ADDED":"new"}]',
+                            'eval-cmd', 'printf "%s|%s" "$VALUE" "$ADDED"'])
+        result = self.run_command('--env-var', '[{"VALUE":"parent"}]', 'eval-cmd', child)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, 'parent|new')
         self.assertIn('preserving inherited environment variable VALUE', result.stderr)
 
     def test_nested_overwrite_requires_explicit_permission(self):
-        child = 'hdlforge eval-cmd '+shlex.quote('printf "%s" "$VALUE"')
-        child += ' --allow-env-overwrite --env-var '+shlex.quote('[{"VALUE":"child"}]')
-        result = self.run_command('eval-cmd', child, '--env-var', '[{"VALUE":"parent"}]')
+        child = shlex.join(['hdlforge', '--allow-env-overwrite', '--env-var', '[{"VALUE":"child"}]',
+                            'eval-cmd', 'printf "%s" "$VALUE"'])
+        result = self.run_command('--env-var', '[{"VALUE":"parent"}]', 'eval-cmd', child)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, 'child')
 
     def test_overwrite_permission_is_not_inherited(self):
-        child = 'hdlforge eval-cmd '+shlex.quote('printf "%s" "$VALUE"')
-        child += ' --env-var '+shlex.quote('[{"VALUE":"child"}]')
-        result = self.run_command('eval-cmd', child, '--allow-env-overwrite', '--env-var', '[{"VALUE":"parent"}]')
+        child = shlex.join(['hdlforge', '--env-var', '[{"VALUE":"child"}]',
+                            'eval-cmd', 'printf "%s" "$VALUE"'])
+        result = self.run_command('--allow-env-overwrite', '--env-var', '[{"VALUE":"parent"}]',
+                                  'eval-cmd', child)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, 'parent')
 
     def test_master_flags_exist_on_every_leaf(self):
-        for command in ('paths.show', 'vivado.console.start', 'sim-verilator.sim', 'eval-cmd'):
+        for command in ('paths.show', 'vivado.console.start', 'sim-verilator.sim',
+                        'eval-cmd', 'eval-cmd-argv'):
             with self.subTest(command=command):
                 result = self.run_command(command+'.help')
                 self.assertEqual(result.returncode, 0, result.stderr)
@@ -94,18 +145,19 @@ class DottedCommandsTest(unittest.TestCase):
         child_project.write_text(json.dumps({'settings': {'env': {'test-host': {'test-user': {
             'variables': {'VALUE': 'child-project'},
         }}}}}))
-        child = shlex.join(['hdlforge', 'eval-cmd', 'printf "%s" "$VALUE"',
-                            '--project', str(child_project), '--allow-env-overwrite'])
-        result = self.run_command('eval-cmd', child, '--env-var', '[{"VALUE":"parent"}]')
+        child = shlex.join(['hdlforge', '--project', str(child_project), '--allow-env-overwrite',
+                            'eval-cmd', 'printf "%s" "$VALUE"'])
+        result = self.run_command('--env-var', '[{"VALUE":"parent"}]', 'eval-cmd', child)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, 'child-project')
 
-    def test_master_option_after_eval_payload_selects_project(self):
+    def test_master_option_before_eval_payload_selects_project(self):
         child = self.project / 'other'
         child.mkdir()
         selected = child / 'other.hdlforge.json'
         selected.write_text('{}')
-        result = self.run_command('eval-cmd', 'printf "%s" "$HDLFORGE_PROJECT_FILE"', '--project', str(selected))
+        result = self.run_command('--project', str(selected), 'eval-cmd',
+                                  'printf "%s" "$HDLFORGE_PROJECT_FILE"')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, str(selected))
 

@@ -62,6 +62,13 @@ class CompletionTreeTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.complete(["fixture.merge", "--"])
 
+    def test_eval_command_tail_has_no_hdlforge_completion(self):
+        self.assertIn("--project", self.complete([], "--pro"))
+        self.assertEqual(self.complete(["eval-cmd"], ""), [])
+        self.assertEqual(self.complete(["eval-cmd", "echo"], "--pro"), [])
+        self.assertEqual(self.complete(["eval-cmd-argv"], ""), [])
+        self.assertEqual(self.complete(["eval-cmd-argv", "echo"], "--pro"), [])
+
     def test_repeatable_input_remains_available(self):
         self.assertIn("--input", self.complete(["fixture.merge", "--input", "one.json"]))
 

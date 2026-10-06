@@ -9,19 +9,23 @@ one directory require an explicit selection. `--project FILE` and
 `--project=FILE` override discovery; relative filenames resolve against the
 original launch directory. Symlinks resolve to the actual project file.
 
-Commands execute from the selected file's containing directory. The launcher
-passes its absolute filename to native tools and exports it as
-`HDLFORGE_PROJECT_FILE`, with the working directory in `ROOT_FOLDER`.
-Environment leaf lookup and JSON shortcuts consume that same selection.
-Relative VCD capture paths and externally invoked Verilator source lists keep
-their original launch-directory base. Source-file arguments do not select a
-different project; use `--project` for an external source's project.
+Implicit discovery never changes directories: commands execute from the launch
+directory. An explicit `--project` is the only selection mode that changes the
+working directory, and it enters the selected file's containing directory
+before environment setup and dispatch. The launcher passes the absolute project
+filename to native tools and exports it as `HDLFORGE_PROJECT_FILE`.
+`HDLFORGE_PROJECT_FOLDER` is the selected project directory; it is configuration
+metadata, not a promise that `PWD` has changed. Environment leaf lookup and JSON
+shortcuts consume that same selection. Relative VCD capture paths and externally
+invoked Verilator source lists keep their original launch-directory base.
+Source-file arguments do not select a different project; use `--project` for an
+external source's project.
 
 Nested commands retain an explicit project choice when searching that same
 directory, including directories with multiple project files. Changing to a
 different project selects the nearest project there. Fresh launches ignore an
-inherited project filename. An `eval-cmd` invocation with no selected project retains its
-launch directory when the repository environment is otherwise available.
+inherited project filename. Every command follows the same directory rule;
+`eval-cmd`, project shortcuts and native tools have no separate cwd policy.
 
 ## Dotted commands
 
@@ -37,8 +41,9 @@ hdlforge vivado.build.synth_example.run
 hdlforge vivado.build.synth_example.latest.impl.impl_example.run
 hdlforge sim-verilator.sim --SimTargetName full_sim
 hdlforge vivado.console.send --cmd 'open_checkpoint design.dcp'
-hdlforge eval-cmd 'python3 script.py --argument value' --dry-run
+hdlforge --dry-run eval-cmd 'python3 script.py --argument value'
 hdlforge eval-cmd.help
+hdlforge eval-cmd-argv.help
 hdlforge aliases.testing.integration_test.sim.example.run_all
 ```
 
@@ -50,25 +55,52 @@ Project shortcut lookup is explicit through `aliases.<path>` and
 limited to `LLM_orch`. Bare shortcut paths are not auto-detected. Project-file
 discovery for startup and environment setup remains automatic.
 
-`eval-cmd` accepts exactly one quoted shell command. Its `--dry-run` resolves
-the environment and prints the command and working directory without executing
-the payload. Arguments for scripts belong inside that quoted command or in a
-dedicated script. `--tool`, top-level `--cmd`, `--eval_json` and `--append` are
-removed. The console's local `--cmd` still supplies its Tcl payload.
+`eval-cmd SHELL_TEXT...` gives every remaining command part to Bash `eval`.
+Bash joins those parts with spaces and evaluates the resulting shell text. A
+conventional quoted shell command remains one part, while launchers may allow
+their own expansion to produce several parts. The `eval-cmd` name is the
+boundary; no separate `--` is required. HDLForge master flags must precede it.
+Every later token belongs to the evaluated command, even when it looks like
+`--project`, `--dry-run` or another master flag. `--dry-run` resolves the
+environment and prints the effective command and working directory without
+executing it. `--tool`, top-level `--cmd`, `--eval_json` and `--append` are
+internal or removed. The console's local `--cmd` still supplies its Tcl payload.
+
+`eval-cmd-argv PROGRAM [ARG...]` is the argument-preserving counterpart. Its
+name is also the boundary, and no separate `--` is required. It executes
+`PROGRAM` directly and passes each later item as one argument, without reparsing
+any of them as shell text. If a later token matches an HDLForge master flag,
+HDLForge warns on stderr that the token remains a program argument and explains
+that the flag must move before `eval-cmd-argv` to affect HDLForge. `--help` and
+`-h` are excluded because they are common child-program arguments. The warning
+never changes or removes an argument.
+
+```bash
+hdlforge --dry-run eval-cmd 'python3 script.py --argument value'
+hdlforge --env-python '["sources/tests"]' eval-cmd python3 script.py --argument value
+exec hdlforge eval-cmd-argv "$script_path" "$@"
+```
+
+Use `eval-cmd` for intentional shell syntax such as pipes, redirects and
+variable expansion. Use `eval-cmd-argv` for launchers and arguments containing
+whitespace or shell operators that must remain literal.
 
 ## Master flags
 
 Every command inherits `tree.master_flags`: `--project`, `--env-path`,
 `--env-python`, `--env-var`, `--allow-env-overwrite`, `--no-print`, `--dry-run`,
-`--help` and `-h`. They appear in every command's help/completion and may be
-placed before or after its anchor. Action-local modifiers follow the command.
+`--help` and `-h`. They appear in every command's help. Commands other than
+`eval-cmd` and `eval-cmd-argv` retain support for placement before or after
+their command path. For both execution commands, place every master flag before
+the command name because the complete tail belongs to it. Action-local
+modifiers follow their owning command.
 Environment arrays accept literal JSON or a dotted data leaf in the selected
 project; `--env-var` uses an array of single-key objects.
 
 ```bash
-hdlforge eval-cmd 'python3 -m integration_test.example' --env-python '["sources/tests"]'
+hdlforge --env-python '["sources/tests"]' eval-cmd 'python3 -m integration_test.example'
 hdlforge aliases.testing.example --env-var '[{"TESTCASE":"example"}]'
-hdlforge eval-cmd 'printenv TESTCASE' --allow-env-overwrite --env-var '[{"TESTCASE":"changed"}]'
+hdlforge --allow-env-overwrite --env-var '[{"TESTCASE":"changed"}]' eval-cmd 'printenv TESTCASE'
 ```
 
 Nested invocations preserve inherited environment values by default. New keys
@@ -138,8 +170,10 @@ non-project build commands documented above.
 
 `hdlforge_environment.bash` owns project selection, startup and overlays.
 `HDLFORGE_CALLED=1` marks an initialized chain. On the first launch, HDLForge
-finds the selected working directory's Git root and reads the root JSON's
-`settings.env.<host>.<user>` through jq before clearing caller exports.
+uses the selected project directory, or the launch directory when no project is
+selected, to find the owning Git root. It evaluates the repository-root JSON's
+`settings.env.<host>.<user>` through jq before clearing caller exports, then
+evaluates the selected project JSON as an overlay when it is a different file.
 Select host/user with `HOST_MACHINE` and `HDLFORGE_HOST_USER` before launch.
 
 Every launch must start inside a Git repository. Nested calls cannot reuse
@@ -148,8 +182,8 @@ another repository's environment. The root must contain exactly one
 `path`, `path_import`, `pythonpath`, `pythonpath_import`, `variables`,
 `variables_import`. Path/import fields are arrays; variables is an object.
 Empty arrays/objects are valid. Missing entries or invalid types fail before
-the command executes. Use `paths.update-repo` to initialize missing
-keys before normal startup; help and initialization do not load tool settings.
+any runnable command, including JSON and path-management actions, executes.
+Contextual help is resolved before runtime environment initialization.
 
 Imports name same-typed leaves in that root JSON, for example
 `"path_import": ["settings.env.shared.base.path"]`. Dotted host/user names
@@ -159,8 +193,10 @@ listed order before the selected host/user's local values. Missing references
 and cycles fail before changing the environment. Variable replacements warn
 with the name only. Paths use the existing prepend/deduplication helpers:
 later additions take precedence, and duplicates retain their existing place.
-Repository imports run once per initialized chain; project/CLI overlays keep
-the normal nested overwrite protection.
+Repository imports run once per initialized chain. Nested commands revalidate
+the repository identity and mandatory root JSON, then reuse the already
+evaluated repository environment. Project/CLI overlays keep the normal nested
+overwrite protection.
 
 The fresh environment retains login identity, terminal/display access, locale,
 timezone, temporary-directory settings and SSH-agent access. Arbitrary caller
@@ -189,10 +225,11 @@ hdlforge paths.update-repo --project repo.hdlforge.json
 ```
 
 `show` reports effective paths; `show-all` reports configured host/user pairs.
-The two `init-base-*` actions print shell exports from the incoming environment.
+The two `init-base-*` actions print shell exports from the evaluated environment.
 `install-shell` installs the launcher and completion in the user's bashrc.
-`update-repo` records the current host/user configuration where missing.
-Normal startup is automatic; management actions are not prerequisites.
+`update-repo` updates an already valid repository environment configuration;
+it cannot bypass missing or invalid mandatory base fields. Normal startup is
+automatic; management actions are not prerequisites.
 
 ## Shared command tree
 
@@ -209,9 +246,10 @@ flag has a sibling `#name` description. Dynamic project shortcuts use their
 own sibling descriptions. Metadata is display-only.
 
 Completion reads configuration without setting up environments or contacting
-tools. It consumes only tokens before the cursor and treats option values and
-the eval payload as opaque. Double-Tab displays descriptions; normal completion
-inserts tokens only. Unknown commands/options and anonymous passthrough fail.
+tools. It consumes only tokens before the cursor and treats the complete
+`eval-cmd` and `eval-cmd-argv` tails as opaque. Double-Tab displays descriptions;
+normal completion inserts tokens only. Unknown commands/options and anonymous
+passthrough fail.
 
 Related references: `hdlforge_project_file.md`, `how_hdlforge_keeps_paths_clean.md`.
 
@@ -253,7 +291,7 @@ Select the repository-root JSON for `paths`.
 `paths.update-repo` selects that root document automatically.
 Generic tools taking only command-line inputs need no project schema.
 
-The root commands are `aliases`, `discover`, `eval-cmd`, `hw-server`,
+The root commands are `aliases`, `discover`, `eval-cmd`, `eval-cmd-argv`, `hw-server`,
 `network`, `paths`, `sim-verilator`, `tshark`,
 `vivado`, and `waveform`. They are lowercase with distinct initial letters.
 The command tree supplies the executable routes, help, and tab-completion.

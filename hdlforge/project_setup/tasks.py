@@ -52,7 +52,7 @@ def normalize_cli_args(argv: List[str]) -> List[str]:
 
 def _load_help_project(project: str | None) -> ProjectFile | None:
     if project is None:
-        root_folder = Path(os.environ.get("ROOT_FOLDER", os.getcwd()))
+        root_folder = Path(os.environ.get("HDLFORGE_PROJECT_FOLDER", os.getcwd()))
         project_files = sorted(root_folder.glob("*.hdlforge.json"))
         project_files.extend(sorted(root_folder.glob("*.hdlforge.toml")))
         if len(project_files) != 1:
@@ -122,26 +122,26 @@ def projects(c, set_project=None, list_projects=False):
         set_project: Optional project to set (not currently used)
         list_projects: If True, recursively search and list all projects. If False, show single detected project.
     """
-    ROOT_FOLDER = Path(os.environ.get("ROOT_FOLDER", os.getcwd()))
+    project_folder = Path(os.environ.get("HDLFORGE_PROJECT_FOLDER", os.getcwd()))
     
     if list_projects:
         # Recursively search for all project files
-        json_files = list(ROOT_FOLDER.rglob("*.hdlforge.json"))
-        toml_files = list(ROOT_FOLDER.rglob("*.hdlforge.toml"))
+        json_files = list(project_folder.rglob("*.hdlforge.json"))
+        toml_files = list(project_folder.rglob("*.hdlforge.toml"))
         project_files = json_files + toml_files
         
         if len(project_files) == 0:
             print("❌ No .hdlforge.json or .hdlforge.toml files found recursively from current directory")
-            print(f"  Searched from: {ROOT_FOLDER}")
+            print(f"  Searched from: {project_folder}")
             return
         
         # Collect project information
         projects_data = []
         for project_file_path in project_files:
             try:
-                # Temporarily set ROOT_FOLDER to project file directory for ProjectFile to work
-                original_root = os.environ.get("ROOT_FOLDER")
-                os.environ["ROOT_FOLDER"] = str(project_file_path.parent)
+                # Temporarily select this project directory for ProjectFile.
+                original_project_folder = os.environ.get("HDLFORGE_PROJECT_FOLDER")
+                os.environ["HDLFORGE_PROJECT_FOLDER"] = str(project_file_path.parent)
                 
                 project_file = ProjectFile(project_file_path)
                 projects_data.append({
@@ -151,11 +151,11 @@ def projects(c, set_project=None, list_projects=False):
                     'working_path': str(project_file.working_path)
                 })
                 
-                # Restore original ROOT_FOLDER
-                if original_root:
-                    os.environ["ROOT_FOLDER"] = original_root
+                # Restore the original project directory selection.
+                if original_project_folder:
+                    os.environ["HDLFORGE_PROJECT_FOLDER"] = original_project_folder
                 else:
-                    os.environ.pop("ROOT_FOLDER", None)
+                    os.environ.pop("HDLFORGE_PROJECT_FOLDER", None)
             except (SystemExit, Exception) as e:
                 # If we can't load the project, still show the file
                 projects_data.append({
@@ -167,7 +167,7 @@ def projects(c, set_project=None, list_projects=False):
         
         # Display in formatted table
         if projects_data:
-            print(f"Found {len(projects_data)} project(s) recursively from {ROOT_FOLDER}:\n")
+            print(f"Found {len(projects_data)} project(s) recursively from {project_folder}:\n")
             headers = ['Project File', 'Project Name', 'Path', 'Working Directory']
             rows = []
             for proj in projects_data:

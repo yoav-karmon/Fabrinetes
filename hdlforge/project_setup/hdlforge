@@ -196,9 +196,32 @@ done
 environment_args=("${route_args[@]}")
 set -- "${route_args[@]}" "${internal_args[@]}"
 
-# JSON maintenance is offline and can repair missing startup keys.
+CURRENT_EVAL_JSON_MODE=false
+if [ "${internal_args[0]}" = --eval_json ]; then
+    CURRENT_EVAL_JSON_MODE=true
+    NO_PRINT=true
+    export HDLFORGE_NOPRINT=1
+fi
+
+# Project discovery selects configuration but never changes the launch directory.
+# An explicit --project is the only operation that enters a project directory.
+hdlforge_select_project "$@" || exit 1
+set -- "${HDLFORGE_PROJECT_ARGS[@]}"
+selected_args=("$@")
+if [ "$HDLFORGE_EXPLICIT_PROJECT" = 1 ]; then
+    cd "$PROJECT_DIR" || {
+        echo "error: failed to enter explicit project directory: $PROJECT_DIR" >&2
+        exit 1
+    }
+fi
+
+# Every runnable command evaluates the repository JSON base environment first,
+# then the selected project JSON overlay when it is a different file.
+hdlforge_prepare_environment || exit 1
+hdlforge_apply_env_state "${environment_args[@]}"
+
+# JSON maintenance uses the same mandatory repository environment as all tools.
 if [ "${internal_args[0]}" = --json-schema ]; then
-    hdlforge_select_project "${environment_args[@]}" || exit 1
     [ -n "$PROJECT_FILE_PATH" ] || { echo "error: select a project JSON with --project" >&2; exit 1; }
     schema_args=("${internal_args[@]:1}" --project "$PROJECT_FILE_PATH")
     [ "$DRY_RUN" != true ] || schema_args+=(--dry-run)
@@ -218,7 +241,11 @@ for ((management_index=0; management_index<${#management_input[@]}; management_i
             ;;
         --tool=*) management_tool="${management_arg#*=}" ;;
         --) break ;;
-        --project|--cmd|--env-path|--env-python|--env-var|--flags|--eval_json)
+        --cmd|--cmd-argv)
+            management_args+=("${management_input[@]:management_index}")
+            break
+            ;;
+        --project|--env-path|--env-python|--env-var|--flags|--eval_json)
             management_args+=("$management_arg")
             management_index=$((management_index + 1))
             management_args+=("${management_input[management_index]}")
@@ -259,18 +286,6 @@ if [ "$management_tool" = path_manager ]; then
         esac
         shift
     done
-    if [ "$management_action" != show ] && [ "$management_action" != show-all ]; then
-        for route_arg in "${environment_args[@]}"; do
-            case "$route_arg" in
-                --env-path|--env-python|--env-var)
-                    hdlforge_select_project "${environment_args[@]}" || exit 1
-                    cd "$PROJECT_DIR" || exit 1
-                    hdlforge_prepare_environment || exit 1
-                    hdlforge_apply_env_state "${environment_args[@]}"
-                    break ;;
-            esac
-        done
-    fi
     case "$management_action" in
         init-base-path) printf 'export HDLFORGE_BASE_PATH=%q\n' "$PATH"; exit 0 ;;
         init-base-pythonpath) printf 'export HDLFORGE_BASE_PYTHONPATH=%q\n' "${PYTHONPATH:-}"; exit 0 ;;
@@ -306,28 +321,6 @@ if [ "$management_tool" = path_manager ]; then
     esac
 fi
 
-# Resolve the project and invocation-relative paths once, without re-launching.
-hdlforge_select_project "$@" || exit 1
-set -- "${HDLFORGE_PROJECT_ARGS[@]}"
-
-CURRENT_EVAL_JSON_MODE=false
-if [ "${internal_args[0]}" = --eval_json ]; then
-    CURRENT_EVAL_JSON_MODE=true
-    NO_PRINT=true
-    export HDLFORGE_NOPRINT=1
-fi
-
-# Change to project directory (only if PROJECT_DIR is set)
-if [ -n "$PROJECT_DIR" ]; then
-    cd "$PROJECT_DIR" || {
-        echo "❌ Failed to cd into project directory: $PROJECT_DIR"
-        exit 1
-    }
-fi
-
-# Prepare tool and repository paths without depending on interactive startup.
-hdlforge_prepare_environment || exit 1
-
 if [ -z "$REPO_TOP" ]; then
     echo "❌ Not inside a Git repository. Please run hdlforge from within a Git repository."
     exit 1
@@ -340,8 +333,6 @@ shell_id="$PPID"
 timestamp=$(date +%Y%m%d)
 time=$(date +%H%M%S)
 
-selected_args=("$@")
-hdlforge_apply_env_state "${environment_args[@]}"
 # Selection normalized invocation-relative native file paths. Environment
 # options remain removable by arity without touching opaque payload values.
 set -- "${selected_args[@]}"
@@ -367,16 +358,22 @@ fi
 mkdir -p "$TASKS_DIR/logs"
 log_file="$TASKS_DIR/logs/hdlforge_${timestamp}_pid${shell_id}.log"
 
-# Execute only explicit eval-cmd or project-shortcuts leaves.
+# Execute only explicit evaluation commands or project-shortcut leaves.
 command_mode=""
 command_value=""
+command_values=()
 native_args=()
 while [ "$#" -gt 0 ]; do
     case "$1" in
-        --eval_json|--cmd)
+        --eval_json)
             command_mode="$1"
             command_value="$2"
             shift 2
+            ;;
+        --cmd|--cmd-argv)
+            command_mode="$1"
+            command_values=("${@:2}")
+            break
             ;;
         --tool)
             native_args=("$@")
@@ -388,9 +385,14 @@ done
 if [ -n "$command_mode" ]; then
     if [ "$command_mode" = --eval_json ]; then
         export HDLFORGE_JSON_COMMAND_PATH="$command_value"
-        COMMAND="$("$HDLFORGE_JQ" -er --arg path "$command_value" 'getpath($path | split(".")) | select(type == "string" and length > 0)' < "$PROJECT_FILE_PATH")" || exit 1
+        command_value="$("$HDLFORGE_JQ" -er --arg path "$command_value" 'getpath($path | split(".")) | select(type == "string" and length > 0)' < "$PROJECT_FILE_PATH")" || exit 1
+        command_values=("$command_value")
+    fi
+    if [ "$command_mode" = --cmd-argv ]; then
+        printf -v COMMAND '%q ' "${command_values[@]}"
+        COMMAND="${COMMAND% }"
     else
-        COMMAND="$command_value"
+        COMMAND="${command_values[*]}"
     fi
     if [ "$DRY_RUN" = true ]; then
         printf '[i] Working directory: %s\n[i] Command: %s\n[i] execution skipped\n' "$PWD" "$COMMAND"
@@ -398,8 +400,12 @@ if [ -n "$command_mode" ]; then
     fi
     [ "$NO_PRINT" = true ] || printf '[i] Executing: %s\n' "$COMMAND"
     export HDLFORGE_PROJECT_FILE="$PROJECT_FILE_PATH"
-    set +o braceexpand
-    eval "$COMMAND"
+    if [ "$command_mode" = --cmd-argv ]; then
+        exec "${command_values[@]}"
+    else
+        set +o braceexpand
+        eval "${command_values[@]}"
+    fi
     exit $?
 fi
 set -- "${native_args[@]}"

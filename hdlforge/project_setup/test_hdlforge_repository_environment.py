@@ -82,13 +82,13 @@ class RepositoryEnvironmentTest(unittest.TestCase):
             data.update(shared={"variables": {"VALUE": "imported"}}),
             env.update(variables_import=["shared.variables"])))
         result = subprocess.run([str(self.wrapper), "--no-print", "eval-cmd",
-                                 'export VALUE=runtime; hdlforge eval-cmd "printenv VALUE" --no-print'],
+                                 'export VALUE=runtime; hdlforge --no-print eval-cmd "printenv VALUE"'],
                                 cwd=self.project, env=self.env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "runtime\n")
         self.assertEqual(result.stderr, "")
 
-    def test_update_repo_from_child_initializes_root(self):
+    def test_update_repo_cannot_bypass_invalid_root_environment(self):
         self.configure(lambda data, env: env.pop("path_import"))
         child = self.project / "child"
         child.mkdir()
@@ -96,9 +96,9 @@ class RepositoryEnvironmentTest(unittest.TestCase):
         selected.write_text("{}")
         result = subprocess.run([str(self.wrapper), "paths.update-repo"],
                                 cwd=child, env=self.env, capture_output=True, text=True)
-        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Repository environment requires", result.stderr)
         self.assertEqual(selected.read_text(), "{}")
-        self.assertEqual(self.invoke().returncode, 0)
 
     def test_nested_launch_outside_repository_is_rejected(self):
         result = subprocess.run([str(self.wrapper), "--no-print", "eval-cmd",

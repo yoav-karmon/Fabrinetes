@@ -139,7 +139,7 @@ class LauncherEnvironmentTest(unittest.TestCase):
             "export PATH=\"/wrong/path:$PATH\" # hdlforge-path\n"
         )
 
-        first = subprocess.run([str(self.wrapper), "paths.install-shell"],
+        first = subprocess.run([str(self.wrapper), "paths.install-shell"], cwd=self.project,
                                env=self.env, capture_output=True, text=True)
         self.assertEqual(first.returncode, 0, first.stderr)
         expected = (
@@ -150,7 +150,7 @@ class LauncherEnvironmentTest(unittest.TestCase):
         self.assertEqual(bashrc.read_text(), expected)
         self.assertIn("Repaired HDLForge PATH entry", first.stdout)
 
-        second = subprocess.run([str(self.wrapper), "paths.install-shell"],
+        second = subprocess.run([str(self.wrapper), "paths.install-shell"], cwd=self.project,
                                 env=self.env, capture_output=True, text=True)
         self.assertEqual(second.returncode, 0, second.stderr)
         self.assertEqual(bashrc.read_text(), expected)
@@ -167,7 +167,7 @@ class LauncherEnvironmentTest(unittest.TestCase):
 
     def run_selection(self, cwd: Path, arguments: list[str] | None = None) -> subprocess.CompletedProcess:
         """Observe the actual command directory and authoritative project selection."""
-        command = 'printf "%s\\n" "$PWD" "$ROOT_FOLDER" "$HDLFORGE_PROJECT_FILE"'
+        command = 'printf "%s\\n" "$PWD" "$HDLFORGE_PROJECT_FOLDER" "$HDLFORGE_PROJECT_FILE"'
         return subprocess.run([str(self.wrapper), "--no-print", *(arguments or []), "eval-cmd", command],
                               cwd=cwd, env=self.env, capture_output=True, text=True)
 
@@ -179,13 +179,53 @@ class LauncherEnvironmentTest(unittest.TestCase):
         return selected
 
     def test_discovery_from_project_subdirectory(self):
-        # Select the closest project and execute in its containing directory.
+        # Select the closest project without changing the launch directory.
         selected = self.make_selected_project()
         launch_dir = selected.parent / "sources"
         launch_dir.mkdir()
         result = self.run_selection(launch_dir)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(result.stdout.splitlines(), [str(selected.parent), str(selected.parent), str(selected)])
+        self.assertEqual(result.stdout.splitlines(), [str(launch_dir), str(selected.parent), str(selected)])
+
+    def test_project_folder_uses_hdlforge_owned_variable_name(self):
+        selected = self.make_selected_project()
+        self.env["ROOT_FOLDER"] = "stale legacy value"
+        command = 'printf "%s\\n%s" "$HDLFORGE_PROJECT_FOLDER" "${ROOT_FOLDER-unset}"'
+        result = subprocess.run([str(self.wrapper), "--no-print", "eval-cmd", command],
+                                cwd=selected.parent, env=self.env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(result.stdout.splitlines(), [str(selected.parent), "unset"])
+
+    def test_project_shortcut_uses_the_same_implicit_launch_directory(self):
+        selected = self.make_selected_project()
+        launch_dir = selected.parent / "sources"
+        launch_dir.mkdir()
+        result = subprocess.run([str(self.wrapper), "--no-print", "aliases.where"],
+                                cwd=launch_dir, env=self.env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(result.stdout.strip(), str(launch_dir))
+
+    def test_repository_environment_precedes_local_project_overlay(self):
+        root_project = self.project / "sample.hdlforge.json"
+        root_data = json.loads(root_project.read_text())
+        root_data["settings"]["env"]["test-host"]["test-user"]["variables"] = {
+            "REPOSITORY_VALUE": "repository",
+            "SHARED_VALUE": "repository",
+        }
+        root_project.write_text(json.dumps(root_data))
+        selected = self.make_selected_project()
+        selected.write_text(json.dumps({
+            "settings": {"env": {"test-host": {"test-user": {
+                "variables": {"LOCAL_VALUE": "project", "SHARED_VALUE": "project"},
+            }}}},
+        }))
+        launch_dir = selected.parent / "sources"
+        launch_dir.mkdir()
+        command = 'printf "%s|%s|%s" "$REPOSITORY_VALUE" "$LOCAL_VALUE" "$SHARED_VALUE"'
+        result = subprocess.run([str(self.wrapper), "--no-print", "eval-cmd", command],
+                                cwd=launch_dir, env=self.env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(result.stdout, "repository|project|project")
 
     def test_explicit_project_overrides_launch_project(self):
         selected = self.make_selected_project()
@@ -289,11 +329,29 @@ class LauncherEnvironmentTest(unittest.TestCase):
         nested_repo = self.project / "nested-repo"
         nested_repo.mkdir()
         subprocess.run(["git", "init", "--quiet", str(nested_repo)], check=True)
+        nested_project = nested_repo / "nested.hdlforge.json"
+        nested_project.write_text((self.project / "sample.hdlforge.json").read_text())
         self.env["HDLFORGE_CALLED"] = "1"
         self.env["REPO_TOP"] = str(nested_repo)
+        self.env["HDLFORGE_ENV_REPO_JSON"] = str(nested_project)
         result = self.run_selection(nested_repo)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(result.stdout.splitlines(), [str(nested_repo), str(nested_repo), ""])
+        self.assertEqual(result.stdout.splitlines(), [str(nested_repo), str(nested_repo), str(nested_project)])
+
+    def test_repository_top_requires_one_hdlforge_json(self):
+        nested_repo = self.project / "nested-repo"
+        nested_repo.mkdir()
+        subprocess.run(["git", "init", "--quiet", str(nested_repo)], check=True)
+        result = self.run_selection(nested_repo)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("repository top must contain exactly one .hdlforge.json", result.stderr)
+
+    def test_repository_top_rejects_multiple_hdlforge_json_files(self):
+        selected = self.make_selected_project()
+        self.project.joinpath("other.hdlforge.json").write_text("{}")
+        result = self.run_selection(self.project, ["--project", str(selected)])
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("repository top must contain exactly one .hdlforge.json", result.stderr)
 
     def test_nested_command_can_select_another_project(self):
         selected = self.make_selected_project()
