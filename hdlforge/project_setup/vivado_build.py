@@ -399,7 +399,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.auto_impl:
                 raise ValueError("Cleanup cannot be combined with --auto_impl")
             data = json.loads(project.read_text())
-            selectors = [name for name in build_names(data) if '.' not in name]
+            selectors = discover_runs(run_tree(data))
             for selector in selectors:
                 manage_artifacts(project, selector, "--clean_ignore_artifacts", args.synth_timestamp, dry_run=args.dry_run)
             return 0

@@ -81,6 +81,25 @@ class NativeBuildTest(unittest.TestCase):
         self.assertEqual(result, 0, (Path(config['output']) / 'build.log').read_text())
         return config
 
+    def test_global_cleanup_discovers_nested_runs(self) -> None:
+        # Nested JSON names must select attempts for cleanup just like flat names.
+        self.data['vivado']['non_project']['runs'] = {'cme': {'cancel_fire': {'synth_one': self.synth}}}
+        self.project.write_text(json.dumps(self.data))
+        attempt = self.root / 'results/synth_one/_completed'
+        attempt.mkdir()
+        write_run(attempt, {**new_identity(), 'selector': 'cme.cancel_fire.synth_one', 'stage': 'synth', 'status': 'complete'})
+        (attempt / 'result.dcp').write_text('checkpoint')
+        arguments = ['--project', str(self.project), '--clean_ignore_artifacts']
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            self.assertEqual(main([*arguments, '--dry-run']), 0)
+        self.assertIn(f'Would delete: {attempt}', output.getvalue())
+        self.assertTrue(attempt.is_dir())
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(main(arguments), 0)
+        self.assertFalse(attempt.exists())
+        self.assertTrue((attempt.parent / 'run.tcl').is_file())
+
     def test_nested_run_folder_lifecycle_leaves_default_run_untouched(self) -> None:
         # Step 1: Keep the default run and add an independently placed run.
         original = self.build_synthesis()

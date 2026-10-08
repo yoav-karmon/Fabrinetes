@@ -41,7 +41,7 @@ class RecursiveCleanupTest(unittest.TestCase):
         write_run(self.run, {**new_identity(), 'selector': 'synth'})
         self.project = self.root / 'sample.hdlforge.json'
         self.project.write_text(json.dumps({'vivado': {'non_project': {
-            'output_root': '.', 'runs': {'synth': {'script': 'synth/run.tcl'}}}}}))
+            'output_root': '.', 'runs': {'synth': {'is_hdlforge_run': 'true', 'script': 'synth/run.tcl'}}}}}))
 
     def test_all_descendants_ignored_allows_cleanup(self) -> None:
         allowed, _ = cleanable(self.run)
