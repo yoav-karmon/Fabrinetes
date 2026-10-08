@@ -16,9 +16,16 @@ def enrich(response):
         return response
     try:
         payload = dict(records=records)
-        result = subprocess.run([sys.executable, str(script)], input=json.dumps(payload),
+        # A child Python process does not inherit this script's sys.path.
+        # Let HDLForge expose its modules to the repository log analyzer.
+        setup = Path(__file__).resolve().parent
+        command = [str(setup / 'hdlforge'), '--env-python', json.dumps([str(setup)]),
+                   'eval-cmd-argv', sys.executable, str(script)]
+        result = subprocess.run(command, input=json.dumps(payload),
                                 capture_output=True, text=True, check=True, timeout=30)
         response['records'] = json.loads(result.stdout)
+    except subprocess.CalledProcessError as error:
+        response['analysis_error'] = (error.stderr or '').strip() or str(error)
     except (OSError, ValueError, subprocess.SubprocessError) as error:
         response['analysis_error'] = str(error)
     return response

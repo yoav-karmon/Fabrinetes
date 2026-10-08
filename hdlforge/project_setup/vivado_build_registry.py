@@ -15,9 +15,10 @@ from uuid import uuid4
 from table_formatter import create_matrix_table_from_data
 from vivado_build_log import enrich
 from vivado_build_artifacts import cleanable
-from vivado_build_config import project_attempts
+from vivado_build_config import project_attempts, synthesis_folder
 from vivado_build_layout import edit_run, read_run, write_run
 from vivado_build_processes import alive, find_user_vivado, group_members, local_identity, probe_process, process_info, signal_process, thread_activity, vivado_engine
+from vivado_run_tree import discover_runs, run_tree
 
 
 class BuildStopped(Exception):
@@ -44,14 +45,16 @@ def launch_elapsed(row: dict) -> str:
 
 
 def run_selection(row: dict) -> str:
-    """Identify both selected attempts using the resolved timestamps."""
-    if row.get('build_selection'):
-        return row['build_selection']
+    """Use the current JSON hierarchy with the attempts' saved identities."""
     synthesis, implementation = row['selector'], ''
-    if row.get('stage') == 'impl':
+    if row.get('stage') in {'impl', 'bitstream'}:
         synthesis, _, implementation = row['selector'].rpartition('.')
+    current = row.get('current_synthesis', synthesis)
+    if row.get('build_selection'):
+        selection = row['build_selection']
+        return current + selection[len(synthesis):] if selection.startswith(synthesis + '.') else selection
     stamp = row.get('synth_timestamp') or '-'
-    selection = f'{synthesis}.{stamp}'
+    selection = f'{current}.{stamp}'
     if row.get('stage') == 'impl':
         attempt = row.get('run_id', '-')
         selection += f'.{implementation}.{attempt}'
@@ -85,6 +88,8 @@ class BuildRegistry:
     def records(self) -> list[dict]:
         """Read attempt-local execution state; status never rewrites manifests."""
         data = json.loads(self.project.read_text())
+        settings = data.get('vivado', {}).get('non_project', {})
+        roots = {synthesis_folder(self.project, settings, name): name for name in discover_runs(run_tree(data))}
         rows = []
         for folder in project_attempts(self.project, data):
             try:
@@ -92,6 +97,10 @@ class BuildRegistry:
                 row = dict(config['execution'])
             except (FileNotFoundError, KeyError):
                 continue  # A queued or historical attempt may have no worker yet.
+            # The configured script folder owns historical attempts after JSON regrouping.
+            current = next((roots[parent] for parent in folder.parents if parent in roots), None)
+            if current is not None:
+                row['current_synthesis'] = current
             modern = config.get('format_version') == 3
             row.update(output=str(folder),
                        run_log=str(folder / ('build.log' if modern else 'logs/runme.log')),
@@ -214,7 +223,7 @@ class BuildRegistry:
         rows.sort(key=lambda row: (not row['active'], row.get('started_at', '')))
         analysis = enrich({'records': [
             # Running enables log enrichment; the registry status stays authoritative.
-            {'STATUS': 'Running', 'DIRECTORY': str(Path(row['output']) / 'logs'), 'WORKER_RECORD': {
+            {'STATUS': 'Running', 'DIRECTORY': str(Path(row.get('run_log', str(Path(row['output']) / 'build.log'))).parent), 'WORKER_RECORD': {
                 'pid': row.get('engine_pid'), 'origin': {
                     'host': row['host'].get('host'), 'boot': row['host'].get('boot_id'),
                     'pidns': str(row['host'].get('pid_namespace', '')),
@@ -246,17 +255,17 @@ class BuildRegistry:
             table,
         ))
         print('Protected = tracked files or Git-ignore cleanup exceptions (Yes/No); Missing/Unknown means protection could not be evaluated.')
+        if analysis.get('analysis_error'):
+            print(f"Log analysis unavailable: {analysis['analysis_error']}")
+        for detail in details:
+            if str(detail.get('LOG_STAGE', '')).startswith('Log unavailable:'):
+                print(f"{detail.get('LOG_PATH', '-')}: {detail['LOG_STAGE']}")
         if all_runs:
             return
         print("W/CW/E = warnings / critical warnings / errors. Timing = latest log estimates, not timing closure.")
         print("Elapsed = wall time since launch. RAM used = Vivado resident memory (RSS).")
         print("Vivado state samples all engine threads; Waiting means none was runnable at that instant.")
         print("Log idle = seconds without a log update, not CPU inactivity.")
-        if analysis.get('analysis_error'):
-            print(f"Log analysis unavailable: {analysis['analysis_error']}")
-        for detail in details:
-            if str(detail.get('LOG_STAGE', '')).startswith('Log unavailable:'):
-                print(f"{detail.get('LOG_PATH', '-')}: {detail['LOG_STAGE']}")
         print(f"Follow logs (paths relative to {Path.cwd()}):")
         for row in rows:
             log = Path(row.get('run_log', str(Path(row['output']) / 'build.log')))

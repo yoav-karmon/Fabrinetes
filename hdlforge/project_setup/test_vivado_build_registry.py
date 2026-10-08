@@ -11,7 +11,7 @@ import unittest
 from unittest.mock import patch
 
 from vivado_build_layout import edit_run, new_identity, read_run, write_run
-from vivado_build_registry import BuildRegistry, BuildStopped, artifact_protection
+from vivado_build_registry import BuildRegistry, BuildStopped, artifact_protection, run_selection
 
 
 class RegistryCleanupTest(unittest.TestCase):
@@ -66,6 +66,30 @@ class RegistryCleanupTest(unittest.TestCase):
             registry.status()
             self.assertEqual(table.call_args.args[1][0][4], 'Unavailable')
 
+    def test_log_analysis_uses_recorded_log_directory_for_completed_runs(self):
+        registry = BuildRegistry(Path('/tmp/registry-display-test'))
+        for log in ('/tmp/run/build.log', '/tmp/run/logs/runme.log'):
+            row = dict(selector='synth.impl', stage='impl', output='/tmp/run', host={},
+                       active=False, pid_state='dead', status='complete', run_log=log, engine=None)
+            with self.subTest(log=log), \
+                 patch.object(registry, 'refresh', return_value=[row]), \
+                 patch('vivado_build_registry.enrich', return_value={}) as analyze, \
+                 patch('vivado_build_registry.create_matrix_table_from_data', return_value='table'), \
+                 patch('builtins.print'):
+                registry.status(all_runs=True)
+                self.assertEqual(analyze.call_args.args[0]['records'][0]['DIRECTORY'], str(Path(log).parent))
+
+    def test_status_all_reports_log_analyzer_failure(self):
+        registry = BuildRegistry(Path('/tmp/registry-display-test'))
+        row = dict(selector='synth', stage='synth', output='/tmp/run', host={},
+                   active=False, pid_state='dead', status='complete', engine=None)
+        with patch.object(registry, 'refresh', return_value=[row]), \
+             patch('vivado_build_registry.enrich', return_value={'analysis_error': 'Missing analyzer dependency'}), \
+             patch('vivado_build_registry.create_matrix_table_from_data', return_value='table'), \
+             patch('builtins.print') as output:
+            registry.status(all_runs=True)
+            output.assert_any_call('Log analysis unavailable: Missing analyzer dependency')
+
 
 class AttemptManifestTest(unittest.TestCase):
     def setUp(self) -> None:
@@ -106,6 +130,26 @@ class AttemptManifestTest(unittest.TestCase):
         self.assertFalse(list(self.root.rglob('_run_registry*')))
         for run in (first, second, child):
             self.assertTrue((Path(run['output']) / '.manifest.lock').is_file())
+
+    def test_status_uses_current_json_hierarchy_without_rewriting_history(self) -> None:
+        parent = self.launch('first')
+        child = self.launch('first.impl', parent)
+        bitstream = self.launch('first.impl', child)
+        with edit_run(Path(bitstream['output'])) as config:
+            config['stage'] = config['execution']['stage'] = 'bitstream'
+            config['execution']['build_selection'] = f"first.{parent['run_id']}.impl.bitstream.{child['run_id']}"
+        before = {path: path.read_bytes() for path in self.root.rglob('manifest.json')}
+        data = json.loads(self.project.read_text())
+        runs = data['vivado']['non_project']['runs']
+        runs['cme'] = {'cancel_fire': {'first': runs.pop('first')}}
+        self.project.write_text(json.dumps(data))
+
+        rows = {row['launch_id']: row for row in BuildRegistry(self.project).records()}
+        stem = f"cme.cancel_fire.first.{parent['run_id']}"
+        self.assertEqual(run_selection(rows[parent['launch_id']]), stem)
+        self.assertEqual(run_selection(rows[child['launch_id']]), f"{stem}.impl.{child['run_id']}")
+        self.assertEqual(run_selection(rows[bitstream['launch_id']]), f"{stem}.impl.bitstream.{child['run_id']}")
+        self.assertEqual(before, {path: path.read_bytes() for path in before})
 
     def test_concurrent_edits_preserve_other_fields_and_cancellation(self) -> None:
         run = self.launch('first')
