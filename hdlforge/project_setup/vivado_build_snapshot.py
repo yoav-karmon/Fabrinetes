@@ -11,6 +11,7 @@ import subprocess
 from vivado_build_hash import hash_source, verify_source_hashes
 from vivado_build_layout import run_lock_path, CONFIG, LEGACY_CONFIG, IDENTITY, read_run
 from vivado_build_paths import require_complete
+from vivado_run_tree import run_definition, run_tree
 
 
 def snapshot_inputs(config: dict) -> dict:
@@ -112,7 +113,7 @@ def implementation_definition(parent: Path, config: dict, synthesis: str, implem
     if not project.is_file() or not project.is_relative_to(parent / 'snapshot'):
         raise ValueError(f'Synthesis snapshot has no saved HDLForge project JSON: {parent}')
     data = json.loads(project.read_text())
-    definition = data['vivado']['non_project']['runs'][synthesis].get('impl_runs', {}).get(implementation)
+    definition = run_definition(run_tree(data), synthesis).get('impl_runs', {}).get(implementation)
     if definition is None:
         raise ValueError(f'Implementation is not declared in {project.name}: {implementation}')
     # The manifest is a path index; the saved project JSON owns the file list.

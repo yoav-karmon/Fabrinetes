@@ -64,7 +64,7 @@ class NativeBuildTest(unittest.TestCase):
                 "read_xdc [::hdlforge::source_path static.xdc]\n"
                 "set ::ACTIVE_STEP init_design\n" + tail)
         self.impl = dict(script="results/synth_one/impl_one.tcl", sources=["core.xcix", "static.xdc"])
-        self.synth = dict(script="results/synth_one/run.tcl",
+        self.synth = dict(is_hdlforge_run="true", script="results/synth_one/run.tcl",
                           sources=["source $literal [brackets].sv", "core.xcix", "static.xdc"],
                           impl_runs={"impl_one": self.impl, "impl_two": {**self.impl, "script": "results/synth_one/impl_two.tcl"}})
         self.data = {"vivado": {"non_project": {"output_root": "results", "vivado_version": "2025.1",
@@ -509,7 +509,7 @@ class NativeBuildTest(unittest.TestCase):
             p for p in self.data["settings"]["env"]["test-host"]["test-user"]["pythonpath"] if p]
         self.project.write_text(json.dumps(self.data))
         env.update(HOST_MACHINE="test-host", HDLFORGE_HOST_USER="test-user")
-        result = subprocess.run([str(wrapper), "--project", str(self.project), "--env-path", json.dumps([str(self.root)]), "vivado.build.synth_one.run", "--auto_impl", "impl_one"], cwd=self.root, env=env,
+        result = subprocess.run([str(wrapper), "--project", str(self.project), "--env-path", json.dumps([str(self.root)]), "vivado.build.runs.synth_one.run", "--auto_impl", "impl_one"], cwd=self.root, env=env,
                                 capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(result.stdout.count("HDLFORGE_BUILD_COMPLETE"), 2)
@@ -621,7 +621,7 @@ class NativeBuildTest(unittest.TestCase):
             'set ip_path [dict get [lindex [dict get $::hdlforge_config sources] 0] path]\n'
             'set stream [open $ip_path w]\nputs $stream modified\nclose $stream\n')
         self.data['vivado']['non_project']['runs']['ip_one'] = dict(
-            kind='ip', script='results/ip_one/run.tcl', sources=['core.xcix'])
+            is_hdlforge_run='true', kind='ip', script='results/ip_one/run.tcl', sources=['core.xcix'])
         self.project.write_text(json.dumps(self.data))
         config = prepare_run_config(self.project, 'ip_one.run')
         with contextlib.redirect_stdout(io.StringIO()):

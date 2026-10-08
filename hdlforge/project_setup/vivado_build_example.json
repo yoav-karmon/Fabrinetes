@@ -20,14 +20,16 @@
             "sources/XDC/implementation.xdc"
           ]
         }
-      }
+      },
+      "is_hdlforge_run": "true"
     },
     "ip_example": {
       "script": "compilation/ip_example/run.tcl",
       "sources": [
         "sources/ip/example.xcix"
       ],
-      "kind": "ip"
+      "kind": "ip",
+      "is_hdlforge_run": "true"
     }
   }
 }

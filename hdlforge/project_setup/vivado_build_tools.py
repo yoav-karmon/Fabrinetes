@@ -13,6 +13,7 @@ import zipfile
 
 from vivado_build import file_path, normalize_run
 from vivado_build_config import BUILD_HELP, RUN_NAME, synthesis_folder
+from vivado_run_tree import discover_runs
 
 
 def lint_layout(project: Path, selector: str, run: dict, expected: Path) -> list[str]:
@@ -83,14 +84,14 @@ def lint_project(project: Path) -> list[str]:
     data = json.loads(project.read_text())
     config = data.get("vivado", {}).get("non_project", {})
     errors = []
-    runs = config.get("runs", {})
-    if not isinstance(runs, dict) or not runs:
+    try:
+        runs = discover_runs(config.get("runs", {}))
+    except ValueError as error:
+        return [str(error)]
+    if not runs:
         return errors + ["vivado.non_project.runs must contain a synthesis run"]
     folders = {}
     for name, synthesis in runs.items():
-        if not RUN_NAME.fullmatch(name):
-            errors.append(f"Invalid synthesis run name: {name}")
-            continue
         try:
             folder = synthesis_folder(project, config, name)
             if folder in folders:
@@ -185,7 +186,7 @@ def initialize_run_defaults(project: Path, selector: str) -> None:
     """Fill missing optional run settings without overwriting authored values."""
     original = project.read_text()
     data = json.loads(original)
-    runs = data["vivado"]["non_project"]["runs"]
+    runs = discover_runs(data["vivado"]["non_project"]["runs"], include_unmarked=True)
     selected = {}
     for name, run in runs.items():
         selected[name] = run
@@ -202,6 +203,8 @@ def initialize_run_defaults(project: Path, selector: str) -> None:
         if not run.get("script"):
             raise ValueError(f"{name}: supply required script; initialization will not invent design inputs")
         run.setdefault("sources", [])
+        if name in runs:
+            run.setdefault("is_hdlforge_run", "true")
     temporary = None
     try:
         with tempfile.NamedTemporaryFile(mode="w", dir=project.parent, delete=False) as handle:

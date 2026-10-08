@@ -4,6 +4,8 @@ import hashlib
 import json
 from pathlib import Path
 
+from vivado_run_tree import discover_runs, run_definition, run_tree
+
 
 def hash_source(path: Path) -> str:
     """SHA-256 of a file or a sorted directory tree, independent of timestamps."""
@@ -31,7 +33,7 @@ def record_source_hashes(project: Path, config: dict) -> None:
     selector = config["selector"]
     config['source_hashes'] = {
         "version": 1, "project": str(project.resolve()), "run": selector,
-        "definition": data["vivado"]["non_project"]["runs"][selector],
+        "definition": run_definition(run_tree(data), selector),
         "sources": {entry['original']: entry['sha256'] for entry in config['inputs']},
     }
 
@@ -47,9 +49,25 @@ def verify_source_hashes(producer: Path) -> None:
     if record.get("version") != 1 or not record.get("sources"):
         raise ValueError(f"Invalid source hashes: {manifest}; regenerate the producer IP")
     project = Path(record["project"])
-    current = json.loads(project.read_text())["vivado"]["non_project"]["runs"].get(record["run"])
+    tree = run_tree(json.loads(project.read_text()))
+    try:
+        current = dict(run_definition(tree, record["run"]))
+    except ValueError:
+        # Grouping is CLI organization, not an IP input change. Locate a moved
+        # definition by its unchanged script, never by a possibly shared leaf.
+        matches = [run for run in discover_runs(tree).values()
+                   if run.get('script') == record['definition'].get('script')]
+        if len(matches) != 1:
+            raise ValueError(f"Cannot identify moved producer run: {record['run']}; expected one matching script") from None
+        current = dict(matches[0])
     previous = dict(record["definition"])
     previous.pop("publish_latest", None)  # Ignore the retired copying switch in historical metadata.
+    # The discovery marker does not change producer inputs or the generated IP.
+    current.pop("is_hdlforge_run", None)
+    previous.pop("is_hdlforge_run", None)
+    # Release placement is metadata, independent of the produced design.
+    current.pop("release_root", None)
+    previous.pop("release_root", None)
     if current != previous:
         raise ValueError(f"Producer JSON run changed: {project}: {record['run']}; regenerate the IP")
     for source, expected in record["sources"].items():

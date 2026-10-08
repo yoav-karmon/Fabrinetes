@@ -74,8 +74,8 @@ class AttemptManifestTest(unittest.TestCase):
         self.root = Path(temporary.name)
         self.project = self.root / 'test.hdlforge.json'
         self.project.write_text(json.dumps({'vivado': {'non_project': {'runs': {
-            'first': {'script': 'one/nested/run.tcl'},
-            'second': {'script': 'elsewhere/run.tcl'},
+            'first': {'is_hdlforge_run': 'true', 'script': 'one/nested/run.tcl'},
+            'second': {'is_hdlforge_run': 'true', 'script': 'elsewhere/run.tcl'},
         }}}}))
         self.registry = BuildRegistry(self.project)
 

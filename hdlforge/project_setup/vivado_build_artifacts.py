@@ -12,17 +12,19 @@ import subprocess
 from vivado_build_config import build_names, synthesis_folder
 from vivado_build_layout import run_lock_path, CONFIG, IDENTITY, LEGACY_CONFIG, descendant_runs, find_run, read_run, run_directories
 from vivado_build_selector import parse_selector, resolve_selector
+from vivado_run_tree import discover_runs, run_tree, selected_run
 
 def selected_folders(project: Path, selector: str, timestamp: str | None) -> list[Path]:
     data = json.loads(project.read_text())
     if selector not in build_names(data):
         raise ValueError(f'Unknown build: {selector}')
     settings = data['vivado']['non_project']
-    synthesis, _, implementation = selector.partition('.')
+    synthesis = selected_run(selector, discover_runs(settings['runs']))
+    implementation = selector[len(synthesis):].lstrip('.')
     root = synthesis_folder(project, settings, synthesis)
     parents = [find_run(root, timestamp)] if timestamp else run_directories(root)
     if implementation:
-        return [child for parent in parents for child in run_directories(parent / 'impl_runs' / implementation, selector)]
+        return [child for parent in parents for child in run_directories(parent / 'impl_runs' / implementation)]
     return parents
 
 
@@ -124,7 +126,7 @@ def manage_artifacts(project: Path, selector: str, action: str, timestamp: str |
         raise ValueError('Use git add -f <run-directory> to save a run; HDLForge does not write .gitignore files')
     if action != '--clean_ignore_artifacts':
         raise ValueError(f'Unknown artifact action: {action}')
-    parsed = parse_selector(resolve_selector(project, selector))
+    parsed = parse_selector(resolve_selector(project, selector), discover_runs(run_tree(json.loads(project.read_text()))))
     attempt = None
     if parsed:
         timestamp = parsed['synth']
@@ -136,7 +138,8 @@ def manage_artifacts(project: Path, selector: str, action: str, timestamp: str |
     if attempt:
         folders = [folder for folder in folders if read_run(folder)['run_id'] == attempt]
     settings = json.loads(project.read_text())['vivado']['non_project']
-    synthesis, _, implementation = selector.partition('.')
+    synthesis = selected_run(selector, discover_runs(settings['runs']))
+    implementation = selector[len(synthesis):].lstrip('.')
     root = synthesis_folder(project, settings, synthesis)
     lock_roots = ([folder.parent for folder in folders] if timestamp else
                   [parent / 'impl_runs' / implementation for parent in run_directories(root)]

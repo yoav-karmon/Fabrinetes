@@ -26,6 +26,7 @@ from vivado_build_hash import record_source_hashes, hash_source
 from vivado_build_layout import run_lock_path, CONFIG, find_run, read_run, write_run, new_identity, new_label, verify_checkpoint, metadata_path
 from vivado_build_bitstream import select_bitstream, lock_implementation, snapshot_bitstream
 from vivado_build_processes import group_members, local_identity, process_info, signal_process
+from vivado_run_tree import discover_runs, run_definition, run_tree
 
 
 def file_path(root: Path, value: str, selections: dict | None = None) -> str:
@@ -47,9 +48,14 @@ def normalize_run(project: Path, run: dict, stage: str, selections: dict | None 
     ###########################################################################
     config = copy.deepcopy(run)
     selections = selections if selections is not None else {}
-    unknown = set(config) - {"script", "sources", "impl_runs", "kind"}
+    unknown = set(config) - {"script", "sources", "impl_runs", "kind", "is_hdlforge_run", "release_root"}
     if unknown:
         raise ValueError(f"Unknown run settings: {sorted(unknown)}; design settings belong in run.tcl")
+    config.pop("is_hdlforge_run", None)
+    if "release_root" in config:
+        value = config["release_root"]
+        if not isinstance(value, str) or not value.strip() or Path(value).is_absolute():
+            raise ValueError("release_root must be a nonempty project-relative path")
     config.pop("impl_runs", None)
     if config.get("kind", "synth") not in {"synth", "ip"}:
         raise ValueError("kind must be synth or ip")
@@ -75,7 +81,7 @@ def prepare_run_config(project: Path, selector: str, timestamp: str | None = Non
     """Resolve the requested build inputs and calculate attempt paths without creating files."""
     project = project.resolve()
     selector = resolve_selector(project, selector)
-    parsed = parse_selector(selector)
+    parsed = parse_selector(selector, discover_runs(run_tree(json.loads(project.read_text()))))
     if not parsed or parsed['action'] != 'run':
         raise ValueError('Select a fresh .run action; attempts cannot be rerun')
     if parsed and timestamp is not None:
@@ -88,22 +94,22 @@ def prepare_run_config(project: Path, selector: str, timestamp: str | None = Non
     if parsed:
         synthesis, implementation = parsed['run'], parsed['impl']
         timestamp = parsed['synth']
-    if synthesis not in settings['runs']:
+    if synthesis not in discover_runs(settings['runs']):
         raise ValueError(f'Unknown synthesis/IP run: {synthesis}')
-    definition = settings['runs'][synthesis]
+    definition = run_definition(settings['runs'], synthesis)
     if implementation:
-        parent = find_run(synthesis_folder(project, settings, synthesis), timestamp or 'latest', synthesis)
+        parent = find_run(synthesis_folder(project, settings, synthesis), timestamp or 'latest')
         parent_config = read_run(parent)
         checkpoint = parent / 'artifacts' / f"{parent_config.get('top', 'top')}.dcp"
         if not checkpoint.is_file():
             raise ValueError(f'Missing synthesis checkpoint: {checkpoint}')
-        saved_project, selected = implementation_definition(parent, parent_config, synthesis, implementation)
+        saved_project, selected = implementation_definition(parent, parent_config, parent_config['selector'], implementation)
         config = normalize_run(saved_project, selected, 'impl')
         prepared_snapshot = parent / 'impl_runs' / implementation / 'snapshot'
         config['snapshot_root'] = str(prepared_snapshot)
         config['project_root'] = str(prepared_snapshot / saved_project.parent.relative_to(parent / 'snapshot'))
         saved_data = json.loads(saved_project.read_text())
-        declared = saved_data['vivado']['non_project']['runs'][synthesis]['impl_runs'][implementation]
+        declared = run_definition(run_tree(saved_data), parent_config['selector'])['impl_runs'][implementation]
         config['script_name'] = declared['script']
         for entry, name in zip(config['sources'], declared.get('sources', [])):
             entry['name'] = name
@@ -401,13 +407,13 @@ def main(argv: list[str] | None = None) -> int:
             raise ValueError("--build requires a run name or --stopall/--find_all_user_runs; use --build_status for status")
         for flag in ARTIFACT_FLAGS:
             if getattr(args, flag.removeprefix("--")):
-                selected = parse_selector(args.build)
+                selected = parse_selector(args.build, discover_runs(run_tree(json.loads(project.read_text()))))
                 if selected and selected.get('bitstream'):
                     raise ValueError('Artifact actions require the parent implementation selector, without .bitstream')
                 if args.auto_impl:
                     raise ValueError("Artifact actions cannot be combined with --auto_impl")
                 return manage_artifacts(project, args.build, flag, args.synth_timestamp, dry_run=args.dry_run)
-        parsed_build = parse_selector(args.build)
+        parsed_build = parse_selector(args.build, discover_runs(run_tree(json.loads(project.read_text()))))
         base_build = parsed_build["run"] if parsed_build else args.build
         if parsed_build and parsed_build['action'] in {'status', 'stop'}:
             if args.auto_impl:
@@ -431,7 +437,7 @@ def main(argv: list[str] | None = None) -> int:
             if (parsed_build and parsed_build["impl"]) or (not parsed_build and "." in args.build):
                 raise ValueError("--auto_impl applies to synthesis builds only")
             data = json.loads(project.read_text())
-            if data["vivado"]["non_project"]["runs"].get(base_build, {}).get("kind", "synth") != "synth":
+            if run_definition(run_tree(data), base_build).get("kind", "synth") != "synth":
                 raise ValueError("--auto_impl applies to synthesis builds only")
             names = build_names(data)
             for implementation in implementations:

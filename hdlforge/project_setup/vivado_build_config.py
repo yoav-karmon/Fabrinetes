@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 
 from vivado_build_layout import descendant_runs, read_run, run_directories
+from vivado_run_tree import discover_runs, run_definition, run_tree, selected_run
 
 
 RUN_NAME = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_-]*\Z")
@@ -14,7 +15,8 @@ BUILD_HELP = """
 Non-project builds: vivado.non_project in the selected project JSON.
   Attempts and locks live beside each configured script; no output_root required.
   vivado_version: optional exact installed Vivado version.
-  runs.NAME: script, sources, optional kind: ip, impl_runs.
+  runs.<groups>.NAME: is_hdlforge_run: "true", script, sources, optional kind: ip, impl_runs.
+  Groups are arbitrary JSON objects; only marked synthesis/IP definitions are runs.
   impl_runs.NAME: script and sources.
   sources is one list of snapshot file paths: RTL, XDC, IP, Tcl and helpers.
   Each run.tcl owns part/top, defines, threads, properties and Vivado commands.
@@ -42,13 +44,13 @@ Run layout (RUN_FOLDER is the synthesis/IP script's parent):
   Save selected attempts in Git together with the producing synthesis checkpoint.
 
 Commands:
-  hdlforge vivado.build.RUN.run
-  hdlforge vivado.build.RUN.ATTEMPT.status
-  hdlforge vivado.build.RUN.ATTEMPT.stop
-  hdlforge vivado.build.RUN.ATTEMPT.impl.IMPL.run
-  hdlforge vivado.build.RUN.ATTEMPT.impl.IMPL.IMPL_ATTEMPT.status
-  hdlforge vivado.build.RUN.ATTEMPT.impl.IMPL.IMPL_ATTEMPT.stop
-  hdlforge vivado.build.RUN.ATTEMPT.impl.IMPL.bitstream.IMPL_ATTEMPT
+  hdlforge vivado.build.runs.RUN.run
+  hdlforge vivado.build.runs.RUN.ATTEMPT.status
+  hdlforge vivado.build.runs.RUN.ATTEMPT.stop
+  hdlforge vivado.build.runs.RUN.ATTEMPT.impl.IMPL.run
+  hdlforge vivado.build.runs.RUN.ATTEMPT.impl.IMPL.IMPL_ATTEMPT.status
+  hdlforge vivado.build.runs.RUN.ATTEMPT.impl.IMPL.IMPL_ATTEMPT.stop
+  hdlforge vivado.build.runs.RUN.ATTEMPT.impl.IMPL.bitstream.IMPL_ATTEMPT
   --auto_impl NAME can be repeated and pins the exact synthesis attempt.
   hdlforge vivado.build.status
   hdlforge vivado.build.stop_all
@@ -67,27 +69,27 @@ Cleanup:
 
 def synthesis_folder(project: Path, settings: dict, name: str) -> Path:
     """Place attempts beside the maintained synthesis/IP Tcl script."""
-    return (project.parent / settings['runs'][name]['script']).resolve().parent
+    return (project.parent / run_definition(settings['runs'], name)['script']).resolve().parent
 
 
 def project_attempts(project: Path, data: dict) -> list[Path]:
     """Visit configured run folders and their children, never snapshot inputs."""
     settings = data.get('vivado', {}).get('non_project', {})
     attempts = []
-    for name in sorted(settings.get('runs', {})):
-        for parent in run_directories(synthesis_folder(project, settings, name), name):
+    for name in sorted(discover_runs(settings.get('runs', {}))):
+        for parent in run_directories(synthesis_folder(project, settings, name)):
             attempts.extend(descendant_runs(parent))
     return attempts
 
 
 def build_names(data: dict) -> list[str]:
     """Return synthesis names and synthesis.implementation selectors."""
-    runs = data.get("vivado", {}).get("non_project", {}).get("runs", {})
+    runs = discover_runs(run_tree(data))
     names = []
     if not isinstance(runs, dict):
         return names
     for name, run in runs.items():
-        if not RUN_NAME.fullmatch(name) or not isinstance(run, dict):
+        if not isinstance(run, dict):
             continue
         names.append(name)
         implementations = run.get("impl_runs", {})
@@ -103,7 +105,7 @@ def synthesis_timestamps(project_file: Path, data: dict, selector: str,
     if selector not in build_names(data):
         return []
     config = data["vivado"]["non_project"]
-    root = synthesis_folder(project_file, config, selector.split(".")[0])
+    root = synthesis_folder(project_file, config, selected_run(selector, discover_runs(run_tree(data))))
     result = []
     for folder in run_directories(root):
         config = read_run(folder)

@@ -9,16 +9,17 @@ import shutil
 from vivado_build_config import synthesis_folder
 from vivado_build_hash import hash_source
 from vivado_build_layout import run_lock_path, find_run, read_run, new_identity, new_label
+from vivado_run_tree import run_definition, run_tree
 
 
 def select_bitstream(project: Path, parsed: dict) -> dict:
     """Keep the source implementation intact and create a separate child launch."""
     settings = json.loads(project.read_text())['vivado']['non_project']
-    definition = settings['runs'][parsed['run']]
+    definition = run_definition(settings['runs'], parsed['run'])
     if parsed['impl'] not in definition.get('impl_runs', {}):
         raise ValueError(f"Unknown implementation: {parsed['impl']}")
     parent = find_run(synthesis_folder(project, settings, parsed['run']), parsed['synth'])
-    source = find_run(parent / 'impl_runs' / parsed['impl'], parsed['attempt'], f"{parsed['run']}.{parsed['impl']}")
+    source = find_run(parent / 'impl_runs' / parsed['impl'], parsed['attempt'])
     config = read_run(source)
     if config['stage'] != 'impl':
         raise ValueError(f'Expected an implementation: {source}')

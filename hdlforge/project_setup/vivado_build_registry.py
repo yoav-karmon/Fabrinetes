@@ -47,7 +47,9 @@ def run_selection(row: dict) -> str:
     """Identify both selected attempts using the resolved timestamps."""
     if row.get('build_selection'):
         return row['build_selection']
-    synthesis, _, implementation = row['selector'].partition('.')
+    synthesis, implementation = row['selector'], ''
+    if row.get('stage') == 'impl':
+        synthesis, _, implementation = row['selector'].rpartition('.')
     stamp = row.get('synth_timestamp') or '-'
     selection = f'{synthesis}.{stamp}'
     if row.get('stage') == 'impl':
