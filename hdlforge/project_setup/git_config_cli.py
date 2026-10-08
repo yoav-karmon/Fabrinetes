@@ -7,6 +7,8 @@ import shlex
 import socket
 import subprocess
 
+from environment_defaults import resolve
+
 
 def git(root, *args):
     return subprocess.run(['git', '-C', str(root), *args], text=True,
@@ -19,7 +21,7 @@ def update(root: Path, action: str, host: str, user: str) -> int:
     if len(projects) != 1:
         raise ValueError('Repository root must contain exactly one *.hdlforge.json')
     data = json.loads(projects[0].read_text())
-    value = data.get('settings', {}).get('env', {}).get(host, {}).get(user, {}).get('ssh_config_file')
+    value = resolve(data, host, user)[0].get('ssh_config_file')
     if not isinstance(value, str) or not value:
         raise ValueError(f'Missing settings.env.{host}.{user}.ssh_config_file')
     config = (root / value).resolve()

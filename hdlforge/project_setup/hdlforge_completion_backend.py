@@ -13,6 +13,7 @@ from pathlib import Path
 from table_formatter import create_matrix_table_from_data
 from vivado_build_selector import first_path_component, parse_selector, selector_choices
 from vivado_build_config import ARTIFACT_FLAGS, build_names, synthesis_timestamps
+from vivado_run_tree import discover_runs, run_tree
 
 import hdlforge_command_tree as command_tree
 
@@ -271,15 +272,15 @@ def complete_builds(cur: str, state: ParsedState) -> CompletionResult:
 
 def complete_auto_impl(cur: str, state: ParsedState) -> CompletionResult:
     synthesis = selected_build(state)
-    parsed = parse_selector(synthesis)
+    runs = discover_runs(run_tree(project_json_data(state) or {}))
+    parsed = parse_selector(synthesis, runs)
     if parsed and not parsed["impl"]:
         synthesis = parsed["run"]
-    if not synthesis or "." in synthesis:
+    if synthesis not in runs:
         return CompletionResult([])
     used = get_explicit_flag_values(state.tokens, "--auto_impl")
-    prefix = synthesis + "."
-    children = [name[len(prefix):] for name in build_names(project_json_data(state) or {})
-                if name.startswith(prefix) and name[len(prefix):] not in used]
+    children = [name for name in runs[synthesis].get("impl_runs", {})
+                if not name.startswith("#") and name not in used]
     return complete_words(cur, children)
 
 
@@ -336,12 +337,44 @@ def command_candidates(node: dict, state: dict, prefix: str = "") -> dict:
     return candidates
 
 
+def available_flags(state: dict) -> dict:
+    """Use the parser's current state for both flag insertion and display."""
+    if state['pending'] or state['owns_tail']:
+        return {}
+    flags = [flag for flag, spec in state['specs'].items()
+             if not spec.get('hidden') and (flag not in state['seen'] or spec.get('repeatable'))
+             and command_tree.condition_matches(spec.get('when', {}), state['seen'], state['values'])]
+    descriptions = {}
+    for group in (state['tree']['master_flags'], state['node'].get('flags', {})):
+        descriptions.update({flag: group.get('#'+flag, '') for flag in flags if flag in group})
+    return descriptions
+
+
+def state_display_flags(tokens: list[str], cur: str, cwd: Path) -> dict:
+    """Show flags beside an exact command/group without inserting them into it."""
+    state = command_tree.parse(tokens, cwd, partial=True)
+    if state['pending'] or cur.startswith('-'):
+        return {}
+    if cur:
+        if state['command']:
+            return {}
+        try:
+            state = command_tree.parse([*tokens, cur.rstrip('.')], cwd, partial=True)
+        except ValueError:
+            # An unfinished command name has no selected state yet.
+            return {}
+    return available_flags(state)
+
+
 def complete_command(tokens: list[str], cur: str, cwd: Path) -> tuple[CompletionResult, dict]:
     state = command_tree.parse(tokens, cwd, partial=True)
     descriptions = {}
     specs = state['specs']
     pending = state['pending']
     prefix = ''
+    if state['owns_tail']:
+        # Tail arguments belong to the script, even --project=... and --help.
+        return CompletionResult([]), descriptions
     if cur.startswith('--') and '=' in cur:
         flag, cur = cur.split('=', 1)
         pending = (flag, specs.get(flag, {}))
@@ -366,16 +399,8 @@ def complete_command(tokens: list[str], cur: str, cwd: Path) -> tuple[Completion
                 result.completions[index] = item.rstrip('.')
         descriptions = {item: candidates.get(item.rstrip('.'), 'Command group') for item in result.completions}
         return result, descriptions
-    if state['command'] in command_tree.TAIL_COMMANDS:
-        # The complete tail belongs to the selected command, including tokens
-        # that look like HDLForge master flags.
-        return CompletionResult([]), descriptions
-    flags = [flag for flag, spec in specs.items()
-             if (flag not in state['seen'] or spec.get('repeatable'))
-             and command_tree.condition_matches(spec.get('when', {}), state['seen'], state['values'])]
-    for group in (state['tree']['master_flags'], state['node'].get('flags', {})):
-        descriptions.update({flag: group.get('#'+flag, '') for flag in flags if flag in group})
-    return complete_words(cur, flags), descriptions
+    descriptions = available_flags(state)
+    return complete_words(cur, list(descriptions)), descriptions
 
 
 def completion_description(data: dict, candidate: str) -> str:
@@ -459,7 +484,10 @@ def main() -> int:
             print(f"Invalid command state: {error}", file=sys.stderr)
         return 1
 
-    print(f"__META__ filenames={1 if result.filenames else 0} nospace={1 if result.nospace else 0}")
+    display_flags = state_display_flags(tokens_before_current, cur, cwd) if args.display_table and not result.filenames else {}
+    extra_flags = [flag for flag in display_flags if flag not in result.completions]
+    native.update(display_flags)
+    print(f"__META__ filenames={1 if result.filenames else 0} nospace={1 if result.nospace else 0} display={int(bool(extra_flags))}")
     for item in result.completions:
         print(item)
     if (args.describe or args.display_table) and not result.filenames:
@@ -474,8 +502,8 @@ def main() -> int:
                 description = completion_description(data or {}, item)
                 if description:
                     print(f"__DESC__\t{item}\t{description}")
-        if args.display_table and result.completions:
-            for line in completion_table(result.completions, data or {}, args.columns):
+        if args.display_table and (result.completions or extra_flags):
+            for line in completion_table([*result.completions, *extra_flags], data or {}, args.columns):
                 print(f"__TABLE__\t{line}")
     return 0
 

@@ -79,12 +79,12 @@ hdlforge_select_project() {
                 HDLFORGE_PROJECT_ARGS+=(--tool "$TOOL_NAME")
                 shift
                 ;;
-            --cmd|--cmd-argv)
+            --cmd|--cmd-argv|--eval_json)
                 # Evaluation commands own the complete remaining argv.
                 HDLFORGE_PROJECT_ARGS+=("$@")
                 break
                 ;;
-            --tool|--eval_json|--env-python|--env-path|--env-var|--flags|--file|--lint-file|--vcdfilename)
+            --tool|--env-python|--env-path|--env-var|--flags|--file|--lint-file|--vcdfilename)
                 # Opaque argument values must not be interpreted as --project.
                 HDLFORGE_PROJECT_ARGS+=("$1")
                 if [ "$#" -ge 2 ]; then
@@ -177,11 +177,11 @@ hdlforge_normalize_file_arguments() {
                 fi
                 HDLFORGE_PROJECT_ARGS+=("$flag" "$value")
                 ;;
-            --cmd|--cmd-argv)
+            --cmd|--cmd-argv|--eval_json)
                 HDLFORGE_PROJECT_ARGS+=("$@")
                 break
                 ;;
-            --eval_json|--env-python|--env-path|--env-var|--flags|--tool)
+            --env-python|--env-path|--env-var|--flags|--tool)
                 HDLFORGE_PROJECT_ARGS+=("$1")
                 if [ "$#" -ge 2 ]; then
                     HDLFORGE_PROJECT_ARGS+=("$2")
@@ -208,63 +208,23 @@ hdlforge_find_repo_environment_project() {
     realpath "${candidates[0]}"
 }
 
+# One generic resolver owns defaults for startup, overlays and settings tools.
+hdlforge_resolve_environment() {
+    local resolver
+    resolver="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/environment_defaults.py"
+    python3 "$resolver" "$@"
+}
+
 hdlforge_list_host_and_users() {
-    local project_json="$1"
-    jq -r '.settings.env // {} | to_entries[] | .key as $host | .value | to_entries[] | "\($host):\(.key)"' "$project_json"
+    hdlforge_resolve_environment list "$1"
 }
 
 hdlforge_read_json_environment() {
-    local project_json="$1"
-    local host_name="$2"
-    local user_name="$3"
-
-    "$HDLFORGE_JQ" -c --arg host "$host_name" --arg user "$user_name" \
-        '.settings.env[$host][$user] // empty' < "$project_json"
+    hdlforge_resolve_environment environment "$1" "$2" "$3"
 }
 
-# Resolve repository-only imports before changing the environment. Each import
-# names a same-typed JSON leaf; its sibling *_import list is expanded first.
-# Longest matching keys also support host/user names containing dots.
 hdlforge_read_repository_environment() {
-    "$HDLFORGE_JQ" -c --arg host "$2" --arg user "$3" '
-      . as $root |
-      def locate($node; $name; $path):
-        if $node | type != "object" then error("Invalid environment import: " + $name)
-        else [$node | keys[] as $key | select($name == $key or ($name | startswith($key + "."))) | $key]
-          | sort_by(length) | last as $key |
-          if $key == null then error("Missing environment import: " + $name)
-          elif $name == $key then $path + [$key]
-          else locate($node[$key]; $name[($key|length)+1:]; $path + [$key]) end
-        end;
-      def expand($path; $field; $seen):
-        ($path | tojson) as $identity |
-        if $seen | index($identity) then error("Environment import cycle: " + $identity) else
-          ($root | getpath($path)) as $value |
-          (if $field == "variables" then "object" else "array" end) as $expected |
-          if ($value | type) != $expected then error("Invalid environment import type: " + $identity) else
-            ($root | getpath($path[0:-1] + [($path[-1] + "_import")]) // []) as $imports |
-            if ($imports | type) != "array" or any($imports[]; type != "string" or length == 0)
-            then error("Invalid environment import list: " + $identity) else
-              [ $imports[] | locate($root; .; []) as $target | expand($target; $field; $seen + [$identity]) ]
-              + [{($field): $value}]
-            end
-          end
-        end;
-      .settings.env[$host][$user] as $env |
-      if ($env | type) != "object" then error("Missing repository environment for " + $host + ":" + $user) else
-        ["path", "path_import", "pythonpath", "pythonpath_import", "variables", "variables_import"] as $required |
-        if any($required[]; . as $key | $env | has($key) | not)
-        then error("Repository environment requires path, path_import, pythonpath, pythonpath_import, variables, variables_import")
-        elif any(["path_import", "pythonpath_import", "variables_import"][];
-                 . as $key | ($env[$key] | type) != "array")
-        then error("Repository environment import fields must be arrays")
-        else [ ["path", "pythonpath"][] as $field |
-            expand(["settings", "env", $host, $user, $field]; $field; []) ]
-            | flatten | . + (expand(["settings", "env", $host, $user, "variables"]; "variables"; []) | flatten)
-            | .[-1].tools = ($env.tools // {})
-        end
-      end
-    ' < "$1"
+    hdlforge_resolve_environment layers "$1" "$2" "$3"
 }
 
 # Validate complete layers before applying any environment mutation.
@@ -278,7 +238,7 @@ hdlforge_validate_environment() {
                 and (explode | index(0) == null))) and
         ((.variables // {}) | type == "object" and all(to_entries[];
             (.key | test("^[A-Za-z_][A-Za-z0-9_]*$")) and
-            (.key | test("^(PATH|PYTHONPATH|REPO_TOP|FABRINETES|HDLFORGE.*|BASH.*|UID|EUID|PPID|SHELLOPTS)$") | not) and
+            ((.key == "HDLFORGE_DEBUG") or (.key | test("^(PATH|PYTHONPATH|REPO_TOP|FABRINETES|HDLFORGE.*|BASH.*|UID|EUID|PPID|SHELLOPTS)$") | not)) and
             (.value | type == "string" and (explode | index(0) == null)))) and
         ((.tools // {}) | type == "object" and all(.[]; type == "string"))
     ' <<< "$environment_json" >/dev/null || {
@@ -357,7 +317,7 @@ hdlforge_clear_environment() {
                 ;;
             PWD|OLDPWD|SHLVL|_|BASHOPTS|SHELLOPTS|UID|EUID|PPID)
                 ;;
-            FABRINETES|HDLFORGE|HDLFORGE_INSTALL_DIR|HDLFORGE_PROJECT_FOLDER|HDLFORGE_PROJECT_FILE|HDLFORGE_ORIG_DIR|HDLFORGE_NOPRINT|HDLFORGE_DRY_RUN)
+            FABRINETES|HDLFORGE|HDLFORGE_INSTALL_DIR|HDLFORGE_PROJECT_FOLDER|HDLFORGE_PROJECT_FILE|HDLFORGE_ORIG_DIR|HDLFORGE_DEBUG|HDLFORGE_DRY_RUN)
                 ;;
             *) unset -v "$environment_name" 2>/dev/null || export -n "$environment_name" ;;
         esac
@@ -430,7 +390,13 @@ hdlforge_prepare_environment() {
         hdlforge_clear_environment
         export REPO_TOP="$repo_root" HDLFORGE_JQ="$jq_bin"
         export FABRINETES="$installation_root" HDLFORGE="$installation_dir"
-        set_base_path "/usr/bin:/bin"
+        # An empty configured PATH means use the launching shell's PATH.
+        # Imported entries count as configured values; nested calls keep theirs.
+        if "$jq_bin" -e 'any(.[]; (.path // [] | length) > 0)' <<< "$repo_environment" >/dev/null; then
+            set_base_path "/usr/bin:/bin"
+        else
+            set_base_path "${parent_path:-/usr/bin:/bin}"
+        fi
         set_base_pythonpath ""
         add_to_path "$installation_dir"
         export HDLFORGE_INHERITED_PATH="$PATH" HDLFORGE_INHERITED_PYTHONPATH=""
@@ -648,7 +614,7 @@ hdlforge_print_all_host_and_user_environments() {
         fi
         env -u HDLFORGE_CALLED -u HDLFORGE_NESTED_CALL \
             HOST_MACHINE="$host_name" HDLFORGE_HOST_USER="$user_name" \
-            "$0" paths.show || return $?
+            "$0" settings.show || return $?
     done
 }
 
@@ -714,6 +680,7 @@ hdlforge_validate_env_key() {
         return 1
     fi
     case "$key" in
+        HDLFORGE_DEBUG) return 0 ;;
         PATH|PYTHONPATH|REPO_TOP|FABRINETES|HDLFORGE*|BASH*|UID|EUID|PPID|SHELLOPTS)
             printf 'error: reserved environment variable: %s\n' "$key" >&2
             return 1

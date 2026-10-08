@@ -37,8 +37,8 @@ available children and modifiers without launching a tool.
 hdlforge
 hdlforge vivado
 hdlforge vivado.build
-hdlforge vivado.build.synth_example.run
-hdlforge vivado.build.synth_example.latest.impl.impl_example.run
+hdlforge vivado.build.runs.synth_example.run
+hdlforge vivado.build.runs.synth_example.latest.impl.impl_example.run
 hdlforge sim-verilator.sim --SimTargetName full_sim
 hdlforge vivado.console.send --cmd 'open_checkpoint design.dcp'
 hdlforge --dry-run eval-cmd 'python3 script.py --argument value'
@@ -54,6 +54,23 @@ implementation and operation as shown by completion.
 Project shortcut lookup is explicit through `aliases.<path>` and
 limited to `LLM_orch`. Bare shortcut paths are not auto-detected. Project-file
 discovery for startup and environment setup remains automatic.
+
+A complete alias name is an argument boundary. Everything after it is appended
+to the authored command as literal arguments, preserving empty strings, spaces,
+newlines and shell-special characters. The JSON command remains shell code;
+caller arguments are shell-quoted before appending and are not evaluated as code.
+For a compound shell command, those arguments attach to its final command.
+Use a script for more complex argument routing.
+
+```bash
+hdlforge --project project.hdlforge.json aliases.release --implementation "run folder" --dry-run
+```
+
+Put HDLForge master flags before the alias name. After it, `--project`,
+`--dry-run`, `--env-var` and `--help` belong to the script. Use
+`hdlforge --help aliases.release` for HDLForge help and
+`hdlforge aliases.release --help` for the script's help. Completion stops offering
+HDLForge flags after an alias. String shortcuts need no schema changes.
 
 `eval-cmd SHELL_TEXT...` gives every remaining command part to Bash `eval`.
 Bash joins those parts with spaces and evaluates the resulting shell text. A
@@ -88,7 +105,7 @@ whitespace or shell operators that must remain literal.
 ## Master flags
 
 Every command inherits `tree.master_flags`: `--project`, `--env-path`,
-`--env-python`, `--env-var`, `--allow-env-overwrite`, `--no-print`, `--dry-run`,
+`--env-python`, `--env-var`, `--allow-env-overwrite`, `--dry-run`,
 `--help` and `-h`. They appear in every command's help. Commands other than
 `eval-cmd` and `eval-cmd-argv` retain support for placement before or after
 their command path. For both execution commands, place every master flag before
@@ -99,7 +116,7 @@ project; `--env-var` uses an array of single-key objects.
 
 ```bash
 hdlforge --env-python '["sources/tests"]' eval-cmd 'python3 -m integration_test.example'
-hdlforge aliases.testing.example --env-var '[{"TESTCASE":"example"}]'
+hdlforge --env-var '[{"TESTCASE":"example"}]' aliases.testing.example
 hdlforge --allow-env-overwrite --env-var '[{"TESTCASE":"changed"}]' eval-cmd 'printenv TESTCASE'
 ```
 
@@ -177,24 +194,84 @@ Each response retains native output, Tcl results, errors and structured records.
 All managed synthesis, implementation and bitstream generation uses the
 non-project build commands documented above.
 
+## Diagnostic output
+
+HDLForge is quiet by default. Set `HDLFORGE_DEBUG` to enable wrapper and
+Python environment diagnostics. Presence enables it, including an empty value;
+unset it to disable diagnostics. Command results, warnings and errors remain
+visible normally. Nested invocations inherit the setting.
+
+```bash
+HDLFORGE_DEBUG=1 hdlforge vivado.build.status
+hdlforge --env-var '[{"HDLFORGE_DEBUG":"1"}]' vivado.build.status
+```
+
+The `--env-var` description in help and double-Tab documents this public variable.
+Existing `--no-print` invocations remain accepted as a hidden no-op so maintained
+launchers keep working; the flag is no longer offered in help or completion.
+
 ## Environment initialization
 
 `hdlforge_environment.bash` owns project selection, startup and overlays.
-`HDLFORGE_CALLED=1` marks an initialized chain. On the first launch, HDLForge
+On the first launch, HDLForge
 uses the selected project directory, or the launch directory when no project is
 selected, to find the owning Git root. It evaluates the repository-root JSON's
-`settings.env.<host>.<user>` through jq before clearing caller exports, then
+resolved environment through `environment_defaults.py` before clearing caller exports, then
 evaluates the selected project JSON as an overlay when it is a different file.
 Select host/user with `HOST_MACHINE` and `HDLFORGE_HOST_USER` before launch.
 
 Every launch must start inside a Git repository. Nested calls cannot reuse
 another repository's environment. The root must contain exactly one
-`.hdlforge.json` and an entry for the selected host/user with all six keys:
+`.hdlforge.json`. The resolved environment must contain all six keys:
 `path`, `path_import`, `pythonpath`, `pythonpath_import`, `variables`,
 `variables_import`. Path/import fields are arrays; variables is an object.
-Empty arrays/objects are valid. Missing entries or invalid types fail before
-any runnable command, including JSON and path-management actions, executes.
+Empty arrays/objects are valid. Missing required effective fields or invalid types fail before
+normal execution. Explicit `settings.update-json` / `settings.update-repo` run
+before environment bootstrap so they can initialize or repair these fields.
 Contextual help is resolved before runtime environment initialization.
+
+Environment defaults apply to **every field** through one generic resolver:
+
+```text
+settings.env.default
+  → settings.env.<server>.default
+  → settings.env.<server>.<user>
+```
+
+`env.default` and each server's `default` have exactly the same shape as a user
+entry. A missing server uses the global default; a missing user uses the server
+default plus global default. Existing users also inherit unspecified fields.
+Objects merge recursively, so overriding one tool or variable retains the others.
+Arrays and scalar values replace the inherited value; an explicit empty list
+remains empty. An empty object overrides no nested fields. Null does not mean
+inheritance and fails validation for fields that require an object or array.
+New setting names automatically follow these rules without modifying the
+resolver. Defaults resolve separately in the root JSON and project overlay;
+the existing root/project/CLI precedence then applies.
+
+For example (environment fragment):
+
+```json
+{
+  "default": {
+    "path": [], "path_import": [],
+    "pythonpath": [], "pythonpath_import": [],
+    "variables": {"COMMON_FLAG": "enabled"}, "variables_import": [],
+    "tools": {},
+    "python_settings": {"version": "3.12", "packages": ["cocotb==1.9.1"]}
+  },
+  "build-server": {
+    "default": {"variables": {"SERVER_FLAG": "enabled"}},
+    "user.name": {"python_settings": {"version": "3.12.3"}}
+  }
+}
+```
+
+Startup, settings management/reporting, schema maintenance and Git SSH routing
+use the same resolver. Python is ordinary `python_settings` data inside these
+entries; the former separate `settings.env.python_settings` table is rejected
+with a migration message. Schema maintenance fills shared defaults rather than
+copying inherited settings into every user entry.
 
 Imports name same-typed leaves in that root JSON, for example
 `"path_import": ["settings.env.shared.base.path"]`. Dotted host/user names
@@ -211,8 +288,10 @@ overwrite protection.
 
 The fresh environment retains login identity, terminal/display access, locale,
 timezone, temporary-directory settings and SSH-agent access. Arbitrary caller
-exports are dropped. PATH/PYTHONPATH start from a minimal executable baseline
-and configured repository paths. Tool settings and literal string variables
+exports are dropped. When the effective repository PATH (including imports)
+is empty, PATH uses the launching shell’s PATH. Otherwise it starts with the
+minimal `/usr/bin:/bin` baseline and configured paths. PYTHONPATH starts empty
+and receives its configured paths. Tool settings and literal string variables
 come from the JSON. The parent shell is unchanged.
 
 Every invocation, including nested ones, overlays the selected project's
@@ -224,23 +303,149 @@ with the variable name and layer; identical assignments are quiet. Values are
 literal, including quotes, dollar signs and trailing newlines. Internal launcher
 variables and PATH/PYTHONPATH cannot be replaced through `--env-var`.
 
-## Path management
+## Environment settings management
 
-```bash
-hdlforge paths.show
-hdlforge paths.show-all
-hdlforge paths.init-base-path
-hdlforge paths.init-base-pythonpath
-hdlforge paths.install-shell
-hdlforge paths.update-repo --project repo.hdlforge.json
+`settings` owns environment inspection and management. Every group has the
+same actions, supplied by the same command tree for execution, help and Tab:
+
+```text
+hdlforge settings.show
+hdlforge settings.print-as-json
+hdlforge settings.list-json
+hdlforge settings.path.<action>
+hdlforge settings.python.<action>
+hdlforge settings.pythonpath.<action>
+hdlforge settings.ssh-config.<action>
 ```
 
-`show` reports effective paths; `show-all` reports configured host/user pairs.
-The two `init-base-*` actions print shell exports from the evaluated environment.
+| Action | Behavior |
+|---|---|
+| `show` | Display the selected configuration, resolved values, sources and active local values. |
+| `import` | Replace only the selected setting from a file or local capture. |
+| `import-dry-run` | Show the import diff without writing. |
+| `merge` | Combine incoming settings with the selected entry. |
+| `merge-dry-run` | Show the merge diff without writing. |
+| `print-as-json` | Emit the selected configuration and resolved values as JSON. |
+| `lint-user-settings` | Validate the selected configuration, resolving imports and shared environment defaults. |
+| `list-json` | Emit all saved server/user entries for this group, including global and server defaults. |
+| `verify` | Compare settings with the active local environment; SSH verification is an offline structural check. |
+
+`settings.show` includes all four groups, repository/project identity, and the
+selected repository/project environment entries. `--server` and `--user` select
+literal keys; omitted values use the active host/user. `--server default`
+selects the global default for any settings group; `--user default` selects
+the given server's default. Other servers can be
+inspected or edited without contacting them. Verification requires the active
+local server/user. `--json` gives structured output for any action.
+
+All settings writes target the repository-root JSON, even when `--project`
+selects a child project. Other entries and unrelated fields are preserved.
+Normal root environment validation still runs before these commands; they do
+not bypass a missing or invalid startup environment. Relative `--input` paths
+are resolved from the launch directory, including with an explicit project.
+
+Input formats and destinations:
+
+| Group | `--input` file | Capture when omitted | Repository destination |
+|---|---|---|---|
+| `path` | JSON array of paths | Active HDLForge `PATH` | `settings.env.<server>.<user>.path` |
+| `pythonpath` | JSON array of paths | Active HDLForge `PYTHONPATH` | `settings.env.<server>.<user>.pythonpath` |
+| `python` | JSON object with `version` and `packages` | Active interpreter version and installed distribution versions | `settings.env.<server>.<user>.python_settings` |
+| `ssh-config` | SSH configuration text | `~/.ssh/config` | Configured `ssh_config_file`, or `environment/ssh-configs/<server>/<user>/config` plus its JSON reference |
+
+Path/Python inputs may also be a `print-as-json` report; its `effective` value
+is imported. Captures describe the environment after HDLForge startup and
+overlays, not the parent shell. Importing paths replaces their list and clears
+that field's import references. Merging paths preserves references, appends
+new values and removes exact duplicates. Python merge starts from effective
+defaults and merges packages by normalized distribution name. Python version
+and package-version conflicts fail unless `--on-collision existing` or
+`--on-collision incoming` is selected; default is `error`.
+
+SSH import copies only the configuration text, never keys. Merge preserves
+literal `Host` sections and uses the same collision option for differing
+sections with the same name. Merging files containing wildcard/multiple-host
+patterns, `Match` or `Include` is rejected rather than changing their ordering
+semantics; import a complete reviewed file for those cases. SSH checks inspect
+file existence and directive structure without executing `Match exec`, following
+includes, connecting, or changing Git SSH routing. They are not a complete
+OpenSSH syntax/connection test. Maintained SSH files must stay inside the repo.
+
+Both dry-run actions, and master `--dry-run` on import/merge, compute the same
+diff as the actual operation and write nothing. Existing files are replaced
+atomically with a concurrent-edit check. No settings action installs Python or
+packages, changes shell startup files, or connects to a remote server; the
+explicit `settings.install-shell` maintenance action below is separate.
+
+```bash
+hdlforge settings.path.import-dry-run --input paths.json
+hdlforge settings.path.import --input paths.json
+hdlforge settings.python.merge --input requirements.json --on-collision incoming
+hdlforge settings.python.import --server default --input requirements.json
+hdlforge settings.python.import --server build-server --user default --input requirements.json
+hdlforge settings.ssh-config.merge-dry-run --input ./ssh-config
+hdlforge settings.python.verify
+```
+
+### Python defaults and verification
+
+Run `hdlforge settings.python.verify` to check the active interpreter and
+installed distribution versions. Add `--json` for a machine-readable report.
+This is an explicit, read-only check: other commands do not run it, and it
+never installs packages or changes Python. It checks distribution metadata,
+not whether every package can import or load its native libraries.
+
+The repository-root JSON owns Python requirements inside environment entries:
+
+```json
+{
+  "default": {"python_settings": {"version": "3.12", "packages": ["cocotb==1.9.1", "scapy"]}},
+  "build-server": {
+    "default": {"python_settings": {"version": "3.12.3"}},
+    "user.name": {"python_settings": {"packages": ["cocotb==1.9.1"]}}
+  }
+}
+```
+
+The common environment resolver supplies missing Python fields from global and
+server defaults, just as it does for tools and variables. Missing entries inherit;
+an explicit package list replaces the inherited list, including an empty
+list. Both fields must resolve. `version` accepts `major.minor` (any patch)
+or `major.minor.patch` (exact). Packages accept a distribution name (installed)
+or `name==version` (exact version). Unknown fields and duplicate package names
+are errors. Host/user selection follows `HOST_MACHINE` and
+`HDLFORGE_HOST_USER` as above; usernames containing dots are literal keys.
+
+Verification runs after normal repository, project and CLI environment setup,
+using the selected `python3` and package search paths. Project overlays affect
+the interpreter environment, but requirements come from the root JSON. Reports
+identify the interpreter, selected host/user and source of each requirement.
+Exit status is `0` for success, `1` for mismatches or missing packages, and `2`
+for invalid or missing requirements. Read-only checks still run under
+`--dry-run`; the flag prevents writes by import/merge.
+
+### Environment maintenance and compatibility
+
+```bash
+hdlforge settings.show
+hdlforge settings.list-json
+hdlforge settings.path.print-shell
+hdlforge settings.pythonpath.print-shell
+hdlforge settings.install-shell
+hdlforge settings.update-repo --project repo.hdlforge.json
+```
+
+The two `print-shell` actions print shell exports from the evaluated environment.
 `install-shell` installs the launcher and completion in the user's bashrc.
-`update-repo` updates an already valid repository environment configuration;
-it cannot bypass missing or invalid mandatory base fields. Normal startup is
-automatic; management actions are not prerequisites.
+`update-repo` initializes or updates the existing repository-root JSON, including
+an empty `{}` document, before environment bootstrap. It fills missing or empty
+shared defaults and adds empty server defaults/user entries for inheritance.
+Nonempty settings and unrelated fields are preserved. Normal startup is
+automatic; management actions are not prerequisites. The former `paths.*` group is folded into `settings.*`: use `settings.show`
+and `settings.show-all` for inspection, `settings.path.print-shell` and
+`settings.pythonpath.print-shell` for the former base-path export actions, and
+`settings.install-shell`, `settings.update-repo`, `settings.update-json`, and
+`settings.lint-json` for maintenance.
 
 ## Shared command tree
 
@@ -258,8 +463,12 @@ own sibling descriptions. Metadata is display-only.
 
 Completion reads configuration without setting up environments or contacting
 tools. It consumes only tokens before the cursor and treats the complete
-`eval-cmd` and `eval-cmd-argv` tails as opaque. Double-Tab displays descriptions;
-normal completion inserts tokens only. Unknown commands/options and anonymous
+`eval-cmd` and `eval-cmd-argv` tails as opaque. Double-Tab displays descriptions
+and the flags allowed at the root or exact command/group under the cursor,
+including before a trailing space. Used non-repeatable flags and flags excluded
+by the current command state are omitted. Flag rows beside a command name are
+display-only; type a space and `--` to complete a flag. Normal completion inserts
+tokens only. Unknown commands/options and anonymous
 passthrough fail.
 
 Related references: `hdlforge_project_file.md`, `how_hdlforge_keeps_paths_clean.md`.
@@ -268,13 +477,13 @@ Related references: `hdlforge_project_file.md`, `how_hdlforge_keeps_paths_clean.
 ## JSON maintenance
 
 Every tool that reads a configurable project section exposes `update-json`
-and `lint-json`: `paths`, `aliases`, `sim-verilator`,
+and `lint-json`: `settings`, `aliases`, `sim-verilator`,
 `vivado.build`, `vivado.console`, and `vivado.monitor`.
 `vivado.update-json` / `vivado.lint-json` cover all three Vivado sections.
 
 ```bash
-hdlforge paths.update-json --project fpga.hdlforge.json --dry-run
-hdlforge paths.update-json --project fpga.hdlforge.json
+hdlforge settings.update-json --project fpga.hdlforge.json --dry-run
+hdlforge settings.update-json --project fpga.hdlforge.json
 hdlforge vivado.build.update-json --project chip.hdlforge.json --dry-run
 hdlforge vivado.build.update-json --project chip.hdlforge.json
 hdlforge vivado.build.lint-json --project chip.hdlforge.json
@@ -284,7 +493,14 @@ hdlforge sim-verilator.lint-json --project simulation.hdlforge.json
 Updates add missing required keys, including empty placeholders. Existing
 values, custom keys, comments represented by JSON `#` keys, and credentials
 remain intact. Invalid container types fail without rewriting the document.
-Dry-run reports only added key paths and does not write files. Unchanged
+Environment updates also fill empty slots (`null`, empty strings/lists) from
+the shared template; they preserve nonempty values. The generated global default
+contains all environment fields and Python requirements (the initializing
+interpreter’s major.minor version and an empty package list). An empty PATH
+stays empty in JSON and uses the current shell PATH at runtime; machine paths
+are not captured into shared defaults. Server defaults and users stay sparse
+so future global fields are inherited automatically.
+Dry-run reports affected key paths and does not write files. Unchanged
 documents retain their original bytes and modification time. Writes are atomic
 and reject a concurrent content change.
 
@@ -296,15 +512,17 @@ import resolver and validates paths for the selected host/user; filesystem check
 reflect that machine. Output directories need not exist before a build.
 Alias lint parses native HDLForge invocations without executing shell commands.
 
-Schema maintenance runs after project selection and before environment
-initialization, so an incomplete environment document can be repaired.
-Select the repository-root JSON for `paths`.
-`paths.update-repo` selects that root document automatically.
+Environment schema updates run after project selection and before environment
+initialization, so an incomplete environment document can be repaired. Other
+commands, including lint, use normal environment bootstrap.
+Select the repository-root JSON for `settings.update-json`.
+`settings.update-repo` selects that root document automatically.
 Generic tools taking only command-line inputs need no project schema.
 
-The root commands are `aliases`, `discover`, `eval-cmd`, `eval-cmd-argv`, `hw-server`,
-`network`, `paths`, `sim-verilator`, `tshark`,
-`vivado`, and `waveform`. They are lowercase with distinct initial letters.
+The root commands are `aliases`, `discover`, `settings`, `eval-cmd`, `eval-cmd-argv`, `git-config`, `hw-server`,
+`network`, `sim-verilator`, `tshark`,
+`vivado`, and `waveform`. They are lowercase; `eval-cmd` and `eval-cmd-argv` share `e`, while
+`settings` and `sim-verilator` share `s`.
 The command tree supplies the executable routes, help, and tab-completion.
 
 ## Non-project monitoring
@@ -341,14 +559,62 @@ command. Direct build commands remain available for every configured run.
 
 ## Build attempts and timing experiments
 
+Run names come only from `vivado.non_project.runs` in the selected JSON.
+An optional `release_root` is project-relative metadata retained with the saved
+run JSON for project-owned release tooling. It does not change synthesis inputs
+or the output attempt folder; HDLForge does not itself package a release.
+Discovery recursively walks JSON objects until it finds `"is_hdlforge_run": "true"`
+(JSON boolean `true` is also accepted). That object is a synthesis/IP run;
+discovery stops there and does not treat its implementation settings as more
+synthesis runs. An unmarked group appears in help/completion only if a marked
+run exists somewhere beneath it. Unmarked definitions and false markers are
+not runnable. Folder names do not create commands.
+
+You can arrange project/subproject groups freely. For example, place the
+following beneath `vivado.non_project.runs`:
+
+```json
+{
+  "phy10gbaser": {
+    "lab": {
+      "synth_fast": {
+        "is_hdlforge_run": "true",
+        "script": "compilation/synth_fast/run.tcl",
+        "sources": []
+      }
+    }
+  }
+}
+```
+
+This gives `hdlforge vivado.build.runs.phy10gbaser.lab.synth_fast.run`.
+Tab/help at `runs`, `runs.phy10gbaser`, or `runs.phy10gbaser.lab` shows only
+the next group/run choices. Key segments use letters, digits, underscores or
+hyphens; dots separate JSON levels. The full JSON path identifies the run,
+so different groups can reuse a leaf name. Attempt folders remain beside the
+configured Tcl script, independently of the JSON hierarchy.
+
+Example generation always includes the marker. `vivado.build.update-json`
+and `vivado.build.init_build.<path>` can add missing markers to existing definitions
+identified by their `script` key, without tagging grouping objects or nested
+implementations. Normal discovery requires the marker. Adding the marker
+alone does not invalidate recorded IP source fingerprints. Existing saved
+snapshot JSON without the marker stays readable for implementation selection.
+Regrouping an existing run changes its CLI path while preserving attempts in
+its configured script folder. Saved manifests and snapshot JSON are not rewritten:
+implementation reads the synthesis definition named by its saved manifest.
+IP fingerprints locate a moved producer by its unique unchanged script path,
+then still compare its complete definition and source hashes. Keep each run
+in its own script folder; shared run folders are rejected by build lint.
+
 ```text
-vivado.build.<synthesis>.run
-vivado.build.<synthesis>.<attempt>.status
-vivado.build.<synthesis>.<attempt>.stop
-vivado.build.<synthesis>.<attempt>.impl.<implementation>.run
-vivado.build.<synthesis>.<attempt>.impl.<implementation>.<attempt>.status
-vivado.build.<synthesis>.<attempt>.impl.<implementation>.<attempt>.stop
-vivado.build.<synthesis>.<attempt>.impl.<implementation>.bitstream.<attempt>
+vivado.build.runs.<synthesis>.run
+vivado.build.runs.<synthesis>.<attempt>.status
+vivado.build.runs.<synthesis>.<attempt>.stop
+vivado.build.runs.<synthesis>.<attempt>.impl.<implementation>.run
+vivado.build.runs.<synthesis>.<attempt>.impl.<implementation>.<attempt>.status
+vivado.build.runs.<synthesis>.<attempt>.impl.<implementation>.<attempt>.stop
+vivado.build.runs.<synthesis>.<attempt>.impl.<implementation>.bitstream.<attempt>
 ```
 
 `.run` always creates a fresh attempt. Rename completed synthesis or implementation

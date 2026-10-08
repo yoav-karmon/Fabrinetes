@@ -29,9 +29,9 @@ class LauncherEnvironmentTest(unittest.TestCase):
 
     def test_build_selector_is_not_a_shortcut(self):
         for arguments in (
-            ["vivado.build.synth_production.run"],
-            ["vivado.build.synth_production.run"],
-            ["vivado.build.synth_production.run"],
+            ["vivado.build.runs.synth_production.run"],
+            ["vivado.build.runs.synth_production.run"],
+            ["vivado.build.runs.synth_production.run"],
         ):
             with self.subTest(arguments=arguments):
                 result = subprocess.run([str(self.wrapper), "--dry-run", *arguments],
@@ -41,7 +41,7 @@ class LauncherEnvironmentTest(unittest.TestCase):
                 self.assertNotIn("--eval_json", result.stdout)
 
     def test_build_does_not_hide_a_conflicting_shortcut(self):
-        result = subprocess.run([str(self.wrapper), "--dry-run", "vivado.build.synth_production.run", "other.shortcut"],
+        result = subprocess.run([str(self.wrapper), "--dry-run", "vivado.build.runs.synth_production.run", "other.shortcut"],
                                 cwd=self.project, env=self.env, capture_output=True, text=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Unexpected argument", result.stderr)
@@ -59,6 +59,7 @@ class LauncherEnvironmentTest(unittest.TestCase):
         subprocess.run(["git", "init", "--quiet", str(self.project)], check=True)
         self.wrapper = Path(__file__).with_name("hdlforge").resolve()
         self.project.joinpath("sample.hdlforge.json").write_text(json.dumps({
+            "vivado": {"non_project": {"runs": {"synth_production": {"is_hdlforge_run": "true", "script": "not_created/run.tcl"}}}},
             "LLM_orch": {"nested": "hdlforge --no-print eval-cmd 'command -v hdlforge'"},
             "settings": {"env": {"test-host": {"test-user": {
                 "path": [str(Path(shutil.which("jq")).parent)],
@@ -117,6 +118,36 @@ class LauncherEnvironmentTest(unittest.TestCase):
         self.assertEqual(result.stdout.splitlines(), [str(self.wrapper)])
         self.assertEqual(result.stderr, "")
 
+    def test_default_quiet_and_debug_presence_enable_diagnostics(self):
+        for value in (None, '', '1'):
+            with self.subTest(value=value):
+                env = dict(self.env)
+                if value is not None:
+                    env['HDLFORGE_DEBUG'] = value
+                result = subprocess.run([str(self.wrapper), 'eval-cmd', 'echo PAYLOAD'],
+                                        cwd=self.project, env=env, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn('PAYLOAD', result.stdout)
+                self.assertEqual('[i] Executing:' in result.stdout, value is not None)
+
+    def test_debug_can_be_set_through_env_var_and_inherited(self):
+        result = subprocess.run([str(self.wrapper), '--env-var', '[{"HDLFORGE_DEBUG":"1"}]',
+                                 'aliases.nested'], cwd=self.project, env=self.env,
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.count('[i] Executing:'), 2)
+        self.assertIn(str(self.wrapper), result.stdout)
+
+    def test_debug_can_be_configured_in_environment_variables(self):
+        project_file = self.project / 'sample.hdlforge.json'
+        data = json.loads(project_file.read_text())
+        data['settings']['env']['test-host']['test-user']['variables']['HDLFORGE_DEBUG'] = '1'
+        project_file.write_text(json.dumps(data))
+        result = subprocess.run([str(self.wrapper), 'eval-cmd', 'echo PAYLOAD'],
+                                cwd=self.project, env=self.env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('[i] Executing:', result.stdout)
+
     def test_quiet_mode_preserves_command_output_and_exit_status(self):
         result = subprocess.run([str(self.wrapper), "--no-print", "eval-cmd",
                                  "printf 'result\\n'; printf 'command error\\n' >&2; exit 37"],
@@ -139,7 +170,7 @@ class LauncherEnvironmentTest(unittest.TestCase):
             "export PATH=\"/wrong/path:$PATH\" # hdlforge-path\n"
         )
 
-        first = subprocess.run([str(self.wrapper), "paths.install-shell"], cwd=self.project,
+        first = subprocess.run([str(self.wrapper), "settings.install-shell"], cwd=self.project,
                                env=self.env, capture_output=True, text=True)
         self.assertEqual(first.returncode, 0, first.stderr)
         expected = (
@@ -150,20 +181,20 @@ class LauncherEnvironmentTest(unittest.TestCase):
         self.assertEqual(bashrc.read_text(), expected)
         self.assertIn("Repaired HDLForge PATH entry", first.stdout)
 
-        second = subprocess.run([str(self.wrapper), "paths.install-shell"], cwd=self.project,
+        second = subprocess.run([str(self.wrapper), "settings.install-shell"], cwd=self.project,
                                 env=self.env, capture_output=True, text=True)
         self.assertEqual(second.returncode, 0, second.stderr)
         self.assertEqual(bashrc.read_text(), expected)
         self.assertIn("already correct", second.stdout)
 
     def test_print_env_shows_path_provenance(self):
-        result = subprocess.run([str(self.wrapper), "paths.show"], cwd=self.project,
+        result = subprocess.run([str(self.wrapper), "settings.show"], cwd=self.project,
                                 env=self.env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("HDLForge selected environment", result.stdout)
-        self.assertIn("PATH (lookup order):", result.stdout)
-        self.assertIn("PYTHONPATH (lookup order):", result.stdout)
-        self.assertIn("HDLForge launcher", result.stdout)
+        self.assertIn("Environment settings: test-host:test-user", result.stdout)
+        self.assertIn("effective_environment", result.stdout)
+        self.assertIn("sources", result.stdout)
+        self.assertIn("pythonpath", result.stdout)
 
     def run_selection(self, cwd: Path, arguments: list[str] | None = None) -> subprocess.CompletedProcess:
         """Observe the actual command directory and authoritative project selection."""

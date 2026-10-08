@@ -88,17 +88,18 @@ class RepositoryEnvironmentTest(unittest.TestCase):
         self.assertEqual(result.stdout, "runtime\n")
         self.assertEqual(result.stderr, "")
 
-    def test_update_repo_cannot_bypass_invalid_root_environment(self):
+    def test_update_repo_repairs_root_environment_without_changing_child(self):
         self.configure(lambda data, env: env.pop("path_import"))
         child = self.project / "child"
         child.mkdir()
         selected = child / "child.hdlforge.json"
         selected.write_text("{}")
-        result = subprocess.run([str(self.wrapper), "paths.update-repo"],
+        result = subprocess.run([str(self.wrapper), "settings.update-repo"],
                                 cwd=child, env=self.env, capture_output=True, text=True)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("Repository environment requires", result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Fill settings.env.default", result.stdout)
         self.assertEqual(selected.read_text(), "{}")
+        self.assertEqual(self.invoke().returncode, 0)
 
     def test_nested_launch_outside_repository_is_rejected(self):
         result = subprocess.run([str(self.wrapper), "--no-print", "eval-cmd",

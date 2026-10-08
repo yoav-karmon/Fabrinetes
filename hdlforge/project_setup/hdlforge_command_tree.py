@@ -5,6 +5,7 @@ from pathlib import Path
 import sys
 
 from vivado_build_selector import first_path_component, parse_selector, selector_choices
+from vivado_run_tree import discover_runs, run_tree, selected_run
 
 CATALOG = Path(__file__).with_name('native_command_help.json')
 TAIL_COMMANDS = {'eval-cmd', 'eval-cmd-argv'}
@@ -97,14 +98,14 @@ def dynamic_choices(provider: str, data: dict, project: Path | None) -> dict:
     if provider == 'build_runs' and project:
         result = {}
         for value in selector_choices(project, data, ''):
-            parsed = parse_selector(value)
+            parsed = parse_selector(value, discover_runs(run_tree(data)))
             if parsed and parsed.get('impl'):
                 stem = f"{parsed['run']}.{parsed['synth']}."
                 value = stem + 'impl.' + value[len(stem):]
             result[value] = 'Non-project build '+value
         return result
     if provider == 'init_builds':
-        return {name: 'Initialize build '+name for name in ['all', *data.get('vivado', {}).get('non_project', {}).get('runs', {})]}
+        return {name: 'Initialize build '+name for name in ['all', *discover_runs(run_tree(data))]}
     return {}
 
 
@@ -124,15 +125,22 @@ def resolve_path(tree: dict, command: str, data: dict) -> tuple[dict, str, str, 
                     raise ValueError('Unknown project shortcut: '+value)
                 return node, '.'.join(prefix), value, isinstance(selected, str)
             if node['provider'] == 'build_runs':
-                runs = data.get('vivado', {}).get('non_project', {}).get('runs', {})
-                run_name = value.split('.', 1)[0]
-                if runs and run_name not in runs:
-                    raise ValueError('Unknown synthesis run: '+run_name)
-                if run_name == 'impl' and run_name not in runs:
-                    raise ValueError('Select a synthesis run before its implementation')
-                selected = value.replace('.impl.', '.', 1)
-                parsed = parse_selector(selected)
-                if parsed and parsed.get('impl') and '.impl.' not in value:
+                runs = discover_runs(run_tree(data))
+                run_name = selected_run(value, runs)
+                if runs or data:
+                    if run_name is None:
+                        if any(name.startswith(value + '.') for name in runs):
+                            return node, '.'.join(prefix), value, False
+                        raise ValueError('Unknown synthesis run or group: ' + value)
+                    suffix = value[len(run_name):]
+                    selected = run_name + suffix.replace('.impl.', '.', 1)
+                else:
+                    if value.startswith('impl.'):
+                        raise ValueError('Select a synthesis run before its implementation')
+                    selected = value.replace('.impl.', '.', 1)
+                parsed = parse_selector(selected, runs if (runs or data) else None)
+                suffix = value[len(run_name):] if run_name else value
+                if parsed and parsed.get('impl') and '.impl.' not in suffix:
                     raise ValueError('Implementation belongs under SYNTH.TIMESTAMP.impl.IMPL')
                 return node, '.'.join(prefix), value, bool(parsed)
             return node, '.'.join(prefix), value, bool(value)
@@ -176,9 +184,9 @@ def parse(tokens: list[str], cwd: Path, *, partial: bool = False) -> dict:
             raise ValueError('Unknown master flag: '+flag)
         index += 1 + (int(bool(master[flag].get('arity'))) if not sep else 0)
     command_index = index if command else -1
-    # Evaluation commands own every token after their anchor. Other commands
-    # retain the legacy ability to place master flags before or after it.
-    owns_tail = command in TAIL_COMMANDS
+    # Alias leaves, like evaluation commands, own their complete argument tail.
+    alias_path = command.startswith('aliases.') and command.split('.')[1] not in entries(tree['commands']['aliases'].get('commands', {}))
+    owns_tail = command in TAIL_COMMANDS or alias_path
     project_tokens = tokens[:command_index] if owns_tail else []
     scan = 0
     while not owns_tail and scan < len(tokens):
@@ -251,7 +259,10 @@ def parse(tokens: list[str], cwd: Path, *, partial: bool = False) -> dict:
         ready = False
     if any(flag not in seen for flag in node.get('required_flags', [])):
         ready = False
-    dispatch_value = value.replace('.impl.', '.', 1) if node.get('provider') == 'build_runs' else value
+    dispatch_value = value
+    if node.get('provider') == 'build_runs':
+        run_name = selected_run(value, discover_runs(run_tree(data))) or ''
+        dispatch_value = run_name + value[len(run_name):].replace('.impl.', '.', 1)
     internal = []
     for part in node.get('dispatch', []):
         if part == '{value}' and node.get('split_value'):
@@ -260,13 +271,16 @@ def parse(tokens: list[str], cwd: Path, *, partial: bool = False) -> dict:
             internal.extend(payload)
         else:
             internal.append(part.replace('{value}', dispatch_value))
+    if alias_path and ready:
+        internal.extend(payload)
     if not owns_tail:
         for offset, item in enumerate(internal[:-1]):
             if item.startswith('--'):
                 seen.add(item)
                 values[item] = internal[offset+1]
     if '--build' in values:
-        parsed = parse_selector(values['--build'])
+        runs = discover_runs(run_tree(data))
+        parsed = parse_selector(values['--build'], runs if (runs or data) else None)
         values.update(build_action=parsed.get("action") if parsed else None, build_valid=bool(parsed), build_stage='impl' if parsed and parsed.get('impl') else 'synth',
                       build_bitstream=bool(parsed and parsed.get('bitstream')),
                       build_new_impl=bool(parsed and parsed.get('impl') and parsed.get('attempt') == 'new'))
@@ -276,13 +290,16 @@ def parse(tokens: list[str], cwd: Path, *, partial: bool = False) -> dict:
     return dict(tree=tree, node=node, command=command, prefix=prefix, value=value,
                 ready=ready, specs=specs, seen=seen, values=values, pending=pending,
                 master=master_args, args=internal+forwarded, project=project, data=data,
-                payload=payload)
+                payload=payload, owns_tail=owns_tail)
 
 
 def help_text(state: dict) -> str:
     node = state['node']
     prefix = state['prefix']
-    if node.get('payload'):
+    if node.get('provider') == 'shortcuts' and state['ready']:
+        lines = [f"Usage: hdlforge [master flags] {state['command']} [script arguments ...]",
+                 'Everything after the alias name goes to its command, including --help.']
+    elif node.get('payload'):
         suffix = 'PROGRAM [ARG ...]' if prefix == 'eval-cmd-argv' else 'COMMAND [COMMAND PART ...]'
         lines = [f'Usage: hdlforge [master flags] {prefix} {suffix}']
     else:
@@ -304,7 +321,7 @@ def help_text(state: dict) -> str:
         lines.append(label+':')
         lines.extend('  '+name+(' VALUE' if spec.get('arity') else '')+'  # '+group['#'+name]
                      for name, spec in entries(group).items()
-                     if condition_matches(spec.get('when', {}), state['seen'], state['values']))
+                     if not spec.get('hidden') and condition_matches(spec.get('when', {}), state['seen'], state['values']))
     return '\n'.join(lines)
 
 
@@ -312,6 +329,8 @@ def warn_misplaced_eval_argv_flags(state: dict) -> None:
     """Warn when argv payload tokens look like misplaced HDLForge flags."""
     if state['command'] != 'eval-cmd-argv':
         return
+    if os.environ.get('HDLFORGE_JSON_COMMAND_PATH'):
+        return  # An alias explicitly forwards its script arguments to this launcher.
     master_flags = entries(state['tree']['master_flags'])
     warned = set()
     for token in state['payload']:

@@ -24,10 +24,11 @@ _hdlforge_runtime_complete() {
     fi
 
     COMPREPLY=()
-    local meta filenames nospace start_index
+    local meta filenames nospace show_table start_index
     meta="${lines[0]}"
     filenames=0
     nospace=0
+    show_table=0
     start_index=0
 
     if [[ "$meta" == __META__* ]]; then
@@ -35,6 +36,8 @@ _hdlforge_runtime_complete() {
         filenames="${filenames%% *}"
         nospace="${meta#*nospace=}"
         nospace="${nospace%% *}"
+        show_table="${meta##*display=}"
+        show_table="${show_table%% *}"
         start_index=1
     fi
 
@@ -48,7 +51,7 @@ _hdlforge_runtime_complete() {
         fi
     done
 
-    if [[ "${COMP_TYPE:-9}" == 63 && ${#COMPREPLY[@]} -gt 1 && ${#display_lines[@]} -gt 0 ]]; then
+    if [[ "${COMP_TYPE:-9}" == 63 && ${#display_lines[@]} -gt 0 ]] && [[ ${#COMPREPLY[@]} -gt 1 || "$show_table" == 1 ]]; then
         COMPREPLY=("${display_lines[@]}")
         compopt -o nosort 2>/dev/null
     fi

@@ -38,6 +38,23 @@ class ProjectJsonTest(unittest.TestCase):
                 self.assertEqual(normalize(value, scope, "host", "user"), (value, []))
                 self.assertNotIn("settings", original)
 
+    def test_environment_initialization_fills_empty_values_and_preserves_custom_fields(self):
+        original = {'settings': {'env': {'default': {
+            'path': ['/keep'], 'tools': {'vivado': '/custom'},
+            'python_settings': {'version': '', 'packages': ['custom==1']},
+            'future': {'keep': True}}, 'other': {'user': {'variables': {'X': 'Y'}}}}}, 'custom': 42}
+        generated, changes = normalize(original, 'paths', 'host', 'user')
+        default = generated['settings']['env']['default']
+        self.assertTrue(default['python_settings']['version'])
+        self.assertEqual(default['python_settings']['packages'], ['custom==1'])
+        self.assertEqual(default['path'], ['/keep'])
+        self.assertEqual(default['tools']['vivado'], '/custom')
+        self.assertEqual(default['future'], {'keep': True})
+        self.assertEqual(generated['custom'], 42)
+        self.assertEqual(generated['settings']['env']['other']['default'], {})
+        self.assertEqual(normalize(generated, 'paths', 'host', 'user'), (generated, []))
+        self.assertEqual(original['settings']['env']['default']['python_settings']['version'], '')
+
     def test_dry_run_does_not_write_bytes_mode_or_mtime(self):
         self.project.chmod(0o640)
         before = self.project.stat()
@@ -106,17 +123,17 @@ class ProjectJsonTest(unittest.TestCase):
         self.project.write_text(json.dumps(data))
         self.assertTrue(any("cycle" in error for error in lint(data, "paths", self.project, "host", "user")))
 
-    def test_roots_are_lowercase_and_only_eval_commands_share_an_initial(self):
+    def test_roots_are_lowercase_with_expected_shared_initials(self):
         roots = [name for name in load_tree()["commands"] if not name.startswith("#")]
         self.assertTrue(all(name == name.lower() for name in roots))
         roots_by_initial = {}
         for name in roots:
             roots_by_initial.setdefault(name[0], []).append(name)
         repeated = {initial: names for initial, names in roots_by_initial.items() if len(names) > 1}
-        self.assertEqual(repeated, {"e": ["eval-cmd", "eval-cmd-argv"]})
+        self.assertEqual(repeated, {"e": ["eval-cmd", "eval-cmd-argv"], "s": ["sim-verilator", "settings"]})
         for scope in [*DEFAULTS, "vivado", "vivado.console"]:
             for action in ("update-json", "lint-json"):
-                route = parse([scope + "." + action, "--project", str(self.project)], self.root)
+                route = parse([("settings" if scope == "paths" else scope) + "." + action, "--project", str(self.project)], self.root)
                 self.assertIn("--json-schema", str(route))
 
     def test_alias_lint_rejects_removed_commands_without_execution(self):
@@ -142,28 +159,29 @@ class ProjectJsonTest(unittest.TestCase):
 
     def test_paths_update_repo_dry_run_is_read_only(self):
         subprocess.run(["git", "init", "-q", str(self.root)], check=True)
-        data, _ = normalize({}, "paths", "test-host", "test-user")
-        self.project.write_text(json.dumps(data))
         original = self.project.read_text()
         environment = {key: value for key, value in os.environ.items()
                        if not key.startswith("HDLFORGE_") and key not in {"REPO_TOP", "PYTHONPATH"}}
         environment.update(HOST_MACHINE="test-host", HDLFORGE_HOST_USER="test-user")
-        result = subprocess.run([str(Path(__file__).with_name("hdlforge")), "paths.update-repo",
+        result = subprocess.run([str(Path(__file__).with_name("hdlforge")), "settings.update-repo",
                                  "--project", str(self.project), "--dry-run"],
                                 cwd=self.root, env=environment, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.project.read_text(), original)
+        self.assertIn("Fill settings", result.stdout)
+        self.assertIn("Dry run", result.stdout)
 
-    def test_schema_maintenance_requires_valid_repository_bootstrap(self):
+    def test_schema_maintenance_initializes_empty_repository(self):
         subprocess.run(["git", "init", "-q", str(self.root)], check=True)
         launcher = Path(__file__).with_name("hdlforge")
         environment = {key: value for key, value in os.environ.items()
                        if not key.startswith("HDLFORGE_") and key != "REPO_TOP"}
-        result = subprocess.run([str(launcher), "paths.update-json", "--project", str(self.project)],
+        result = subprocess.run([str(launcher), "settings.update-json", "--project", str(self.project)],
                                 cwd=self.root, env=environment, capture_output=True, text=True)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("Missing repository environment", result.stderr)
-        self.assertEqual(self.project.read_text(), "{}")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        generated = json.loads(self.project.read_text())['settings']['env']['default']
+        self.assertEqual(generated['path'], [])
+        self.assertIn('python_settings', generated)
 
 
 if __name__ == "__main__":

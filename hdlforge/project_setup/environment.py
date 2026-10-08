@@ -22,7 +22,7 @@ def capture_environment_variables(c: invoke.Context):
     }
 
     validate_repository_environment(captured_vars, invoked_dir)
-    if os.environ.get("HDLFORGE_NOPRINT", "0") in ("", "0"):
+    if "HDLFORGE_DEBUG" in os.environ:
         print_environment_variables(captured_vars)
 
     return captured_vars
@@ -101,7 +101,7 @@ def validate_repository_environment(captured_vars: dict, invoked_dir: str):
             print(f"   Expected: {repo_tools_path}")
             print("   This may cause issues with HDLForge tools")
 
-    if os.environ.get("HDLFORGE_NOPRINT", "0") not in ("", "0"):
+    if "HDLFORGE_DEBUG" not in os.environ:
         return
 
     print("✅ Repository environment validation passed")

@@ -32,7 +32,6 @@ HDLFORGE_COLLECTED_PYTHONPATHS=()
 HDLFORGE_COLLECTED_PATHS=()
 HDLFORGE_COLLECTED_ENV_KEYS=()
 HDLFORGE_COLLECTED_ENV_VALUES=()
-CURRENT_EVAL_JSON_MODE=false
 DRY_RUN=false
 if [[ -n "${HDLFORGE_DRY_RUN:-}" && "${HDLFORGE_DRY_RUN:-0}" != "0" ]]; then
     DRY_RUN=true
@@ -40,7 +39,7 @@ if [[ -n "${HDLFORGE_DRY_RUN:-}" && "${HDLFORGE_DRY_RUN:-0}" != "0" ]]; then
 fi
 
 hdlforge_warn() {
-    if [ "$CURRENT_EVAL_JSON_MODE" != true ] && [ "${NO_PRINT:-false}" != true ]; then
+    if [[ -v HDLFORGE_DEBUG ]]; then
         echo "$@"
     fi
 }
@@ -181,27 +180,18 @@ master_count="${routed[1]}"
 master_args=("${routed[@]:2:master_count}")
 internal_args=("${routed[@]:2+master_count}")
 HDLFORGE_ALLOW_ENV_OVERWRITE=0
-NO_PRINT=false
-[ "${HDLFORGE_NOPRINT:-0}" != 1 ] || NO_PRINT=true
 route_args=()
 set -- "${master_args[@]}"
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --allow-env-overwrite) HDLFORGE_ALLOW_ENV_OVERWRITE=1; shift ;;
         --dry-run) DRY_RUN=true; export HDLFORGE_DRY_RUN=1; shift ;;
-        --no-print) NO_PRINT=true; export HDLFORGE_NOPRINT=1; shift ;;
+        --no-print) shift ;; # Compatibility with existing repository launchers.
         *) route_args+=("$1" "$2"); shift 2 ;;
     esac
 done
 environment_args=("${route_args[@]}")
 set -- "${route_args[@]}" "${internal_args[@]}"
-
-CURRENT_EVAL_JSON_MODE=false
-if [ "${internal_args[0]}" = --eval_json ]; then
-    CURRENT_EVAL_JSON_MODE=true
-    NO_PRINT=true
-    export HDLFORGE_NOPRINT=1
-fi
 
 # Project discovery selects configuration but never changes the launch directory.
 # An explicit --project is the only operation that enters a project directory.
@@ -213,6 +203,27 @@ if [ "$HDLFORGE_EXPLICIT_PROJECT" = 1 ]; then
         echo "error: failed to enter explicit project directory: $PROJECT_DIR" >&2
         exit 1
     }
+fi
+
+# Explicit environment initialization must work before that environment exists.
+# Reuse the atomic JSON updater; normal execution still requires valid settings.
+if { [ "${internal_args[0]}" = --json-schema ] && [ "${internal_args[1]}" = paths ] && [ "${internal_args[2]}" = update-json ]; } ||
+   { [ "${internal_args[0]}" = --tool ] && [ "${internal_args[1]}" = path_manager ] && [ "${internal_args[2]}" = update-repo ]; }; then
+    update_project="$PROJECT_FILE_PATH"
+    if [ "${internal_args[2]}" = update-repo ]; then
+        update_repo_top="$(git rev-parse --show-toplevel)" || exit 1
+        if [ "$HDLFORGE_EXPLICIT_PROJECT" != 1 ]; then
+            update_project="$(REPO_TOP="$update_repo_top" hdlforge_find_repo_environment_project)" || exit 1
+        fi
+        if [ "$(dirname "$update_project")" != "$update_repo_top" ]; then
+            echo "error: settings.update-repo requires a JSON directly at repository top: $update_repo_top" >&2
+            exit 1
+        fi
+    fi
+    [ -n "$update_project" ] || { echo "error: select a project JSON with --project" >&2; exit 1; }
+    schema_args=(paths update-json --project "$update_project")
+    [ "$DRY_RUN" != true ] || schema_args+=(--dry-run)
+    exec python3 "$HDLFORGE_INSTALL_DIR/hdlforge_json.py" "${schema_args[@]}"
 fi
 
 # Every runnable command evaluates the repository JSON base environment first,
@@ -241,11 +252,11 @@ for ((management_index=0; management_index<${#management_input[@]}; management_i
             ;;
         --tool=*) management_tool="${management_arg#*=}" ;;
         --) break ;;
-        --cmd|--cmd-argv)
+        --cmd|--cmd-argv|--eval_json)
             management_args+=("${management_input[@]:management_index}")
             break
             ;;
-        --project|--env-path|--env-python|--env-var|--flags|--eval_json)
+        --project|--env-path|--env-python|--env-var|--flags)
             management_args+=("$management_arg")
             management_index=$((management_index + 1))
             management_args+=("${management_input[management_index]}")
@@ -256,6 +267,13 @@ for ((management_index=0; management_index<${#management_input[@]}; management_i
         *) management_args+=("$management_arg") ;;
     esac
 done
+if [ "$management_tool" = env_settings ]; then
+    settings_args=("${internal_args[@]:2}")
+    [ "$DRY_RUN" != true ] || settings_args+=(--dry-run)
+    exec python3 "$HDLFORGE_INSTALL_DIR/env_settings.py" "${settings_args[@]}" \
+        --repository "$HDLFORGE_ENV_REPO_JSON" --active-server "$HDLFORGE_SELECTED_HOST" \
+        --active-user "$HDLFORGE_SELECTED_USER" --launch-dir "$HDLFORGE_LAUNCH_DIR"
+fi
 if [ "$management_tool" = git_config ]; then
     git_config_args=("${internal_args[@]:2}")
     [ "$DRY_RUN" != true ] || git_config_args+=(--dry-run)
@@ -275,7 +293,7 @@ if [ "$management_tool" = path_manager ]; then
             --project) update_project="$2"; shift ;;
             --project=*) update_project="${1#*=}" ;;
             --help|-h)
-                echo 'usage: hdlforge paths. {show,show-all,init-base-path,init-base-pythonpath,install-shell,update-repo} [--project FILE]'
+                echo 'usage: hdlforge settings.help [--project FILE]'
                 exit 0 ;;
             *)
                 if [ -n "$management_action" ] || [[ "$1" == -* ]]; then
@@ -290,29 +308,6 @@ if [ "$management_tool" = path_manager ]; then
         init-base-path) printf 'export HDLFORGE_BASE_PATH=%q\n' "$PATH"; exit 0 ;;
         init-base-pythonpath) printf 'export HDLFORGE_BASE_PYTHONPATH=%q\n' "${PYTHONPATH:-}"; exit 0 ;;
         install-shell) hdlforge_add_to_bashrc_path && hdlforge_add_to_bashrc_completion; exit $? ;;
-        update-repo)
-            update_repo_top="$(git rev-parse --show-toplevel 2>/dev/null || true)"
-            if [ -z "$update_repo_top" ]; then
-                echo "error: paths.update-repo must run inside a Git repository" >&2
-                exit 1
-            fi
-            if [ -z "$update_project" ]; then
-                update_project="$(REPO_TOP="$update_repo_top" hdlforge_find_repo_environment_project)" || exit 1
-            fi
-            update_project="$(resolve_working_path "$update_project" "$(pwd -P)")"
-            if [ "$(dirname "$update_project")" != "$update_repo_top" ]; then
-                    echo "error: paths.update-repo requires a JSON directly at repository top: $update_repo_top" >&2
-                    exit 1
-            fi
-    if [ ! -f "$update_project" ]; then
-        echo "error: project JSON not found: $update_project" >&2
-        exit 1
-    fi
-    schema_args=(paths update-json --project "$update_project")
-    [ "$DRY_RUN" != true ] || schema_args+=(--dry-run)
-    python3 "$HDLFORGE_INSTALL_DIR/hdlforge_json.py" "${schema_args[@]}"
-    exit $?
-            ;;
         show|show-all)
             set -- --tool path_manager "$management_action"
             [ -z "$update_project" ] || set -- "$@" --project "$update_project"
@@ -368,7 +363,8 @@ while [ "$#" -gt 0 ]; do
         --eval_json)
             command_mode="$1"
             command_value="$2"
-            shift 2
+            alias_args=("${@:3}")
+            break
             ;;
         --cmd|--cmd-argv)
             command_mode="$1"
@@ -386,6 +382,10 @@ if [ -n "$command_mode" ]; then
     if [ "$command_mode" = --eval_json ]; then
         export HDLFORGE_JSON_COMMAND_PATH="$command_value"
         command_value="$("$HDLFORGE_JQ" -er --arg path "$command_value" 'getpath($path | split(".")) | select(type == "string" and length > 0)' < "$PROJECT_FILE_PATH")" || exit 1
+        # Only the authored shortcut is shell code; caller arguments stay literal.
+        if [ "${#alias_args[@]}" -gt 0 ]; then
+            command_value+=" $(hdlforge_shell_quote_args "${alias_args[@]}")"
+        fi
         command_values=("$command_value")
     fi
     if [ "$command_mode" = --cmd-argv ]; then
@@ -398,7 +398,7 @@ if [ -n "$command_mode" ]; then
         printf '[i] Working directory: %s\n[i] Command: %s\n[i] execution skipped\n' "$PWD" "$COMMAND"
         exit 0
     fi
-    [ "$NO_PRINT" = true ] || printf '[i] Executing: %s\n' "$COMMAND"
+    [[ ! -v HDLFORGE_DEBUG ]] || printf '[i] Executing: %s\n' "$COMMAND"
     export HDLFORGE_PROJECT_FILE="$PROJECT_FILE_PATH"
     if [ "$command_mode" = --cmd-argv ]; then
         exec "${command_values[@]}"

@@ -8,7 +8,7 @@ import tempfile
 from unittest.mock import patch
 
 import hdlforge_completion_backend as completion
-from hdlforge_command_tree import parse
+from hdlforge_command_tree import help_text, parse
 from vivado_build_layout import new_identity, write_run
 
 
@@ -88,21 +88,60 @@ class CompletionTreeTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Missing command/flag description"):
             completion.command_tree.validate(catalog["tree"])
 
+    def test_help_describes_debug_variable_and_hides_legacy_quiet_flag(self):
+        text = help_text(parse([], Path.cwd()))
+        self.assertIn('HDLFORGE_DEBUG', text)
+        self.assertIn('--env-var', text)
+        self.assertNotIn('HDLFORGE_CALLED', text)
+        self.assertNotIn('--no-print', text)
+
+    def test_path_management_is_folded_into_settings(self):
+        self.assertNotIn('paths.', self.complete([]))
+        with self.assertRaises(ValueError):
+            parse(['paths.show'], Path.cwd())
+        for command in ('settings.show', 'settings.show-all', 'settings.install-shell',
+                        'settings.update-repo', 'settings.update-json', 'settings.lint-json',
+                        'settings.path.print-shell', 'settings.pythonpath.print-shell'):
+            with self.subTest(command=command):
+                self.assertTrue(parse([command], Path.cwd())['ready'])
+
     def test_build_stage_limits_modifiers(self):
-        synth = self.complete(["vivado.build.synth.run"])
-        impl = self.complete(["vivado.build.synth.latest.impl.impl.run"])
+        synth = self.complete(["vivado.build.runs.synth.run"])
+        impl = self.complete(["vivado.build.runs.synth.latest.impl.impl.run"])
         self.assertIn("--auto_impl", synth)
         self.assertNotIn("--auto_impl", impl)
         self.assertNotIn("--refresh_impl_inputs", impl)
 
     def test_nested_build_dispatch_and_old_root_rejection(self):
-        state = parse(["vivado.build.demo.latest.impl.route.run"], Path.cwd())
+        state = parse(["vivado.build.runs.demo.latest.impl.route.run"], Path.cwd())
         self.assertEqual(state["args"][:4], ["--tool", "vivado", "--build", "demo.latest.route.run"])
         self.assertEqual(state["values"]["build_stage"], "impl")
         with self.assertRaises(ValueError):
-            parse(["vivado.build.impl.demo.latest.route.run"], Path.cwd())
+            parse(["vivado.build.runs.impl.demo.latest.route.run"], Path.cwd())
         with self.assertRaises(ValueError):
-            parse(["vivado.build.demo.latest.route.run"], Path.cwd())
+            parse(["vivado.build.runs.demo.latest.route.run"], Path.cwd())
+
+    def test_runs_group_uses_json_names_without_build_folders(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            project = root / 'demo.hdlforge.json'
+            project.write_text(json.dumps({'vivado': {'non_project': {
+                'output_root': 'compilation', 'runs': {
+                    'json_only': {'is_hdlforge_run': 'true', 'script': 'not_created/run.tcl'},
+                    '#json_only': 'Description'}}}}))
+            (root / 'compilation/folder_only').mkdir(parents=True)
+            tokens = ['--project', str(project)]
+            top = completion.complete_command(tokens, 'vivado.build.', root)[0].completions
+            self.assertIn('vivado.build.runs.', top)
+            self.assertNotIn('vivado.build.json_only.', top)
+            runs = completion.complete_command(tokens, 'vivado.build.runs.', root)[0].completions
+            self.assertEqual(runs, ['vivado.build.runs.help', 'vivado.build.runs.json_only.'])
+            state = parse([*tokens, 'vivado.build.runs.json_only.run'], root)
+            self.assertEqual(state['args'], ['--tool', 'vivado', '--build', 'json_only.run'])
+            with self.assertRaises(ValueError):
+                parse([*tokens, 'vivado.build.runs.folder_only.run'], root)
+            with self.assertRaises(ValueError):
+                parse([*tokens, 'vivado.build.json_only.run'], root)
 
     def test_nested_completion_lists_only_parent_implementations(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -110,8 +149,8 @@ class CompletionTreeTest(unittest.TestCase):
             project = root / "demo.hdlforge.json"
             project.write_text(json.dumps({"vivado": {"non_project": {
                 "output_root": "compilation", "runs": {
-                    "demo": {"script": "compilation/demo/run.tcl", "impl_runs": {"route": {}}},
-                    "other": {"script": "compilation/other/run.tcl", "impl_runs": {"other_route": {}}}}}}}))
+                    "demo": {"is_hdlforge_run": "true", "script": "compilation/demo/run.tcl", "impl_runs": {"route": {}}},
+                    "other": {"is_hdlforge_run": "true", "script": "compilation/other/run.tcl", "impl_runs": {"other_route": {}}}}}}}))
             output = root / "compilation/demo/_attempt"
             write_run(output, dict(new_identity(), stage="synth", selector="demo", output=str(output),
                                    status="complete", exit_code=0, top="top", project_file=str(project), implementation_configs={"route": {"script": str(output / "run.tcl")}}))
@@ -122,35 +161,35 @@ class CompletionTreeTest(unittest.TestCase):
             (output / 'impl_runs/route/run.tcl').touch()
             def candidates(current):
                 return completion.complete_command(["--project", str(project)], current, root)[0].completions
-            self.assertIn("vivado.build.demo.", candidates("vivado.build."))
-            self.assertNotIn("vivado.build.impl.", candidates("vivado.build."))
-            self.assertEqual(candidates("vivado.build.demo.latest."), ["vivado.build.demo.latest.impl."])
-            self.assertEqual(candidates("vivado.build.demo.latest.impl."), ["vivado.build.demo.latest.impl.route."])
+            self.assertIn("vivado.build.runs.demo.", candidates("vivado.build.runs."))
+            self.assertNotIn("vivado.build.runs.impl.", candidates("vivado.build.runs."))
+            self.assertEqual(candidates("vivado.build.runs.demo.latest."), ["vivado.build.runs.demo.latest.impl."])
+            self.assertEqual(candidates("vivado.build.runs.demo.latest.impl."), ["vivado.build.runs.demo.latest.impl.route."])
 
     def test_timestamp_precision_survives_nested_dispatch(self):
         stamp = "_2026-10-02T123456.123456Z"
-        state = parse([f"vivado.build.demo.{stamp}.impl.route.saved.status"], Path.cwd())
+        state = parse([f"vivado.build.runs.demo.{stamp}.impl.route.saved.status"], Path.cwd())
         self.assertEqual(state["args"][3], f"demo.{stamp}.route.saved.status")
 
     def test_attempt_actions_have_no_build_modifiers(self):
         for action in ('status', 'stop'):
-            flags = self.complete(['vivado.build.synth.saved.' + action])
+            flags = self.complete(['vivado.build.runs.synth.saved.' + action])
             self.assertNotIn('--auto_impl', flags)
             self.assertNotIn('--refresh_impl_inputs', flags)
 
     def test_attempt_folder_timestamp_is_one_completion_component(self):
         stamp = '_2026-10-02T191758.567616Z'
-        paths = [f'vivado.build.demo.{stamp}.status', f'vivado.build.demo.{stamp}.stop']
-        result = completion.complete_dotted_paths(paths, 'vivado.build.demo.')
-        self.assertEqual(result.completions, [f'vivado.build.demo.{stamp}.'])
+        paths = [f'vivado.build.runs.demo.{stamp}.status', f'vivado.build.runs.demo.{stamp}.stop']
+        result = completion.complete_dotted_paths(paths, 'vivado.build.runs.demo.')
+        self.assertEqual(result.completions, [f'vivado.build.runs.demo.{stamp}.'])
 
     def test_management_tools_do_not_offer_unhandled_environment_flags(self):
-        self.assertIn("--env-var", self.complete(["paths.show"]))
+        self.assertIn("--env-var", self.complete(["settings.show"]))
 
     def test_completion_display_keeps_full_attempt_names(self):
         candidates = [
-            'vivado.build.synth_fast._2026-10-02T191758.567616Z.',
-            'vivado.build.synth_fast._2026-10-02T191758.567616Z.impl.impl_fast._2026-10-02T200252.962792Z.status',
+            'vivado.build.runs.synth_fast._2026-10-02T191758.567616Z.',
+            'vivado.build.runs.synth_fast._2026-10-02T191758.567616Z.impl.impl_fast._2026-10-02T200252.962792Z.status',
         ]
         data = {'__native_descriptions': {name: 'Select this attempt' for name in candidates}}
         for columns in (40, 80, 160, 240):

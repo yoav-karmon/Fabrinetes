@@ -13,7 +13,7 @@ Repository-relative entries use the repository JSON's directory; project
 entries use the selected file's directory. Nested launches keep the baseline.
 Changed variable assignments warn on stderr without printing values.
 
-Use `hdlforge paths.show` to inspect effective paths and
-`hdlforge paths.show-all` for configured environments.
+Use `hdlforge settings.show` to inspect effective paths and
+`hdlforge settings.show-all` for configured environments.
 See [HDLForge](hdlforge.md#environment-initialization) for the environment
 contract, retained runtime variables and management commands.

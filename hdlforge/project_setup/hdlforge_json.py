@@ -9,15 +9,20 @@ from pathlib import Path
 import socket
 import shlex
 import subprocess
+import sys
 import tempfile
 
 from hdlforge_command_tree import parse
+from env_verification import validate_settings
+import environment_defaults
 from vivado_console.project_console_commands import hdlforge_commands
 from vivado_build import file_path
+from vivado_run_tree import discover_runs, run_tree
 
 
 ENV = {"path": [], "path_import": [], "pythonpath": [], "pythonpath_import": [],
-       "variables": {}, "variables_import": [], "tools": {"vivado": "", "verilator": ""}}
+       "variables": {}, "variables_import": [], "tools": {"vivado": "", "verilator": ""},
+       "python_settings": {"version": f"{sys.version_info.major}.{sys.version_info.minor}", "packages": []}}
 TARGET = {"top_module": "", "python_file": "", "build_args": [], "lint_args": [],
           "defines": {}, "parameters": {}, "test_name": None, "post_sim_collect": True,
           "env": {"pythonpath": []}}
@@ -35,13 +40,13 @@ def unique_object(pairs: list) -> dict:
     return result
 
 
-def fill(value, defaults, path, changes):
-    """Add missing keys recursively; never replace existing values or types."""
+def fill(value, defaults, path, changes, *, fill_empty=False):
+    """Fill missing keys; environment initialization can also fill empty slots."""
     if not isinstance(value, dict):
         raise ValueError(f"{path or 'root'} must be an object; existing value preserved")
     for key, default in defaults.items():
         location = f"{path}.{key}".strip(".")
-        if key not in value:
+        if key not in value or (fill_empty and (value[key] is None or value[key] == "" or value[key] == []) and value[key] != default):
             value[key] = copy.deepcopy(default)
             changes.append(location)
         elif location == "verilator.config.sim_targets" and isinstance(value[key], list):
@@ -49,7 +54,7 @@ def fill(value, defaults, path, changes):
         elif location.endswith(".build_args") and location != "verilator.config.build_args" and isinstance(value[key], (str, list)):
             continue
         elif isinstance(default, dict):
-            fill(value[key], default, location, changes)
+            fill(value[key], default, location, changes, fill_empty=fill_empty)
 
 
 def objects(value, path):
@@ -76,17 +81,18 @@ def normalize(data, scope, host, user):
     #######################################################################
     result = copy.deepcopy(data)
     changes = []
-    fill(result, scope_defaults(scope), "", changes)
+    fill(result, scope_defaults(scope), "", changes, fill_empty=scope == "paths")
     if scope == "paths":
         envs = result["settings"]["env"]
-        fill(envs, {host: {user: {}}}, "settings.env", changes)
-        for machine, users in objects(envs, "settings.env"):
-            for login, env in objects(users, f"settings.env.{machine}"):
-                fill(env, ENV, f"settings.env.{machine}.{login}", changes)
+        fill(envs, {'default': ENV, host: {'default': {}, user: {}}}, "settings.env", changes, fill_empty=True)
+        for server, users in objects(envs, 'settings.env'):
+            if server != 'default':
+                fill(users, {'default': {}}, f'settings.env.{server}', changes, fill_empty=True)
+        validate_settings(result)
     if scope in {"vivado", "vivado.build"}:
-        for name, run in objects(result["vivado"]["non_project"]["runs"], "vivado.non_project.runs"):
+        for name, run in discover_runs(run_tree(result), include_unmarked=True).items():
             path = f"vivado.non_project.runs.{name}"
-            fill(run, RUN, path, changes)
+            fill(run, {"is_hdlforge_run": "true", **RUN}, path, changes)
             if run.get("kind") != "ip":
                 fill(run, {"impl_runs": {}}, path, changes)
             for child, impl in objects(run.get("impl_runs", {}), path + ".impl_runs"):
@@ -170,10 +176,14 @@ def lint(data, scope, project, host, user):
         retired = {"stage", "part", "top", "ips", "constraints", "input_files", "defines",
                    "parameters", "project_properties", "fileset_properties", "post_load_parameters",
                    "checkpoint_properties", "constraint_properties"}
-        for name, run in objects(proposed["vivado"]["non_project"]["runs"], "runs"):
+        for name, run in discover_runs(run_tree(proposed)).items():
             for label, entry in [(name, run), *[(name + "." + k, v) for k, v in objects(run.get("impl_runs", {}), "impl_runs")]]:
                 types(entry, RUN, label, errors)
-                for key in entry.keys() - {"script", "sources", "impl_runs", "kind"} - retired:
+                if "release_root" in entry:
+                    root = entry["release_root"]
+                    if not isinstance(root, str) or not root.strip() or Path(root).is_absolute():
+                        errors.append(f"{label}.release_root must be a nonempty project-relative path")
+                for key in entry.keys() - {"script", "sources", "impl_runs", "kind", "is_hdlforge_run", "release_root"} - retired:
                     errors.append(f"{label}.{key} is not a supported build key")
                 if entry.get("kind", "ip") != "ip":
                     errors.append(f"{label}.kind must be ip when provided")
@@ -248,9 +258,9 @@ def lint(data, scope, project, host, user):
                 elif command and "/" in command[0] and "{" not in command[0]:
                     check_file(project, command[0], location + ".command", errors)
     if scope == "paths":
-        for machine, users in objects(proposed["settings"]["env"], "settings.env"):
-            for login, env in objects(users, machine):
-                types(env, ENV, f"settings.env.{machine}.{login}", errors)
+        for machine, login, _ in environment_defaults.entries(proposed):
+            env, _ = environment_defaults.resolve(proposed, machine, login)
+            types(env, ENV, f"settings.env.{machine}.{login}", errors)
         # Use the startup resolver for identical import/cycle/type semantics.
         environment = Path(__file__).with_name("hdlforge_environment.bash")
         command = 'source "$1"; HDLFORGE_JQ="$(command -v jq)"; hdlforge_read_repository_environment "$2" "$3" "$4"'
@@ -308,7 +318,7 @@ def main(argv=None):
             return int(bool(errors))
         proposed, changes = normalize(data, args.scope, host, user)
         for path in changes:
-            print("Add " + path)
+            print(("Fill " if args.scope == "paths" else "Add ") + path)
         if not changes:
             print("No changes needed")
         elif args.dry_run:

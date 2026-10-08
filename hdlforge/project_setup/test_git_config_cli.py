@@ -11,6 +11,18 @@ from git_config_cli import update, git
 
 
 class GitConfigTest(unittest.TestCase):
+    def test_missing_account_uses_shared_ssh_default(self):
+        with tempfile.TemporaryDirectory(prefix='git defaults ') as folder:
+            root = Path(folder)
+            subprocess.run(['git', 'init', '-q', str(root)], check=True)
+            config = root / 'ssh config'
+            config.write_text('Host lab\n User test\n')
+            (root / 'test.hdlforge.json').write_text(json.dumps({
+                'settings': {'env': {'default': {'ssh_config_file': config.name}}}}))
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(update(root, 'update', 'unknown-host', 'unknown-user'), 0)
+                self.assertEqual(update(root, 'verify', 'unknown-host', 'unknown-user'), 0)
+
     def test_local_update_preview_verify_and_missing_account(self):
         with tempfile.TemporaryDirectory(prefix='git config ') as folder:
             root = Path(folder)

@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import shlex
 import subprocess
+import sys
 import unittest
 
 from hdlforge_command_tree import parse
@@ -121,7 +122,7 @@ class DottedCommandsTest(unittest.TestCase):
         self.assertEqual(result.stdout, 'parent')
 
     def test_master_flags_exist_on_every_leaf(self):
-        for command in ('paths.show', 'vivado.console.start', 'sim-verilator.sim',
+        for command in ('settings.show', 'vivado.console.start', 'sim-verilator.sim',
                         'eval-cmd', 'eval-cmd-argv'):
             with self.subTest(command=command):
                 result = self.run_command(command+'.help')
@@ -133,6 +134,32 @@ class DottedCommandsTest(unittest.TestCase):
         result = self.run_command('aliases.nested')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), str(self.wrapper))
+
+    def test_alias_forwards_literal_arguments_through_nested_execution(self):
+        # Child-looking master flags must never change the HDLForge invocation.
+        script = self.root / 'capture arguments.py'
+        script.write_text('import json, sys\nprint(json.dumps(sys.argv[1:]))\n')
+        project = self.project / 'sample.hdlforge.json'
+        data = json.loads(project.read_text())
+        base = shlex.join([sys.executable, str(script)])
+        data['LLM_orch'].update(capture=base, relay='hdlforge eval-cmd-argv '+base)
+        project.write_text(json.dumps(data))
+        marker = self.root / 'must not execute'
+        arguments = ['--implementation', 'path with spaces', '', 'line1\nline2',
+                     '--help', '--project', 'not-a-project', '--dry-run', '--tool', 'git_config',
+                     '--env-var', '[{"VALUE":"child"}]', '--file', 'relative path',
+                     '--', '*', 'a;b|c', '"quotes"', '\\backslash',
+                     '$(touch '+shlex.quote(str(marker))+')', '`touch '+shlex.quote(str(marker))+'`']
+        for alias in ('capture', 'relay'):
+            with self.subTest(alias=alias):
+                result = self.run_command('aliases.'+alias, *arguments)
+                self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
+                self.assertEqual(json.loads(result.stdout), arguments)
+                self.assertEqual(result.stderr, '')
+                self.assertFalse(marker.exists())
+        preview = self.run_command('--dry-run', 'aliases.capture', *arguments)
+        self.assertEqual(preview.returncode, 0, preview.stderr)
+        self.assertIn('execution skipped', preview.stdout)
 
     def test_action_modifiers_cannot_select_another_action(self):
         result = self.run_command('vivado.console.start', '--project_console', 'stop')
