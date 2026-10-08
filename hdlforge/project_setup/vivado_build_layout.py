@@ -1,6 +1,7 @@
 """Portable run metadata; generated folder names are labels, never identities."""
 
 import copy
+from contextlib import contextmanager
 import fcntl
 from datetime import datetime, timezone
 import json
@@ -85,14 +86,17 @@ def read_run(folder: Path) -> dict:
     return result
 
 
-def write_run(folder: Path, config: dict) -> None:
-    """Merge and atomically publish one attempt; never mutate a parent record."""
+@contextmanager
+def edit_run(folder: Path):
+    """Lock one attempt across reading, editing and atomically publishing it."""
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / CONFIG
     with (folder / '.manifest.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         document = json.loads(path.read_text()) if path.exists() else {}
-        document.update(map_paths(config, folder, relative=True))
+        document = map_paths(document, folder, relative=False)
+        yield document
+        document = map_paths(document, folder, relative=True)
         temporary = None
         try:
             with tempfile.NamedTemporaryFile(mode='w', dir=folder, prefix='.manifest-', delete=False) as stream:
@@ -104,6 +108,12 @@ def write_run(folder: Path, config: dict) -> None:
         finally:
             if temporary and temporary.exists():
                 temporary.unlink()
+
+
+def write_run(folder: Path, config: dict) -> None:
+    """Merge and atomically publish one attempt; never mutate a parent record."""
+    with edit_run(folder) as document:
+        document.update(config)
 
 
 def new_identity() -> dict:

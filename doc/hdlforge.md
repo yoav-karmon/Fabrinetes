@@ -113,10 +113,21 @@ is unchanged.
 
 ## Maintained build definitions
 
-Keep run code in `compilation/<run>/run.tcl` and declare `output_root:
-"compilation"`. New attempts live in `<run>/_<timestamp>/`; only generated
-attempts match the root `_*` ignore rule. Existing historical output stays in
-place.
+Each synthesis/IP definition's `script` path, relative to the project JSON,
+determines its run folder: new attempts live beside that script in
+`_<timestamp>/`. For example, `script: "compilation/subproject/synth/run.tcl"`
+produces `compilation/subproject/synth/_<timestamp>/`. The JSON run name and CLI
+selector stay unchanged; there is no per-run output-path setting. Each run must
+have its own folder, and its maintained implementation scripts remain beside
+the synthesis script. Implementation attempts still live under the selected
+synthesis attempt's `impl_runs/<implementation>/_<timestamp>/`.
+
+Existing flat `compilation/<run>/run.tcl` configurations behave identically.
+No shared output root or registry is required. The legacy `output_root` field
+is ignored; source inputs must still satisfy the repository snapshot rules.
+Only generated attempts match the root `_*` ignore rule.
+Changing a script's folder redirects future lookup and output;
+existing attempts are not moved or migrated automatically.
 
 A synthesis or implementation definition contains `script`, one `sources`
 array and (for synthesis) `impl_runs`. IP producers
@@ -298,8 +309,8 @@ The command tree supplies the executable routes, help, and tab-completion.
 
 ## Non-project monitoring
 
-`vivado.monitor` discovers attempts from recorded run metadata under
-`vivado.non_project.output_root`. Parent IDs connect synthesis,
+`vivado.monitor` discovers attempts in the folders containing the configured
+synthesis/IP scripts. Parent IDs connect synthesis,
 implementation and bitstream attempts. The monitor reads `build.log` (or historical `logs/runme.log`)
 and timing reports in `artifacts/` and `work/`; it does not consult XPRs.
 Use `vivado.build.status` for build-worker status and
@@ -354,8 +365,13 @@ invalid subfolders do not become launchable commands.
 Each attempt owns `manifest.json` (resolved inputs/hashes, command, tool version,
 process information, stage events, status and result) and `build.log` (launcher,
 runner and Vivado output). Snapshot inputs stay under `snapshot/`, results under
-`artifacts/`, and auxiliary Vivado files under `work/`. The global run registry
-indexes manifests. Small internal lock files protect atomic updates.
+`artifacts/`, and auxiliary Vivado files under `work/`. Each attempt also owns
+`.manifest.lock` for atomic updates and `.run.lock` for worker/cleanup exclusion.
+Status, stop-all and the monitor enumerate the configured run folders and their
+implementation/bitstream children; they do not read or write a global registry.
+Status reads manifests without modifying them. Cancellation is recorded under
+the parent attempt's manifest lock before an automatic child can register.
+Existing `_run_registry.json` and `_run_registry.lock` files are left untouched.
 
 `vivado.build.clean_ignore_artifacts` also removes orphan `_<run-id>.run.lock`
 files after their attempts have been deleted, including leftovers from earlier

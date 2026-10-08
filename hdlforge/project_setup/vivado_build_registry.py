@@ -1,8 +1,7 @@
-"""Locked JSON launch registry under the configured non-project output root."""
+"""Discover build workers from attempt manifests in configured run folders."""
 
-from contextlib import contextmanager, redirect_stdout
+from contextlib import nullcontext, redirect_stdout
 from datetime import datetime, timezone
-import fcntl
 import json
 import io
 import sys
@@ -10,14 +9,14 @@ import os
 from pathlib import Path
 import shlex
 import signal
-import tempfile
 import time
 from uuid import uuid4
 
 from table_formatter import create_matrix_table_from_data
 from vivado_build_log import enrich
 from vivado_build_artifacts import cleanable
-from vivado_build_layout import descendant_runs, read_run, run_directories, write_run
+from vivado_build_config import project_attempts
+from vivado_build_layout import edit_run, read_run, write_run
 from vivado_build_processes import alive, find_user_vivado, group_members, local_identity, probe_process, process_info, signal_process, thread_activity, vivado_engine
 
 
@@ -77,174 +76,104 @@ def artifact_protection(output: str) -> str:
 
 
 class BuildRegistry:
-    def __init__(self, output_root: Path):
-        self.root = output_root.resolve()
-        self.path = self.root / "_run_registry.json"
+    def __init__(self, project: Path):
+        self.project = project.resolve()
+        self.locations = {}
 
-    @contextmanager
-    def locked(self):
-        #######################################################################
-        # Lock a separate inode; atomically replace JSON while holding it.     #
-        #######################################################################
-        self.root.mkdir(parents=True, exist_ok=True)
-        with (self.root / "_run_registry.lock").open("a") as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX)
-            data = json.loads(self.path.read_text()) if self.path.exists() else {"version": 1, "runs": {}}
-            # The global file is an index; execution records live in manifests.
-            if data.get('version') == 2:
-                locations = {}
-                for definition in self.root.iterdir():
-                    if definition.is_dir() and not definition.is_symlink():
-                        for parent in run_directories(definition):
-                            for folder in descendant_runs(parent):
-                                record = read_run(folder)
-                                if record.get('launch_id'):
-                                    locations[record['launch_id']] = folder
-                records = {}
-                for launch_id, location in data['runs'].items():
-                    if isinstance(location, dict):
-                        records[launch_id] = location
-                        continue
-                    folder = locations.get(launch_id, self.root / location)
-                    try:
-                        record = read_run(folder)
-                        row = record['execution']
-                    except (OSError, ValueError, KeyError):
-                        continue
-                    row.update(output=str(folder), run_log=str(folder / 'build.log'),
-                               vivado_log=str(folder / 'build.log'), status_file=str(folder / 'manifest.json'))
-                    row['status'] = record.get('status', row.get('status'))
-                    row['exit_code'] = record.get('exit_code', row.get('exit_code'))
-                    row['finished_at'] = record.get('finished_at')
-                    records[launch_id] = row
-                data = {'version': 1, 'runs': records}
-            previous = json.loads(json.dumps(data['runs']))
-            yield data
-            index = {}
-            for launch_id, row in data['runs'].items():
-                folder = Path(row['output'])
-                manifest = folder / 'manifest.json'
-                if not manifest.is_file():
-                    index[launch_id] = row  # Preserve read-only historical/unobservable launches.
-                    continue
-                if row != previous.get(launch_id):
-                    execution = {key: value for key, value in row.items()
-                                 if key not in {'status', 'exit_code', 'finished_at'}}
-                    values = {'execution': execution}
-                    for key in ('status', 'exit_code', 'finished_at'):
-                        if row.get(key) != previous.get(launch_id, {}).get(key):
-                            values[key] = row.get(key)
-                    write_run(folder, values)
-                index[launch_id] = os.path.relpath(folder, self.root)
-            data = {'version': 2, 'runs': index}
-            temporary = None
+    def records(self) -> list[dict]:
+        """Read attempt-local execution state; status never rewrites manifests."""
+        data = json.loads(self.project.read_text())
+        rows = []
+        for folder in project_attempts(self.project, data):
             try:
-                with tempfile.NamedTemporaryFile(mode="w", dir=self.root, delete=False) as handle:
-                    temporary = Path(handle.name)
-                    json.dump(data, handle, indent=2)
-                    handle.write("\n")
-                    handle.flush()
-                    os.fsync(handle.fileno())
-                os.replace(temporary, self.path)
-            finally:
-                if temporary and temporary.exists():
-                    temporary.unlink()
+                config = read_run(folder)
+                row = dict(config['execution'])
+            except (FileNotFoundError, KeyError):
+                continue  # A queued or historical attempt may have no worker yet.
+            modern = config.get('format_version') == 3
+            row.update(output=str(folder),
+                       run_log=str(folder / ('build.log' if modern else 'logs/runme.log')),
+                       vivado_log=str(folder / ('build.log' if modern else 'logs/vivado.log')),
+                       status_file=str(folder / 'manifest.json'))
+            for key in ('status', 'exit_code', 'finished_at'):
+                row[key] = config.get(key, row.get(key))
+            self.locations[row['launch_id']] = folder
+            rows.append(row)
+        return rows
+
+    def folder(self, launch_id: str) -> Path:
+        """Workers cache their own location; discovery also handles renamed attempts."""
+        folder = self.locations.get(launch_id)
+        if folder is None or not folder.is_dir():
+            self.records()
+            folder = self.locations.get(launch_id)
+        if folder is None or not folder.is_dir():
+            raise ValueError(f'Attempt for launch {launch_id} is no longer discoverable')
+        return folder
 
     def register(self, project: Path, config: dict) -> str:
         launch_id = uuid4().hex
-        with self.locked() as data:
-            parent = config.get("parent_launch_id")
-            if parent and data["runs"][parent].get("stop_requested"):
-                raise BuildStopped("Continuation cancelled by --stopall")
-            output = Path(config["output"])
-            data["runs"][launch_id] = {
-                "launch_id": launch_id, "run_id": config["run_id"], "project": str(project.resolve()), "selector": config["selector"],
-                "stage": config["stage"], "synth_timestamp": config["synthesis_run_id"],
-                "build_selection": config.get('build_selection'),
-                "output": str(output), "run_log": str(output / "build.log"),
-                "vivado_log": str(output / "build.log"), "status_file": str(output / "manifest.json"),
-                "host": local_identity(), "launcher": process_info(os.getpid()), "process": None,
-                "pid": None, "pid_state": "not_started", "status": "starting", "exit_code": None,
-                "started_at": utc_now(), "finished_at": None, "stop_requested": False,
-                "auto_impl": config.get("auto_impl"), "parent_launch_id": parent,
+        output = Path(config['output'])
+        parent = config.get('parent_launch_id')
+        # Lock parent before child: registration and cancellation cannot cross.
+        guard = edit_run(self.folder(parent)) if parent else nullcontext(None)
+        with guard as parent_record:
+            if parent_record and parent_record['execution'].get('stop_requested'):
+                raise BuildStopped('Continuation cancelled by --stopall')
+            row = {
+                'launch_id': launch_id, 'run_id': config['run_id'], 'project': str(project.resolve()),
+                'selector': config['selector'], 'stage': config['stage'],
+                'synth_timestamp': config['synthesis_run_id'], 'build_selection': config.get('build_selection'),
+                'output': str(output), 'run_log': str(output / 'build.log'),
+                'host': local_identity(), 'launcher': process_info(os.getpid()), 'process': None,
+                'pid': None, 'pid_state': 'not_started', 'started_at': utc_now(), 'stop_requested': False,
+                'auto_impl': config.get('auto_impl'), 'parent_launch_id': parent,
             }
-            if parent:
-                data["runs"][parent].setdefault("next_launch_ids", []).append(launch_id)
+            write_run(output, dict(config, launch_id=launch_id, execution=row,
+                                   status='starting', exit_code=None, finished_at=None))
+            if parent_record is not None:
+                parent_record['execution'].setdefault('next_launch_ids', []).append(launch_id)
+        self.locations[launch_id] = output
         return launch_id
 
     def update(self, launch_id: str, **values) -> None:
-        with self.locked() as data:
-            data["runs"][launch_id].update(values)
+        with edit_run(self.folder(launch_id)) as config:
+            config['execution'].update({key: value for key, value in values.items()
+                                        if key not in {'status', 'exit_code', 'finished_at'}})
+            config.update({key: value for key, value in values.items()
+                           if key in {'status', 'exit_code', 'finished_at'}})
 
     def attach(self, launch_id: str, pid: int) -> None:
-        with self.locked() as data:
-            row = data["runs"][launch_id]
-            row.update(pid=pid, process=process_info(pid), pid_state="running", status="running")
-            stop = row["stop_requested"]
+        folder = self.folder(launch_id)
+        parent = read_run(folder)['execution'].get('parent_launch_id')
+        guard = edit_run(self.folder(parent)) if parent else nullcontext(None)
+        with guard as parent_record:
+            with edit_run(folder) as config:
+                row = config['execution']
+                row.update(pid=pid, process=process_info(pid), pid_state='running')
+                stop = row['stop_requested'] or bool(parent_record and parent_record['execution'].get('stop_requested'))
+                row['stop_requested'] = stop
+                config['status'] = 'stopping' if stop else 'running'
         if stop:
-            raise BuildStopped("Launch cancelled by --stopall")
+            raise BuildStopped('Launch cancelled by --stopall')
 
     def refresh(self) -> list[dict]:
-        if not self.path.exists():
-            return []
-        with self.locked() as data:
-            rows = list(data["runs"].values())
-            locations = {}
-            for definition in self.root.iterdir():
-                if not definition.is_dir() or definition.is_symlink():
-                    continue
-                for parent in run_directories(definition):
-                    for folder in descendant_runs(parent):
-                        config = read_run(folder)
-                        locations[config['run_id']] = folder
-            for row in rows:
-                if row.get('run_id') in locations:
-                    current = locations[row['run_id']]
-                    config = read_run(current)
-                    modern = config.get('format_version') == 3
-                    row.update(output=str(current),
-                               run_log=str(current / ('build.log' if modern else 'logs/runme.log')),
-                               vivado_log=str(current / ('build.log' if modern else 'logs/vivado.log')),
-                               status_file=str(current / ('manifest.json' if modern else 'logs/status')))
-                    if not modern and row['host'] == local_identity():
-                        row['status'] = config.get('status', row['status'])
-                        row['exit_code'] = config.get('exit_code', row.get('exit_code'))
-                row["pid_state"] = probe_process(row.get("process"), row["host"])
-                engine = row.get('engine')
-                if not engine or not alive(probe_process(engine, row['host'])):
-                    engine = vivado_engine(row.get('process'), row['host'])
-                row['engine'] = engine
-                row['engine_pid'] = engine.get('pid') if engine else None
-                row['engine_state'] = probe_process(engine, row['host'])
-                row["launcher_state"] = probe_process(row.get("launcher"), row["host"])
-                active = alive(row["pid_state"]) or (alive(row["launcher_state"]) and
-                         (not row.get("finished_at") or row.get("continuation_pending")))
-                row["active"] = active
-                if not active and row["pid_state"] != "unavailable" and row["status"] not in {"complete", "failed", "stopped"}:
-                    row["status"] = "dead"
-                row["probed_at"] = utc_now()
-            # Keep launch chains while workers can still update their registry rows.
-            retained = {row['launch_id'] for row in rows if row['active'] or alive(row['engine_state'])}
-            for launch_id in list(retained):
-                parent = data['runs'][launch_id].get('parent_launch_id')
-                while parent and parent not in retained and parent in data['runs']:
-                    retained.add(parent)
-                    parent = data['runs'][parent].get('parent_launch_id')
-            local = local_identity()
-            for row in rows:
-                host = row['host']
-                previous_boot = host.get('host') == local['host'] and host.get('boot_id') and host['boot_id'] != local['boot_id']
-                known_inactive = previous_boot or (host == local and all(row[key] != 'unavailable' for key in ('pid_state', 'launcher_state', 'engine_state')))
-                output = Path(row['output'])
-                if row['launch_id'] in retained or not known_inactive or not output.is_relative_to(self.root):
-                    continue
-                try:
-                    output.stat()
-                except FileNotFoundError:
-                    del data['runs'][row['launch_id']]
-                except OSError:
-                    pass  # Inaccessible storage is not evidence of deletion.
-            rows = list(data['runs'].values())
+        rows = self.records()
+        for row in rows:
+            row['pid_state'] = probe_process(row.get('process'), row['host'])
+            engine = row.get('engine')
+            if not engine or not alive(probe_process(engine, row['host'])):
+                engine = vivado_engine(row.get('process'), row['host'])
+            row['engine'] = engine
+            row['engine_pid'] = engine.get('pid') if engine else None
+            row['engine_state'] = probe_process(engine, row['host'])
+            row['launcher_state'] = probe_process(row.get('launcher'), row['host'])
+            active = alive(row['pid_state']) or (alive(row['launcher_state']) and
+                     (not row.get('finished_at') or row.get('continuation_pending')))
+            row['active'] = active
+            if not active and row['pid_state'] != 'unavailable' and row['status'] not in {'complete', 'failed', 'stopped'}:
+                row['status'] = 'dead'
+            row['probed_at'] = utc_now()
         return rows
 
     def watch_status(self, *, all_runs: bool = False) -> None:
@@ -340,27 +269,25 @@ class BuildRegistry:
         for process in processes:
             process["launch_id"] = known.get(process["pid"])
             process["registered"] = process["pid"] in known
-        print(json.dumps({"registry": str(self.path), "processes": processes}, indent=2))
+        print(json.dumps({"project": str(self.project), "processes": processes}, indent=2))
 
     def stop_all(self, output: str | None = None) -> None:
         #######################################################################
         # Mark cancellation before signals so exact-timestamp chains stop too. #
         #######################################################################
-        if not self.path.exists():
-            print("No registered launches")
-            self.discover()
-            return
-        with self.locked() as data:
-            rows = []
-            for row in data["runs"].values():
-                if output is not None and row.get("output") != output:
-                    continue
-                live_process = alive(probe_process(row.get("process"), row["host"]))
-                live_owner = alive(probe_process(row.get("launcher"), row["host"]))
-                if live_process or (live_owner and (not row.get("finished_at") or row.get("continuation_pending"))):
-                    row["stop_requested"] = True
-                    row["status"] = "stopping"
-                    rows.append(dict(row))
+        rows = []
+        for observed in self.records():
+            if output is not None and observed['output'] != output:
+                continue
+            folder = Path(observed['output'])
+            with edit_run(folder) as config:
+                row = config['execution']
+                live_process = alive(probe_process(row.get('process'), row['host']))
+                live_owner = alive(probe_process(row.get('launcher'), row['host']))
+                if live_process or (live_owner and (not config.get('finished_at') or row.get('continuation_pending'))):
+                    row['stop_requested'] = True
+                    config['status'] = 'stopping'
+                    rows.append(dict(row, output=str(folder)))
         owners = set()
         for row in rows:
             row["group_members"] = group_members(row.get("process"), row["host"])

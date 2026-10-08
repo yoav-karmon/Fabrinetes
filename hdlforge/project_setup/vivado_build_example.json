@@ -1,6 +1,5 @@
 {
   "vivado_version": "2025.1",
-  "output_root": "compilation",
   "runs": {
     "synth_example": {
       "script": "compilation/synth_example/run.tcl",

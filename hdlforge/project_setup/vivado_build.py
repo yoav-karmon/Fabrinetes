@@ -15,7 +15,7 @@ import signal
 import subprocess
 import sys
 
-from vivado_build_config import BUILD_HELP, ARTIFACT_FLAGS, build_names
+from vivado_build_config import BUILD_HELP, ARTIFACT_FLAGS, build_names, synthesis_folder
 from vivado_build_artifacts import manage_artifacts
 from vivado_build_registry import BuildRegistry, BuildStopped, utc_now
 from vivado_build_paths import resolve_latest_path
@@ -71,8 +71,8 @@ def normalize_run(project: Path, run: dict, stage: str, selections: dict | None 
     return config
 
 
-def select_run(project: Path, selector: str, timestamp: str | None = None) -> dict:
-    """Select immutable metadata independently of physical directory names."""
+def prepare_run_config(project: Path, selector: str, timestamp: str | None = None) -> dict:
+    """Resolve the requested build inputs and calculate attempt paths without creating files."""
     project = project.resolve()
     selector = resolve_selector(project, selector)
     parsed = parse_selector(selector)
@@ -84,7 +84,6 @@ def select_run(project: Path, selector: str, timestamp: str | None = None) -> di
         return select_bitstream(project, parsed)
     data = json.loads(project.read_text())
     settings = data['vivado']['non_project']
-    root = (project.parent / settings['output_root']).resolve()
     synthesis, _, implementation = selector.partition('.')
     if parsed:
         synthesis, implementation = parsed['run'], parsed['impl']
@@ -93,7 +92,7 @@ def select_run(project: Path, selector: str, timestamp: str | None = None) -> di
         raise ValueError(f'Unknown synthesis/IP run: {synthesis}')
     definition = settings['runs'][synthesis]
     if implementation:
-        parent = find_run(root / synthesis, timestamp or 'latest', synthesis)
+        parent = find_run(synthesis_folder(project, settings, synthesis), timestamp or 'latest', synthesis)
         parent_config = read_run(parent)
         checkpoint = parent / 'artifacts' / f"{parent_config.get('top', 'top')}.dcp"
         if not checkpoint.is_file():
@@ -122,13 +121,13 @@ def select_run(project: Path, selector: str, timestamp: str | None = None) -> di
             name: normalize_run(project, child, 'impl')
             for name, child in definition.get('impl_runs', {}).items()
         }
-        output = root / synthesis / new_label()
+        output = synthesis_folder(project, settings, synthesis) / new_label()
         config.update(input_dcp='', project_file=str(project), project_sha256=hash_source(project))
     config.update(new_identity())
     config.setdefault('synthesis_run_id', config['run_id'])
     config['timestamp'] = config['created_at']
     config.setdefault('project_root', str(project.parent))
-    config.update(output=str(output), output_root=str(root),
+    config.update(output=str(output),
                   selector=synthesis + ('.' + implementation if implementation else ''),
                   vivado_version=(saved_data['vivado']['non_project'] if implementation else settings).get('vivado_version', ''))
     return config
@@ -223,7 +222,7 @@ def execute_locked(project: Path, config: dict, executable: str = "vivado") -> i
     output = Path(config["output"])
     output.parent.mkdir(parents=True, exist_ok=True)
     output.mkdir(exist_ok=True)
-    registry = BuildRegistry(Path(config["output_root"]))
+    registry = BuildRegistry(project)
     launch_id = None
     exit_code = 1
     stopped = False
@@ -382,8 +381,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.build_status or args.build_status_all or args.stopall or args.find_all_user_runs:
             if args.build or args.auto_impl or args.synth_timestamp:
                 raise ValueError("Process actions use --build without a run name or continuation options")
-            data = json.loads(project.read_text())
-            registry = BuildRegistry(project.parent / data["vivado"]["non_project"]["output_root"])
+            registry = BuildRegistry(project)
             if args.build_status or args.build_status_all:
                 registry.watch_status(all_runs=args.build_status_all)
             elif args.stopall:
@@ -416,18 +414,17 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError('Status/stop do not accept build modifiers')
             folder = selected_run_folder(project, parsed_build)
             config = read_run(folder)
-            registry = BuildRegistry(Path(config['output_root']))
-            registry.refresh()
-            config = read_run(folder)
+            registry = BuildRegistry(project)
+            observed = next((row for row in registry.refresh() if row['output'] == str(folder)), config)
             if parsed_build['action'] == 'stop':
                 registry.stop_all(str(folder))
             else:
-                print(json.dumps(dict(attempt=folder.name, status=config.get('status'),
-                                      exit_code=config.get('exit_code'), manifest=str(folder / CONFIG),
+                print(json.dumps(dict(attempt=folder.name, status=observed.get('status'),
+                                      exit_code=observed.get('exit_code'), manifest=str(folder / CONFIG),
                                       log=str(folder / 'build.log')), indent=2))
             return 0
         if not args.background_worker:
-            config = select_run(project, args.build, args.synth_timestamp)
+            config = prepare_run_config(project, args.build, args.synth_timestamp)
             return background_follow(project, config, list(argv if argv is not None else sys.argv[1:]))
         implementations = list(dict.fromkeys(args.auto_impl))
         if implementations:
@@ -445,7 +442,7 @@ def main(argv: list[str] | None = None) -> int:
         config = None
         try:
             config = (read_run(Path(args.prepared_run)) if args.prepared_run else
-                      select_run(project, args.build, args.synth_timestamp))
+                      prepare_run_config(project, args.build, args.synth_timestamp))
             config.pop('execution', None)
             config["auto_impl"] = implementations
             result = execute(project, config)
@@ -454,7 +451,7 @@ def main(argv: list[str] | None = None) -> int:
             for implementation in implementations:
                 # Always pin to THIS synthesis; another concurrent run may be newer.
                 child_selector = f"{base_build}.{config['synthesis_run_id']}.{implementation}.run"
-                child = select_run(project, child_selector)
+                child = prepare_run_config(project, child_selector)
                 child["parent_launch_id"] = config["launch_id"]
                 log_continuation(config, child, child_selector, 'synthesis passed; implementation starting')
                 try:
@@ -469,7 +466,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         finally:
             if config and config.get("launch_id"):
-                BuildRegistry(Path(config["output_root"])).update(config["launch_id"], continuation_pending=False)
+                BuildRegistry(project).update(config["launch_id"], continuation_pending=False)
             for sig, handler in previous.items():
                 signal.signal(sig, handler)
     except (BuildStopped, KeyboardInterrupt):

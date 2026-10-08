@@ -34,7 +34,7 @@ that attempt. Tcl emits events to the Python runner, which records design
 identity, stage times, tool version, status and exit code in the manifest.
 `build.log` is the single human-readable build log. Vivado auxiliary files stay
 in `work/`. `.manifest.lock` and the run lock are internal synchronization files.
-The global registry indexes attempts; it does not duplicate new run records.
+Status and stop-all scan the configured run folders; no global registry is used.
 
 Each script declares part/top with `::hdlforge::design $top $part` and owns
 defines, parameters (including threads), file-read commands and properties.

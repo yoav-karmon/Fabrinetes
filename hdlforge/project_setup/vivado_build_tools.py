@@ -12,19 +12,13 @@ import sys
 import zipfile
 
 from vivado_build import file_path, normalize_run
-from vivado_build_config import BUILD_HELP, RUN_NAME
+from vivado_build_config import BUILD_HELP, RUN_NAME, synthesis_folder
 
 
-def lint_layout(project: Path, output_root: Path, selector: str, run: dict) -> list[str]:
-    """Check named run folders and all directly configured Tcl script paths."""
+def lint_layout(project: Path, selector: str, run: dict, expected: Path) -> list[str]:
+    """Allow nested synthesis folders; keep implementation scripts beside them."""
     errors = []
-    names = selector.split(".")
-    expected = output_root / names[0]
-    resolved_root = output_root.resolve()
-    resolved_synth = (output_root / names[0]).resolve()
     resolved_run = expected.resolve()
-    if resolved_synth.parent != resolved_root:
-        errors.append(f"{selector}: synthesis folder escapes output_root: {resolved_synth}")
     if not expected.is_dir():
         errors.append(f"{selector}: missing run folder: {expected}")
     script = run.get("script")
@@ -32,8 +26,6 @@ def lint_layout(project: Path, output_root: Path, selector: str, run: dict) -> l
         path = (project.parent / script).resolve()
         if path.parent != resolved_run:
             errors.append(f"{selector}: script must be directly in {expected}: {path}")
-        if not path.is_relative_to(resolved_root):
-            errors.append(f"{selector}: script is outside output_root: {path}")
     return errors
 
 
@@ -91,30 +83,26 @@ def lint_project(project: Path) -> list[str]:
     data = json.loads(project.read_text())
     config = data.get("vivado", {}).get("non_project", {})
     errors = []
-    output_root = None
-    if not isinstance(config.get("output_root"), str) or not config["output_root"]:
-        errors.append("vivado.non_project.output_root must be a nonempty path")
-    else:
-        output_root = (project.parent / config["output_root"]).resolve()
-        if not output_root.is_dir():
-            errors.append(f"output_root is not an existing directory: {output_root}")
     runs = config.get("runs", {})
     if not isinstance(runs, dict) or not runs:
         return errors + ["vivado.non_project.runs must contain a synthesis run"]
+    folders = {}
     for name, synthesis in runs.items():
         if not RUN_NAME.fullmatch(name):
             errors.append(f"Invalid synthesis run name: {name}")
             continue
         try:
-            if output_root is not None:
-                errors.extend(lint_layout(project, output_root, name, synthesis))
+            folder = synthesis_folder(project, config, name)
+            if folder in folders:
+                errors.append(f"{name}: synthesis folder is shared with {folders[folder]}: {folder}")
+            folders[folder] = name
+            errors.extend(lint_layout(project, name, synthesis, folder))
             errors.extend(lint_run(project, name, synthesis, synthesis.get("kind", "synth")))
             for child, implementation in synthesis.get("impl_runs", {}).items():
                 if not RUN_NAME.fullmatch(child):
                     errors.append(f"Invalid implementation run name: {child}")
                     continue
-                if output_root is not None:
-                    errors.extend(lint_layout(project, output_root, f"{name}.{child}", implementation))
+                errors.extend(lint_layout(project, f"{name}.{child}", implementation, folder))
                 errors.extend(lint_run(project, f"{name}.{child}", implementation, "impl"))
         except (AttributeError, TypeError, KeyError) as error:
             errors.append(f"{name}: malformed run configuration: {error}")
@@ -136,19 +124,10 @@ def initialize_example(project: Path) -> None:
         if key != "runs":
             config.setdefault(key, value)
     sample = copy.deepcopy(example["runs"]["synth_example"])
-    # Rebase example snapshot inputs and Tcl references to the chosen root.
-    def rebase(run):
-        run["script"] = run["script"].replace("compilation/", str(config["output_root"]) + "/", 1)
-        run["sources"] = [path.replace("compilation/", str(config["output_root"]) + "/", 1)
-                          if path.startswith("compilation/") else path for path in run["sources"]]
-        for child in run.get("impl_runs", {}).values():
-            rebase(child)
-    rebase(sample)
     runs["synth_example"] = sample
     ip_sample = copy.deepcopy(example["runs"]["ip_example"])
-    rebase(ip_sample)
     runs["ip_example"] = ip_sample
-    destination = project.parent / config["output_root"] / "synth_example"
+    destination = synthesis_folder(project, config, "synth_example")
     ip_destination = destination.parent / "ip_example"
     for folder in (destination, ip_destination):
         if folder.exists() or folder.is_symlink():
@@ -173,13 +152,12 @@ def initialize_example(project: Path) -> None:
             script = destination / "impl_run_example.tcl" if stage == "impl" else folder / "run.tcl"
             with script.open("x") as handle:
                 created_files.append(script)
-                handle.write(Path(__file__).with_name(f"vivado_build_example_{stage}.tcl").read_text()
-                             .replace("compilation/", str(config["output_root"]) + "/"))
+                handle.write(Path(__file__).with_name(f"vivado_build_example_{stage}.tcl").read_text())
             readme = folder / "README.md"
             content = Path(__file__).with_name("vivado_build_example_README.md").read_text()
             for token, value in {"STAGE": stage, "PROJECT": project.name,
                                  "PROJECT_ARG": shlex.quote(project.name),
-                                 "OUTPUT_ROOT": str(config["output_root"])}.items():
+                                 "OUTPUT_ROOT": "compilation"}.items():
                 content = content.replace("{{" + token + "}}", value)
             with readme.open("x") as handle:
                 created_files.append(readme)
@@ -263,7 +241,7 @@ def main(argv: list[str]) -> int:
         if args.init_build_example or args.create:
             initialize_example(project)
             print(f"Added synth_example, nested impl_example, and ip_example to {project}")
-            print("Created all three run.tcl examples under output_root, including private-copy IP regeneration.")
+            print("Created all three run.tcl examples beside their maintained scripts, including private-copy IP regeneration.")
             print("Each example folder includes a README.md with commands, settings and snapshots and logical latest selection.")
             print("Replace example input paths and select your FPGA part before building; no Vivado execution.")
             print("Then build ip_example first, synth_example second, and synth_example.impl_example last.")

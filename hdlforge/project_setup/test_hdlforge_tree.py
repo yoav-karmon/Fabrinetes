@@ -110,8 +110,8 @@ class CompletionTreeTest(unittest.TestCase):
             project = root / "demo.hdlforge.json"
             project.write_text(json.dumps({"vivado": {"non_project": {
                 "output_root": "compilation", "runs": {
-                    "demo": {"impl_runs": {"route": {}}},
-                    "other": {"impl_runs": {"other_route": {}}}}}}}))
+                    "demo": {"script": "compilation/demo/run.tcl", "impl_runs": {"route": {}}},
+                    "other": {"script": "compilation/other/run.tcl", "impl_runs": {"other_route": {}}}}}}}))
             output = root / "compilation/demo/_attempt"
             write_run(output, dict(new_identity(), stage="synth", selector="demo", output=str(output),
                                    status="complete", exit_code=0, top="top", project_file=str(project), implementation_configs={"route": {"script": str(output / "run.tcl")}}))

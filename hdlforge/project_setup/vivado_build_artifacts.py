@@ -9,7 +9,7 @@ import re
 import shutil
 import subprocess
 
-from vivado_build_config import build_names
+from vivado_build_config import build_names, synthesis_folder
 from vivado_build_layout import run_lock_path, CONFIG, IDENTITY, LEGACY_CONFIG, descendant_runs, find_run, read_run, run_directories
 from vivado_build_selector import parse_selector, resolve_selector
 
@@ -19,7 +19,7 @@ def selected_folders(project: Path, selector: str, timestamp: str | None) -> lis
         raise ValueError(f'Unknown build: {selector}')
     settings = data['vivado']['non_project']
     synthesis, _, implementation = selector.partition('.')
-    root = project.parent / settings['output_root'] / synthesis
+    root = synthesis_folder(project, settings, synthesis)
     parents = [find_run(root, timestamp)] if timestamp else run_directories(root)
     if implementation:
         return [child for parent in parents for child in run_directories(parent / 'impl_runs' / implementation, selector)]
@@ -137,7 +137,7 @@ def manage_artifacts(project: Path, selector: str, action: str, timestamp: str |
         folders = [folder for folder in folders if read_run(folder)['run_id'] == attempt]
     settings = json.loads(project.read_text())['vivado']['non_project']
     synthesis, _, implementation = selector.partition('.')
-    root = project.parent / settings['output_root'] / synthesis
+    root = synthesis_folder(project, settings, synthesis)
     lock_roots = ([folder.parent for folder in folders] if timestamp else
                   [parent / 'impl_runs' / implementation for parent in run_directories(root)]
                   if implementation else [root])

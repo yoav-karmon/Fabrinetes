@@ -23,7 +23,6 @@
   "vivado.build": {
     "vivado": {
       "non_project": {
-        "output_root": "compilation",
         "vivado_version": "",
         "runs": {}
       }

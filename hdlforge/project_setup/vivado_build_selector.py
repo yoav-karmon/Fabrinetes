@@ -4,6 +4,7 @@ import json
 import re
 from pathlib import Path
 
+from vivado_build_config import synthesis_folder
 from vivado_build_layout import find_run, read_run, run_directories
 
 STAMP = r"_?[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{6}(?:\.[0-9]{6})?Z"
@@ -48,7 +49,7 @@ def selector_choices(project: Path, data: dict, prefix: str) -> list[str]:
     choices = []
     for name, definition in settings.get('runs', {}).items():
         choices.append(name + '.run')
-        root = project.parent / settings['output_root'] / name
+        root = synthesis_folder(project, settings, name)
         for parent in run_directories(root, name):
             # Show the folder users inspect; identity remains in the manifest.
             label = parent.name
@@ -72,7 +73,7 @@ def selector_choices(project: Path, data: dict, prefix: str) -> list[str]:
 
 def selected_run_folder(project: Path, parsed: dict) -> Path:
     settings = json.loads(project.read_text())['vivado']['non_project']
-    parent = find_run(project.parent / settings['output_root'] / parsed['run'], parsed['synth'], parsed['run'])
+    parent = find_run(synthesis_folder(project, settings, parsed['run']), parsed['synth'], parsed['run'])
     if parsed['impl'] and parsed['attempt'] != 'new':
         return find_run(parent / 'impl_runs' / parsed['impl'], parsed['attempt'], f"{parsed['run']}.{parsed['impl']}")
     return parent
@@ -84,7 +85,7 @@ def resolve_selector(project: Path, selector: str) -> str:
     if parsed is None or parsed['synth'] == 'new':
         return selector
     settings = json.loads(project.read_text())['vivado']['non_project']
-    parent = find_run(project.parent / settings['output_root'] / parsed['run'], parsed['synth'], parsed['run'])
+    parent = find_run(synthesis_folder(project, settings, parsed['run']), parsed['synth'], parsed['run'])
     stem = f"{parsed['run']}.{read_run(parent)['run_id']}"
     if not parsed['impl']:
         return stem + '.' + parsed['action']

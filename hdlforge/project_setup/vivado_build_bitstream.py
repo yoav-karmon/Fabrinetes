@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import shutil
 
+from vivado_build_config import synthesis_folder
 from vivado_build_hash import hash_source
 from vivado_build_layout import run_lock_path, find_run, read_run, new_identity, new_label
 
@@ -16,8 +17,7 @@ def select_bitstream(project: Path, parsed: dict) -> dict:
     definition = settings['runs'][parsed['run']]
     if parsed['impl'] not in definition.get('impl_runs', {}):
         raise ValueError(f"Unknown implementation: {parsed['impl']}")
-    root = (project.parent / settings['output_root']).resolve()
-    parent = find_run(root / parsed['run'], parsed['synth'])
+    parent = find_run(synthesis_folder(project, settings, parsed['run']), parsed['synth'])
     source = find_run(parent / 'impl_runs' / parsed['impl'], parsed['attempt'], f"{parsed['run']}.{parsed['impl']}")
     config = read_run(source)
     if config['stage'] != 'impl':
@@ -36,7 +36,7 @@ def select_bitstream(project: Path, parsed: dict) -> dict:
     selector = f"{parsed['run']}.{parsed['impl']}"
     selection = f"{parsed['run']}.{parsed['synth']}.{parsed['impl']}.bitstream.{parsed['attempt']}"
     config.update(stage='bitstream', output=str(source / 'bitstream_runs' / new_label()),
-                  output_root=str(root), selector=selector, synthesis_run_id=parsed['synth'],
+                  selector=selector, synthesis_run_id=parsed['synth'],
                   input_dcp=str(checkpoint), bitstream_source=str(source),
                   bitstream_source_launch_id=config.get('launch_id'),
                   bitstream_epoch=epoch, build_selection=selection,

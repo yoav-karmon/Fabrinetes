@@ -1,6 +1,7 @@
 """Offline native build and completion contracts; never starts Vivado."""
 
 import contextlib
+import copy
 from concurrent.futures import ThreadPoolExecutor
 import io
 import json
@@ -14,9 +15,9 @@ import unittest
 from unittest.mock import patch
 import zipfile
 
-from vivado_build import execute, main, select_run
+from vivado_build import execute, main, prepare_run_config
 from vivado_build_artifacts import manage_artifacts
-from vivado_build_config import synthesis_timestamps
+from vivado_build_config import project_attempts, synthesis_timestamps
 from vivado_build_layout import CONFIG, metadata_path, find_run, read_run, write_run, new_identity
 from vivado_build_selector import selector_choices
 from vivado_build_registry import BuildRegistry
@@ -74,11 +75,85 @@ class NativeBuildTest(unittest.TestCase):
         self.executable.chmod(0o755)
 
     def build_synthesis(self) -> dict:
-        config = select_run(self.project, 'synth_one.run')
+        config = prepare_run_config(self.project, 'synth_one.run')
         with contextlib.redirect_stdout(io.StringIO()):
             result = execute(self.project, config, str(self.executable))
         self.assertEqual(result, 0, (Path(config['output']) / 'build.log').read_text())
         return config
+
+    def test_nested_run_folder_lifecycle_leaves_default_run_untouched(self) -> None:
+        # Step 1: Keep the default run and add an independently placed run.
+        original = self.build_synthesis()
+        scripts = self.root / 'other_project/subproject/custom_folder'
+        scripts.mkdir(parents=True)
+        for source in (self.root / 'results/synth_one').glob('*.tcl'):
+            shutil.copyfile(source, scripts / source.name)
+        nested = copy.deepcopy(self.synth)
+        for definition in [nested, *nested['impl_runs'].values()]:
+            definition['script'] = str((scripts / Path(definition['script']).name).relative_to(self.root))
+        self.data['vivado']['non_project'].pop('output_root')
+        self.data['vivado']['non_project']['runs']['synth_nested'] = nested
+        self.project.write_text(json.dumps(self.data))
+        self.assertEqual(lint_project(self.project), [])
+        parent = prepare_run_config(self.project, 'synth_nested.run')
+        self.assertEqual(Path(parent['output']).parent, scripts)
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(execute(self.project, parent, str(self.executable)), 0)
+        folder = Path(parent['output'])
+        renamed = folder.with_name('baseline')
+        folder.rename(renamed)
+
+        # Step 2: Discovery, registry and status must resolve the nested attempt.
+        self.assertEqual(synthesis_timestamps(self.project, self.data, 'synth_nested'), [parent['run_id']])
+        self.assertIn('synth_nested.baseline.impl_one.run', selector_choices(self.project, self.data, ''))
+        with contextlib.redirect_stdout(io.StringIO()) as response:
+            self.assertEqual(main(['--project', str(self.project), '--build', 'synth_nested.baseline.status']), 0)
+        self.assertEqual(json.loads(response.getvalue())['attempt'], 'baseline')
+        with patch.object(BuildRegistry, 'stop_all') as stop:
+            self.assertEqual(main(['--project', str(self.project), '--build', 'synth_nested.baseline.stop']), 0)
+            stop.assert_called_once_with(str(renamed))
+        rows = BuildRegistry(self.project).refresh()
+        self.assertEqual(next(row['output'] for row in rows if row['run_id'] == parent['run_id']), str(renamed))
+        # A snapshot may contain old manifests; registry discovery must not enter it.
+        write_run(renamed / 'snapshot/old/_attempt', {**new_identity(), 'selector': 'decoy', 'stage': 'synth'})
+        self.assertEqual(set(project_attempts(self.project, self.data)), {renamed, Path(original['output'])})
+
+        # Step 3: Implementation and bitstream launches remain under their parent.
+        child = prepare_run_config(self.project, 'synth_nested.latest.impl_one.run')
+        self.assertEqual(Path(child['output']).parent, renamed / 'impl_runs/impl_one')
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(execute(self.project, child, str(self.executable)), 0)
+        bitstream = prepare_run_config(self.project, f"synth_nested.latest.impl_one.bitstream.{child['run_id']}")
+        self.assertEqual(Path(bitstream['output']).parent, Path(child['output']) / 'bitstream_runs')
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(execute(self.project, bitstream, str(self.executable)), 0)
+        self.assertTrue((Path(bitstream['output']) / 'artifacts/design.bit').is_file())
+
+        # Step 4: Scoped cleanup deletes only this run's attempts, preserving Tcl.
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(manage_artifacts(self.project, 'synth_nested', '--clean_ignore_artifacts', dry_run=True), 0)
+        self.assertTrue(renamed.exists())
+        # Renamed labels need the same explicit ignore coverage as real saved runs.
+        with (self.root / '.gitignore').open('a') as rules:
+            rules.write('baseline/\n')
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(manage_artifacts(self.project, 'synth_nested', '--clean_ignore_artifacts'), 0)
+        self.assertFalse(renamed.exists())
+        self.assertTrue((scripts / 'run.tcl').is_file())
+        self.assertTrue((Path(original['output']) / 'artifacts/design.dcp').is_file())
+
+    def test_layout_has_no_shared_root_but_keeps_implementation_beside_synthesis(self) -> None:
+        self.data['vivado']['non_project'].pop('output_root')
+        self.project.write_text(json.dumps(self.data))
+        self.assertEqual(lint_project(self.project), [])
+        self.impl['script'] = 'static.xdc'
+        self.project.write_text(json.dumps(self.data))
+        self.assertTrue(any('script must be directly in' in error for error in lint_project(self.project)))
+
+    def test_lint_rejects_runs_sharing_an_attempt_folder(self) -> None:
+        self.data['vivado']['non_project']['runs']['duplicate'] = copy.deepcopy(self.synth)
+        self.project.write_text(json.dumps(self.data))
+        self.assertTrue(any('synthesis folder is shared' in error for error in lint_project(self.project)))
 
     def test_latest_uses_metadata_after_rename(self) -> None:
         first = self.build_synthesis()
@@ -88,10 +163,10 @@ class NativeBuildTest(unittest.TestCase):
         Path(first['output']).rename(older)
         Path(second['output']).rename(newer)
         self.assertEqual(find_run(newer.parent, 'latest'), newer)
-        implementation = select_run(self.project, 'synth_one.latest.impl_one.run')
+        implementation = prepare_run_config(self.project, 'synth_one.latest.impl_one.run')
         self.assertEqual(implementation['parent_run_id'], second['run_id'])
         self.assertEqual(Path(implementation['input_dcp']).parent.parent, newer)
-        explicit = select_run(self.project, f"synth_one.{first['run_id']}.impl_one.run")
+        explicit = prepare_run_config(self.project, f"synth_one.{first['run_id']}.impl_one.run")
         self.assertEqual(Path(explicit['input_dcp']).parent.parent, older)
 
     def test_snapshots_preserve_repository_paths_for_sibling_inputs(self) -> None:
@@ -117,7 +192,7 @@ class NativeBuildTest(unittest.TestCase):
         self.assertTrue((snapshot / 'project/static.xdc').is_file())
         self.assertTrue((snapshot / 'shared/timing.xdc').is_file())
         self.assertFalse((snapshot / '_external').exists())
-        child = select_run(self.project, 'synth_one.latest.impl_one.run')
+        child = prepare_run_config(self.project, 'synth_one.latest.impl_one.run')
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(execute(self.project, child, str(self.executable)), 0)
         child_snapshot = Path(child['output']) / 'snapshot'
@@ -144,7 +219,7 @@ class NativeBuildTest(unittest.TestCase):
         self.assertIn(f'synth_one.{folder.name}.status', choices)
         self.assertIn(f'synth_one.{folder.name}.impl_one.run', choices)
         with self.assertRaisesRegex(ValueError, 'Missing synthesis checkpoint'):
-            select_run(self.project, f'synth_one.{folder.name}.impl_one.run')
+            prepare_run_config(self.project, f'synth_one.{folder.name}.impl_one.run')
 
     def test_status_and_stop_resolve_renamed_attempt_without_relaunch(self) -> None:
         parent = self.build_synthesis()
@@ -168,14 +243,14 @@ class NativeBuildTest(unittest.TestCase):
         # Live project changes must not remove or redirect the saved implementation.
         self.data['vivado']['non_project']['runs']['synth_one']['impl_runs'] = {}
         self.project.write_text(json.dumps(self.data))
-        config = select_run(self.project, 'synth_one.latest.impl_one.run')
+        config = prepare_run_config(self.project, 'synth_one.latest.impl_one.run')
         self.assertEqual(config['project_file'], str(saved_project))
         self.assertEqual([entry['name'] for entry in config['sources']], ['core.xcix', 'static.xdc'])
         # The saved JSON controls selection, even when manifest indexes more inputs.
         document = json.loads(saved_project.read_text())
         document['vivado']['non_project']['runs']['synth_one']['impl_runs']['impl_one']['sources'] = ['static.xdc']
         saved_project.write_text(json.dumps(document))
-        selected = select_run(self.project, 'synth_one.latest.impl_one.run')
+        selected = prepare_run_config(self.project, 'synth_one.latest.impl_one.run')
         self.assertEqual([entry['name'] for entry in selected['sources']], ['static.xdc'])
         # Only the synthesis JSON selects the script; metadata does not override it.
         script = Path(selected['script'])
@@ -183,11 +258,11 @@ class NativeBuildTest(unittest.TestCase):
         script.rename(renamed)
         document['vivado']['non_project']['runs']['synth_one']['impl_runs']['impl_one']['script'] = 'results/synth_one/timing_trial.tcl'
         saved_project.write_text(json.dumps(document))
-        self.assertEqual(select_run(self.project, 'synth_one.latest.impl_one.run')['script'], str(renamed))
+        self.assertEqual(prepare_run_config(self.project, 'synth_one.latest.impl_one.run')['script'], str(renamed))
         renamed.unlink()
         (self.root / 'results/synth_one/timing_trial.tcl').write_text('# live source must never be used\n')
         with self.assertRaisesRegex(ValueError, 'Missing prepared implementation script'):
-            select_run(self.project, 'synth_one.latest.impl_one.run')
+            prepare_run_config(self.project, 'synth_one.latest.impl_one.run')
 
     def test_implementation_cannot_borrow_a_siblings_snapshot(self) -> None:
         # Remove one implementation's indexed input while its sibling retains it.
@@ -197,8 +272,8 @@ class NativeBuildTest(unittest.TestCase):
         saved['implementation_configs']['impl_one']['sources'] = []
         write_run(folder, saved)
         with self.assertRaisesRegex(ValueError, 'absent from its prepared snapshot'):
-            select_run(self.project, 'synth_one.latest.impl_one.run')
-        self.assertTrue(select_run(self.project, 'synth_one.latest.impl_two.run')['sources'])
+            prepare_run_config(self.project, 'synth_one.latest.impl_one.run')
+        self.assertTrue(prepare_run_config(self.project, 'synth_one.latest.impl_two.run')['sources'])
 
     def test_synthesis_preserves_implementation_scripts(self) -> None:
         config = self.build_synthesis()
@@ -231,7 +306,7 @@ class NativeBuildTest(unittest.TestCase):
         (self.root / 'static.xdc').write_text(original)
         parent = self.build_synthesis()
         (self.root / 'static.xdc').write_text('# live edit\n')
-        config = select_run(self.project, 'synth_one.latest.impl_one.run')
+        config = prepare_run_config(self.project, 'synth_one.latest.impl_one.run')
         self.assertEqual(Path(config['sources'][1]['path']).read_text(), original)
         self.assertTrue(Path(config['script']).is_relative_to(Path(parent['output'])))
         self.assertTrue(Path(config['sources'][1]['path']).is_relative_to(Path(parent['output']) / 'impl_runs/impl_one/snapshot'))
@@ -247,7 +322,7 @@ class NativeBuildTest(unittest.TestCase):
         before = json.loads((folder / CONFIG).read_text())
         identities = []
         for name in ('impl_one', 'impl_two'):
-            config = select_run(self.project, f'synth_one.latest.{name}.run')
+            config = prepare_run_config(self.project, f'synth_one.latest.{name}.run')
             with contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(execute(self.project, config, str(self.executable)), 0)
             identities.append(config['run_id'])
@@ -260,7 +335,7 @@ class NativeBuildTest(unittest.TestCase):
 
     def test_concurrent_attempt_metadata_updates_are_not_lost(self) -> None:
         parent = self.build_synthesis()
-        attempts = [select_run(self.project, 'synth_one.latest.impl_one.run') for _ in range(8)]
+        attempts = [prepare_run_config(self.project, 'synth_one.latest.impl_one.run') for _ in range(8)]
         with ThreadPoolExecutor(max_workers=8) as pool:
             list(pool.map(lambda config: write_run(Path(config['output']), config), attempts))
         self.assertEqual({read_run(Path(c['output']))['run_id'] for c in attempts},
@@ -268,7 +343,7 @@ class NativeBuildTest(unittest.TestCase):
 
     def test_completed_attempt_refuses_overwrite(self) -> None:
         parent = self.build_synthesis()
-        config = select_run(self.project, 'synth_one.latest.impl_one.run')
+        config = prepare_run_config(self.project, 'synth_one.latest.impl_one.run')
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(execute(self.project, config, str(self.executable)), 0)
         folder = Path(parent['output'])
@@ -282,7 +357,7 @@ class NativeBuildTest(unittest.TestCase):
         #######################################################################
         # Execute the production driver against fake Vivado commands in Tcl.   #
         #######################################################################
-        config = select_run(self.project, "synth_one.run")
+        config = prepare_run_config(self.project, "synth_one.run")
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(execute(self.project, config, str(self.executable)), 0)
         output = Path(config["output"])
@@ -295,7 +370,7 @@ class NativeBuildTest(unittest.TestCase):
         self.assertIn("set_property used_in_synthesis false /ip/constraints/impl.xdc", calls)
         with self.assertRaisesRegex(ValueError, "Attempt already exists"):
             execute(self.project, config, str(self.executable))
-        implementation = select_run(self.project, "synth_one.latest.impl_one.run")
+        implementation = prepare_run_config(self.project, "synth_one.latest.impl_one.run")
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(execute(self.project, implementation, str(self.executable)), 0)
         impl_output = Path(implementation["output"])
@@ -310,7 +385,7 @@ class NativeBuildTest(unittest.TestCase):
 
     def test_failed_stage_stops_and_preserves_checkpoint(self) -> None:
         self.build_synthesis()
-        config = select_run(self.project, "synth_one.latest.impl_one.run")
+        config = prepare_run_config(self.project, "synth_one.latest.impl_one.run")
         with patch.dict(os.environ, {"FAIL_STAGE": "route_design"}), contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(execute(self.project, config, str(self.executable)), 1)
         output = Path(config["output"])
@@ -322,15 +397,15 @@ class NativeBuildTest(unittest.TestCase):
     def test_invalid_inputs_do_not_create_output(self) -> None:
         (self.root / "static.xdc").unlink()
         with self.assertRaises(ValueError):
-            select_run(self.project, "synth_one.run")
+            prepare_run_config(self.project, "synth_one.run")
         self.assertFalse((self.root / "results/synth_one/artifacts").exists())
 
     def test_empty_artifacts_and_unknown_runs(self) -> None:
         self.assertEqual(synthesis_timestamps(self.project, self.data, "synth_one.impl_one"), [])
         with self.assertRaises(ValueError):
-            select_run(self.project, "synth_one.latest.impl_one.run")
+            prepare_run_config(self.project, "synth_one.latest.impl_one.run")
         with self.assertRaises(ValueError):
-            select_run(self.project, "unknown")
+            prepare_run_config(self.project, "unknown")
 
     def test_example_injection_preserves_existing_settings(self) -> None:
         before = json.loads(self.project.read_text())
@@ -378,7 +453,7 @@ class NativeBuildTest(unittest.TestCase):
         self.synth["steps"] = {"synth_design": {}}
         self.project.write_text(json.dumps(self.data))
         with self.assertRaises(ValueError):
-            select_run(self.project, "synth_one.run")
+            prepare_run_config(self.project, "synth_one.run")
         self.assertFalse((self.root / "results/synth_one/artifacts").exists())
 
     def test_design_settings_in_json_are_rejected(self) -> None:
@@ -389,14 +464,14 @@ class NativeBuildTest(unittest.TestCase):
                 data["vivado"]["non_project"]["runs"]["synth_one"][field] = "obsolete"
                 self.project.write_text(json.dumps(data))
                 with self.assertRaisesRegex(ValueError, "design settings belong in run.tcl"):
-                    select_run(self.project, "synth_one.run")
+                    prepare_run_config(self.project, "synth_one.run")
                 self.project.write_text(json.dumps(self.data))
 
     def test_implementation_tcl_identity_must_match_parent(self) -> None:
         script = self.root / self.impl["script"]
         script.write_text(script.read_text().replace("set top design", "set top different"))
         self.build_synthesis()
-        config = select_run(self.project, "synth_one.latest.impl_one.run")
+        config = prepare_run_config(self.project, "synth_one.latest.impl_one.run")
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(execute(self.project, config, str(self.executable)), 1)
         self.assertIn("Implementation top differs", read_run(Path(config["output"]))["failure"])
@@ -411,7 +486,7 @@ class NativeBuildTest(unittest.TestCase):
     def test_missing_tcl_identity_is_a_failed_run(self) -> None:
         script = self.root / self.synth["script"]
         script.write_text(script.read_text().replace("::hdlforge::design design test-part\n", ""))
-        config = select_run(self.project, "synth_one.run")
+        config = prepare_run_config(self.project, "synth_one.run")
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(execute(self.project, config, str(self.executable)), 1)
         self.assertIn("Run Tcl must declare its identity", read_run(Path(config["output"]))["failure"])
@@ -443,8 +518,8 @@ class NativeBuildTest(unittest.TestCase):
         child = find_run(parent / 'impl_runs/impl_one', 'latest')
         self.assertEqual(read_run(child)['status'], 'complete')
         self.assertFalse((self.root / 'results/_launch_logs').exists())
-        registry = json.loads((self.root / 'results/_run_registry.json').read_text())
-        self.assertTrue(all(isinstance(location, str) for location in registry['runs'].values()))
+        self.assertFalse((self.root / 'results/_run_registry.json').exists())
+        self.assertEqual(len(BuildRegistry(self.project).records()), 2)
 
 
     def test_generated_json_is_relative_and_script_is_unchanged(self) -> None:
@@ -466,7 +541,7 @@ class NativeBuildTest(unittest.TestCase):
 
     def test_implementation_uses_parent_checkpoint_and_only_declared_inputs(self) -> None:
         parent = self.build_synthesis()
-        config = select_run(self.project, 'synth_one.latest.impl_one.run')
+        config = prepare_run_config(self.project, 'synth_one.latest.impl_one.run')
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(execute(self.project, config, str(self.executable)), 0)
         output = Path(config['output'])
@@ -481,14 +556,14 @@ class NativeBuildTest(unittest.TestCase):
 
     def test_selected_checkpoint_change_refuses_new_attempt(self) -> None:
         parent = self.build_synthesis()
-        config = select_run(self.project, 'synth_one.latest.impl_one.run')
+        config = prepare_run_config(self.project, 'synth_one.latest.impl_one.run')
         (Path(parent['output']) / 'artifacts/design.dcp').write_text('changed')
         with self.assertRaisesRegex(ValueError, 'checkpoint missing or changed'):
             execute(self.project, config, str(self.executable))
 
     def test_renamed_parent_and_attempt_keep_identity_and_inputs(self) -> None:
         parent = self.build_synthesis()
-        config = select_run(self.project, 'synth_one.latest.impl_one.run')
+        config = prepare_run_config(self.project, 'synth_one.latest.impl_one.run')
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(execute(self.project, config, str(self.executable)), 0)
         renamed = Path(parent['output']).with_name('timing_trial_1')
@@ -513,7 +588,7 @@ class NativeBuildTest(unittest.TestCase):
             with editable.open('a') as stream:
                 stream.write('\n# ' + marker + '\n')
             constraints.write_text('# ' + marker + '\n')
-            config = select_run(self.project, 'synth_one.latest.impl_one.run')
+            config = prepare_run_config(self.project, 'synth_one.latest.impl_one.run')
             with contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(execute(self.project, config, str(self.executable)), 0)
             configs.append(read_run(Path(config['output'])))
@@ -526,10 +601,10 @@ class NativeBuildTest(unittest.TestCase):
 
     def test_bitstream_regeneration_uses_parent_hash_and_original_epoch(self) -> None:
         parent = self.build_synthesis()
-        implementation = select_run(self.project, 'synth_one.latest.impl_one.run')
+        implementation = prepare_run_config(self.project, 'synth_one.latest.impl_one.run')
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(execute(self.project, implementation, str(self.executable)), 0)
-        config = select_run(self.project, f"synth_one.{parent['run_id']}.impl_one.bitstream.{implementation['run_id']}")
+        config = prepare_run_config(self.project, f"synth_one.{parent['run_id']}.impl_one.bitstream.{implementation['run_id']}")
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(execute(self.project, config, str(self.executable)), 0)
         output = Path(config['output'])
@@ -548,13 +623,13 @@ class NativeBuildTest(unittest.TestCase):
         self.data['vivado']['non_project']['runs']['ip_one'] = dict(
             kind='ip', script='results/ip_one/run.tcl', sources=['core.xcix'])
         self.project.write_text(json.dumps(self.data))
-        config = select_run(self.project, 'ip_one.run')
+        config = prepare_run_config(self.project, 'ip_one.run')
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(execute(self.project, config, str(self.executable)), 0)
         output = Path(config['output'])
         frozen = Path(read_run(output)['sources'][0]['path'])
         self.assertEqual(frozen.read_bytes(), (self.root / 'core.xcix').read_bytes())
-        rerun = select_run(self.project, 'ip_one.run')
+        rerun = prepare_run_config(self.project, 'ip_one.run')
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(execute(self.project, rerun, str(self.executable)), 0)
         self.assertEqual(frozen.read_bytes(), (self.root / 'core.xcix').read_bytes())
@@ -566,11 +641,11 @@ class NativeBuildTest(unittest.TestCase):
         write_run(Path(newest['output']), {'status': 'failed'})
         (Path(newest['output']) / 'artifacts/design.dcp').unlink()
         with self.assertRaisesRegex(ValueError, 'Missing synthesis checkpoint'):
-            select_run(self.project, 'synth_one.latest.impl_one.run')
+            prepare_run_config(self.project, 'synth_one.latest.impl_one.run')
 
     def test_direct_tcl_launch_refuses_changed_checkpoint(self) -> None:
         parent = self.build_synthesis()
-        config = select_run(self.project, 'synth_one.latest.impl_one.run')
+        config = prepare_run_config(self.project, 'synth_one.latest.impl_one.run')
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(execute(self.project, config, str(self.executable)), 0)
         output = Path(config['output'])
@@ -600,14 +675,14 @@ class NativeBuildTest(unittest.TestCase):
         output = Path(config['output'])
         renamed = output.with_name('_arbitrary label')
         output.rename(renamed)
-        rows = BuildRegistry(Path(config['output_root'])).refresh()
+        rows = BuildRegistry(self.project).refresh()
         row = next(row for row in rows if row['run_id'] == config['run_id'])
         self.assertEqual(row['output'], str(renamed))
         self.assertEqual(row['run_log'], str(renamed / 'build.log'))
 
     def test_tracked_implementation_protects_entire_synthesis_cleanup(self) -> None:
         parent = self.build_synthesis()
-        config = select_run(self.project, 'synth_one.latest.impl_one.run')
+        config = prepare_run_config(self.project, 'synth_one.latest.impl_one.run')
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(execute(self.project, config, str(self.executable)), 0)
         bitstream = Path(config['output']) / 'artifacts/design.bit'

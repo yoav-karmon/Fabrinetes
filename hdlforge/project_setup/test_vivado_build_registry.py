@@ -1,5 +1,8 @@
-"""Registry cleanup must preserve active or unobservable launch chains."""
+"""Attempt-local worker discovery, cancellation and concurrent manifest updates."""
 
+from concurrent.futures import ThreadPoolExecutor
+import contextlib
+import io
 import json
 from pathlib import Path
 import subprocess
@@ -7,7 +10,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from vivado_build_registry import BuildRegistry, artifact_protection
+from vivado_build_layout import edit_run, new_identity, read_run, write_run
+from vivado_build_registry import BuildRegistry, BuildStopped, artifact_protection
 
 
 class RegistryCleanupTest(unittest.TestCase):
@@ -62,35 +66,112 @@ class RegistryCleanupTest(unittest.TestCase):
             registry.status()
             self.assertEqual(table.call_args.args[1][0][4], 'Unavailable')
 
-    def test_missing_outputs_prune_only_known_inactive_runs(self):
-        with tempfile.TemporaryDirectory() as folder:
-            registry = BuildRegistry(Path(folder))
-            local = dict(host='host', boot_id='current', pid_namespace=1, uid=1000)
-            old = dict(local, boot_id='previous')
-            remote = dict(local, host='remote')
-            hidden = dict(local, pid_namespace=2)
-            rows = {}
-            for name, host, state in [
-                ('deleted', local, 'dead'), ('rebooted', old, 'unavailable'),
-                ('remote', remote, 'unavailable'), ('hidden', hidden, 'unavailable'),
-                ('active', local, 'R'), ('existing', local, 'dead'),
-                ('parent', local, 'dead'), ('child', local, 'R'),
-                ('engine_alive', local, 'dead'), ('denied', local, 'unavailable'),
-            ]:
-                output = registry.root / name
-                rows[name] = dict(launch_id=name, host=host, process={'state': state},
-                                  launcher=None, output=str(output), status_file=str(output / 'info/status'),
-                                  status='complete', finished_at='2026-09-29T00:00:00+00:00')
-            rows['child']['parent_launch_id'] = 'parent'
-            rows['engine_alive']['engine'] = {'state': 'R'}
-            (registry.root / 'existing').mkdir()
-            registry.path.write_text(json.dumps({'version': 1, 'runs': rows}))
-            with patch('vivado_build_registry.local_identity', return_value=local), \
-                 patch('vivado_build_registry.probe_process', side_effect=lambda process, host: process['state'] if process else 'not_started'), \
-                 patch('vivado_build_registry.vivado_engine', return_value=None):
-                remaining = {row['launch_id'] for row in registry.refresh()}
-            self.assertEqual(remaining, set(rows) - {'deleted', 'rebooted'})
-            self.assertEqual(set(json.loads(registry.path.read_text())['runs']), remaining)
+
+class AttemptManifestTest(unittest.TestCase):
+    def setUp(self) -> None:
+        temporary = tempfile.TemporaryDirectory(prefix='attempt-state-')
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.project = self.root / 'test.hdlforge.json'
+        self.project.write_text(json.dumps({'vivado': {'non_project': {'runs': {
+            'first': {'script': 'one/nested/run.tcl'},
+            'second': {'script': 'elsewhere/run.tcl'},
+        }}}}))
+        self.registry = BuildRegistry(self.project)
+
+    def launch(self, name: str, parent: dict | None = None) -> dict:
+        config = new_identity()
+        folder = (Path(parent['output']) / 'impl_runs/impl' if parent else
+                  self.root / ('one/nested' if name == 'first' else 'elsewhere'))
+        config.update(selector=name, stage='impl' if parent else 'synth',
+                      output=str(folder / ('_' + config['run_id'])),
+                      synthesis_run_id=parent['run_id'] if parent else config['run_id'])
+        if parent:
+            config['parent_launch_id'] = parent['launch_id']
+        config['launch_id'] = self.registry.register(self.project, config)
+        return config
+
+    def test_discovery_without_index_is_scoped_and_read_only(self) -> None:
+        first, second = self.launch('first'), self.launch('second')
+        child = self.launch('first.impl', first)
+        unrelated = self.root / 'unconfigured/_attempt'
+        write_run(unrelated, dict(read_run(Path(first['output'])), execution={'launch_id': 'unrelated'}))
+        before = {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in self.root.rglob('manifest.json')}
+        with patch('vivado_build_registry.probe_process', return_value='unavailable'), \
+             patch('vivado_build_registry.vivado_engine', return_value=None):
+            rows = BuildRegistry(self.project).refresh()
+        self.assertEqual({row['launch_id'] for row in rows}, {run['launch_id'] for run in (first, second, child)})
+        self.assertTrue(all(row['pid_state'] == 'unavailable' for row in rows))
+        self.assertEqual(before, {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in before})
+        self.assertFalse(list(self.root.rglob('_run_registry*')))
+        for run in (first, second, child):
+            self.assertTrue((Path(run['output']) / '.manifest.lock').is_file())
+
+    def test_concurrent_edits_preserve_other_fields_and_cancellation(self) -> None:
+        run = self.launch('first')
+        folder = Path(run['output'])
+        def increment(index: int) -> None:
+            with edit_run(folder) as record:
+                record['count'] = record.get('count', 0) + 1
+            self.registry.update(run['launch_id'], **{f'field_{index}': index})
+        self.registry.update(run['launch_id'], stop_requested=True)
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            list(pool.map(increment, range(40)))
+        record = read_run(folder)
+        self.assertEqual(record['count'], 40)
+        self.assertTrue(record['execution']['stop_requested'])
+        self.assertEqual([record['execution'][f'field_{index}'] for index in range(40)], list(range(40)))
+
+    def test_parent_cancellation_blocks_register_and_attach(self) -> None:
+        parent = self.launch('first')
+        child = self.launch('first.impl', parent)
+        self.registry.update(parent['launch_id'], stop_requested=True)
+        with self.assertRaises(BuildStopped):
+            self.launch('first.impl', parent)
+        with patch('vivado_build_registry.process_info', return_value={'pid': 123}), self.assertRaises(BuildStopped):
+            self.registry.attach(child['launch_id'], 123)
+        self.assertTrue(read_run(Path(child['output']))['execution']['stop_requested'])
+
+    def test_stop_all_uses_manifests_and_marks_before_signalling(self) -> None:
+        first, second = self.launch('first'), self.launch('second')
+        child = self.launch('first.impl', first)
+        rows = self.registry.records()
+        live = True
+        def probe(process: dict | None, host: dict) -> str:
+            return 'R' if process and live else 'dead'
+        def signal(process: dict | None, host: dict, number: int, **kwargs) -> None:
+            nonlocal live
+            self.assertTrue(all(read_run(Path(row['output']))['execution']['stop_requested'] for row in rows))
+            live = False
+        with patch('vivado_build_registry.probe_process', side_effect=probe), \
+             patch('vivado_build_registry.signal_process', side_effect=signal) as signals, \
+             patch('vivado_build_registry.group_members', return_value=[]), \
+             patch.object(self.registry, 'discover'), contextlib.redirect_stdout(io.StringIO()):
+            self.registry.stop_all()
+        self.assertTrue(signals.called)
+        for run in (first, second, child):
+            record = read_run(Path(run['output']))
+            self.assertEqual(record['status'], 'stopped')
+            self.assertEqual(record['exit_code'], 130)
+        with self.assertRaises(BuildStopped):
+            self.launch('first.impl', first)
+
+    def test_scoped_stop_leaves_other_run_unchanged(self) -> None:
+        first, second = self.launch('first'), self.launch('second')
+        second_folder = Path(second['output'])
+        before = (second_folder / 'manifest.json').read_bytes()
+        live = True
+        def probe(process: dict | None, host: dict) -> str:
+            return 'R' if process and live else 'dead'
+        def signal(*args, **kwargs) -> None:
+            nonlocal live
+            live = False
+        with patch('vivado_build_registry.probe_process', side_effect=probe), \
+             patch('vivado_build_registry.signal_process', side_effect=signal), \
+             patch('vivado_build_registry.group_members', return_value=[]), \
+             patch.object(self.registry, 'discover'), contextlib.redirect_stdout(io.StringIO()):
+            self.registry.stop_all(first['output'])
+        self.assertEqual((second_folder / 'manifest.json').read_bytes(), before)
 
 
 if __name__ == '__main__':
