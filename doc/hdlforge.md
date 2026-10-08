@@ -639,6 +639,13 @@ Status reads manifests without modifying them. Cancellation is recorded under
 the parent attempt's manifest lock before an automatic child can register.
 Existing `_run_registry.json` and `_run_registry.lock` files are left untouched.
 
+`vivado.build.status_all` groups each synthesis attempt with its implementation
+attempts directly below it. Child labels are relative to the synthesis row and
+indented one level (four spaces for stable table alignment). Groups containing
+active workers appear first; synthesis remains above its children even when
+only an implementation is running. An implementation whose synthesis row is
+unavailable retains its full identity. Timing and process columns remain per attempt.
+
 `vivado.build.clean_ignore_artifacts` also removes orphan `_<run-id>.run.lock`
 files after their attempts have been deleted, including leftovers from earlier
 cleanup calls. It preserves held locks, locks for existing attempts, tracked or

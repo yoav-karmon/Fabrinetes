@@ -11,10 +11,39 @@ import unittest
 from unittest.mock import patch
 
 from vivado_build_layout import edit_run, new_identity, read_run, write_run
-from vivado_build_registry import BuildRegistry, BuildStopped, artifact_protection, run_selection
+from vivado_build_registry import BuildRegistry, BuildStopped, artifact_protection, run_selection, status_hierarchy
 
 
 class RegistryCleanupTest(unittest.TestCase):
+    def test_status_hierarchy_keeps_active_child_below_completed_parent(self):
+        parent = dict(selector='old_synth', current_synthesis='cme.synth', stage='synth',
+                      synth_timestamp='parent-id', run_id='parent-id', active=False, started_at='2026-10-01')
+        child = dict(selector='cme.synth.impl', current_synthesis='cme.synth', stage='impl',
+                     synth_timestamp='parent-id', run_id='child-id', active=True, started_at='2026-10-03')
+        other = dict(parent, synth_timestamp='other-id', run_id='other-id', started_at='2026-09-01')
+        displayed = status_hierarchy([child, other, parent])
+        self.assertEqual([row['run_id'] for row, _ in displayed], ['parent-id', 'child-id', 'other-id'])
+        self.assertEqual([label for _, label in displayed],
+                         ['cme.synth.parent-id', '    impl.child-id', 'cme.synth.other-id'])
+
+    def test_orphan_implementation_keeps_full_identity(self):
+        row = dict(selector='cme.synth.impl', stage='impl', synth_timestamp='missing-parent', run_id='child')
+        self.assertEqual(status_hierarchy([row])[0][1], 'cme.synth.missing-parent.impl.child')
+
+    def test_status_all_enriches_and_renders_in_parent_child_order(self):
+        registry = BuildRegistry(Path('/tmp/registry-display-test'))
+        parent = dict(selector='synth', stage='synth', output='/tmp/parent', host={}, active=False,
+                      pid_state='dead', status='complete', engine=None, synth_timestamp='p', run_id='p')
+        child = dict(parent, selector='synth.impl', stage='impl', output='/tmp/child', run_id='c')
+        with patch.object(registry, 'refresh', return_value=[child, parent]), \
+             patch('vivado_build_registry.enrich', return_value={'records': [{'LOG_WNS': 1}, {'LOG_WNS': 2}]}) as analyze, \
+             patch('vivado_build_registry.artifact_protection', return_value='No'), \
+             patch('vivado_build_registry.create_matrix_table_from_data', return_value='table') as table, \
+             patch('builtins.print'):
+            registry.status(all_runs=True)
+        self.assertEqual([row['DIRECTORY'] for row in analyze.call_args.args[0]['records']], ['/tmp/parent', '/tmp/child'])
+        self.assertEqual([(row[0], row[6]) for row in table.call_args.args[1]], [('synth.p', 1), ('    impl.c', 2)])
+
     def test_protection_follows_git_ignore_exceptions(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

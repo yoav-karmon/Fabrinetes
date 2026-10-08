@@ -67,6 +67,37 @@ def unobserved_run(row: dict) -> bool:
     return row['pid_state'] == 'unavailable' and (not finished or row.get('continuation_pending', False))
 
 
+def status_hierarchy(rows: list[dict]) -> list[tuple[dict, str]]:
+    ###########################################################################
+    # Keep each synthesis attempt directly above its implementations, including
+    # manually launched children without parent_launch_id. Active groups lead.
+    ###########################################################################
+    groups = {}
+    for row in rows:
+        synthesis = row['selector']
+        if row.get('stage') in {'impl', 'bitstream'}:
+            synthesis = synthesis.rpartition('.')[0]
+        key = (row.get('current_synthesis', synthesis), row.get('synth_timestamp') or row.get('run_id', '-'))
+        groups.setdefault(key, []).append(row)
+    ordered = sorted(groups.values(), key=lambda group: (
+        not any(row.get('active') for row in group),
+        min(row.get('started_at', '') for row in group),
+        run_selection(group[0]),
+    ))
+    result = []
+    for group in ordered:
+        group.sort(key=lambda row: (row.get('stage') != 'synth', row.get('started_at', ''), run_selection(row)))
+        parent = next((row for row in group if row.get('stage') == 'synth'), None)
+        prefix = run_selection(parent) + '.' if parent else ''
+        for row in group:
+            label = run_selection(row)
+            if row is not parent and prefix and label.startswith(prefix):
+                # Expand one indentation level to spaces so table columns align.
+                label = '    ' + label[len(prefix):]
+            result.append((row, label))
+    return result
+
+
 def artifact_protection(output: str) -> str:
     """Report cleanup protection using the cleanup command's own Git rules."""
     folder = Path(output)
@@ -221,6 +252,8 @@ class BuildRegistry:
             print("No registered builds" if all_runs else "No active builds")
             return
         rows.sort(key=lambda row: (not row['active'], row.get('started_at', '')))
+        displayed = status_hierarchy(rows) if all_runs else [(row, run_selection(row)) for row in rows]
+        rows = [row for row, _ in displayed]
         analysis = enrich({'records': [
             # Running enables log enrichment; the registry status stays authoritative.
             {'STATUS': 'Running', 'DIRECTORY': str(Path(row.get('run_log', str(Path(row['output']) / 'build.log'))).parent), 'WORKER_RECORD': {
@@ -237,7 +270,7 @@ class BuildRegistry:
             detail = details[index] if index < len(details) else {}
             worker = detail.get('WORKER_STATS', {})
             table.append([
-                run_selection(row),
+                displayed[index][1],
                 row.get('engine_pid') or '-',
                 row.get('stage', '-'), row.get('status', '-'),
                 thread_activity(row.get('engine'), row['host']) if row['active'] else ('Unavailable' if unobserved_run(row) else 'Exited'),
