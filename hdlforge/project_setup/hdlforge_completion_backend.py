@@ -201,7 +201,11 @@ def complete_dotted_paths(all_paths: list[str], cur: str) -> CompletionResult:
         return CompletionResult([])
 
     exact_branch_prefix = ""
-    if cur:
+    # An exact branch may also prefix a longer sibling (cancel_fire vs
+    # cancel_fire_with_timestamping). Stay at the sibling level until the
+    # user types the dot; otherwise common-prefix completion hides the sibling.
+    longer_sibling = any(path.startswith(cur) and path != cur and not path.startswith(f"{cur}.") for path in all_paths)
+    if cur and not longer_sibling:
         for path in all_paths:
             if path.startswith(f"{cur}."):
                 exact_branch_prefix = f"{cur}."

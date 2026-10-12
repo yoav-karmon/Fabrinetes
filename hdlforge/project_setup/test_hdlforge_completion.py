@@ -69,6 +69,30 @@ printf '%s\\0' "${COMPREPLY[@]}"
     def test_single_match_is_never_annotated(self):
         self.assertEqual(self.complete(63, "aliases.demo.al"), ["aliases.demo.alpha"])
 
+    def test_build_completion_keeps_longer_sibling_after_common_prefix(self):
+        # Step 1: Mirror the production variant names without launching builds.
+        data = json.loads(self.project.read_text())
+        run = {"is_hdlforge_run": "true", "script": "not_created/run.tcl"}
+        data['vivado']['non_project']['runs'] = {'cme': {
+            'cancel_fire': {'synth_production': run},
+            'cancel_fire_with_timestamping': {'synth_production': run},
+        }}
+        self.project.write_text(json.dumps(data))
+        prefix = 'vivado.build.runs.cme.cancel_fire'
+        expected = [prefix + '.', prefix + '_with_timestamping.']
+
+        # Step 2: First Tab's common prefix must not hide the longer sibling.
+        self.assertEqual(self.complete(9, prefix[:-3]), expected)
+        self.assertEqual(self.complete(9, prefix), expected)
+        self.assertEqual(self.complete(37, prefix), expected)
+        self.assertIn(prefix + '_with_timestamping.', '\n'.join(self.complete(63, prefix)))
+
+        # Step 3: An explicit dot commits to the short variant's children.
+        children = self.complete(9, prefix + '.')
+        self.assertIn(prefix + '.synth_production.', children)
+        self.assertFalse(any('_with_timestamping' in item for item in children))
+        self.assertEqual(self.complete(9, prefix + '_with'), [prefix + '_with_timestamping.'])
+
     def test_double_tab_lists_flags_at_root_group_and_exact_command(self):
         for word in ('', 'settings.', 'settings.validate.python'):
             with self.subTest(word=word):
