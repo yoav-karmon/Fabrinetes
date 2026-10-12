@@ -15,6 +15,28 @@ from vivado_build_registry import BuildRegistry, BuildStopped, artifact_protecti
 
 
 class RegistryCleanupTest(unittest.TestCase):
+    def test_display_uses_exact_folder_name_not_saved_id_or_selection(self):
+        row = dict(selector='old_synth', current_synthesis='cme.synth', stage='synth',
+                   synth_timestamp='internal-id', run_id='internal-id',
+                   build_selection='old_synth.internal-id',
+                   attempt_path='_2026-10-12T163610.820549Z')
+        self.assertEqual(run_selection(row), 'cme.synth._2026-10-12T163610.820549Z')
+
+    def test_display_indents_child_using_actual_parent_and_child_folders(self):
+        parent = dict(selector='cme.synth', stage='synth', synth_timestamp='parent-id',
+                      run_id='parent-id', attempt_path='renamed-parent')
+        child = dict(parent, selector='cme.synth.impl_production', stage='impl', run_id='child-id',
+                     attempt_path='renamed-parent/impl_runs/impl_production/renamed-child')
+        self.assertEqual([label for _, label in status_hierarchy([child, parent])],
+                         ['cme.synth.renamed-parent', '    impl.impl_production.renamed-child'])
+        self.assertEqual(status_hierarchy([child])[0][1],
+                         'cme.synth.renamed-parent.impl.impl_production.renamed-child')
+
+    def test_display_preserves_nested_bitstream_folder(self):
+        row = dict(selector='cme.synth.impl_production', stage='bitstream',
+                   attempt_path='parent/impl_runs/impl_production/child/bitstream_runs/rewrite')
+        self.assertEqual(run_selection(row), 'cme.synth.parent.impl.impl_production.child.bitstream.rewrite')
+
     def test_status_clock_uses_central_daylight_or_standard_time(self):
         self.assertRegex(
             central_now(),
@@ -197,10 +219,10 @@ class AttemptManifestTest(unittest.TestCase):
         self.project.write_text(json.dumps(data))
 
         rows = {row['launch_id']: row for row in BuildRegistry(self.project).records()}
-        stem = f"cme.cancel_fire.first.{parent['run_id']}"
+        stem = f"cme.cancel_fire.first._{parent['run_id']}"
         self.assertEqual(run_selection(rows[parent['launch_id']]), stem)
-        self.assertEqual(run_selection(rows[child['launch_id']]), f"{stem}.impl.{child['run_id']}")
-        self.assertEqual(run_selection(rows[bitstream['launch_id']]), f"{stem}.impl.bitstream.{child['run_id']}")
+        self.assertEqual(run_selection(rows[child['launch_id']]), f"{stem}.impl.impl._{child['run_id']}")
+        self.assertEqual(run_selection(rows[bitstream['launch_id']]), f"{stem}.impl.impl._{child['run_id']}.impl.impl._{bitstream['run_id']}")
         self.assertEqual(before, {path: path.read_bytes() for path in before})
 
     def test_concurrent_edits_preserve_other_fields_and_cancellation(self) -> None:

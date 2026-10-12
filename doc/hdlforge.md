@@ -701,6 +701,11 @@ active workers appear first; synthesis remains above its children even when
 only an implementation is running. An implementation whose synthesis row is
 unavailable retains its full identity. Timing and process columns remain per attempt.
 
+Status labels use the actual discovered attempt folder names, including renamed
+folders, rather than internal run UUIDs. The start-time column is explicitly
+`America/Chicago` (CDT/CST); timestamped folder names ending in `Z` are UTC launch
+times, not completion times. Display changes do not rewrite saved run identities.
+
 `vivado.build.clean_ignore_artifacts` also removes orphan `_<run-id>.run.lock`
 files after their attempts have been deleted, including leftovers from earlier
 cleanup calls. It preserves held locks, locks for existing attempts, tracked or

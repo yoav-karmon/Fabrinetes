@@ -64,11 +64,17 @@ def launch_elapsed(row: dict) -> str:
 
 
 def run_selection(row: dict) -> str:
-    """Use the current JSON hierarchy with the attempts' saved identities."""
+    """Display discovered folder names; retain saved identities as a fallback."""
     synthesis, implementation = row['selector'], ''
     if row.get('stage') in {'impl', 'bitstream'}:
         synthesis, _, implementation = row['selector'].rpartition('.')
     current = row.get('current_synthesis', synthesis)
+    if row.get('attempt_path'):
+        # Resolve labels from discovery, not timestamps/UUIDs saved at launch.
+        # This also preserves renamed folders and nested bitstream attempts.
+        containers = {'impl_runs': 'impl', 'bitstream_runs': 'bitstream'}
+        parts = Path(row['attempt_path']).parts
+        return current + '.' + '.'.join(containers.get(part, part) for part in parts)
     if row.get('build_selection'):
         selection = row['build_selection']
         return current + selection[len(synthesis):] if selection.startswith(synthesis + '.') else selection
@@ -155,9 +161,10 @@ class BuildRegistry:
             except (FileNotFoundError, KeyError):
                 continue  # A queued or historical attempt may have no worker yet.
             # The configured script folder owns historical attempts after JSON regrouping.
-            current = next((roots[parent] for parent in folder.parents if parent in roots), None)
-            if current is not None:
-                row['current_synthesis'] = current
+            root = next((parent for parent in folder.parents if parent in roots), None)
+            if root is not None:
+                row['current_synthesis'] = roots[root]
+                row['attempt_path'] = str(folder.relative_to(root))
             modern = config.get('format_version') == 3
             row.update(output=str(folder),
                        run_log=str(folder / ('build.log' if modern else 'logs/runme.log')),
@@ -311,9 +318,10 @@ class BuildRegistry:
             ])
         print(f"Build status | {central_now()}")
         print(create_matrix_table_from_data(
-            ['Run', 'Vivado PID', 'Stage', 'Status', 'Vivado state', 'W/CW/E', 'WNS(ns)', 'TNS(ns)', 'WHS(ns)', 'THS(ns)', 'Log phase', 'Elapsed', 'RAM used(MB)', 'Peak RAM(MB)', 'Threads', 'Log idle(s)', 'Protected', 'Started (Central)'],
+            ['Run / attempt folder', 'Vivado PID', 'Stage', 'Status', 'Vivado state', 'W/CW/E', 'WNS(ns)', 'TNS(ns)', 'WHS(ns)', 'THS(ns)', 'Log phase', 'Elapsed', 'RAM used(MB)', 'Peak RAM(MB)', 'Threads', 'Log idle(s)', 'Protected', 'Started (America/Chicago)'],
             table,
         ))
+        print('Run labels use actual attempt folder names; timestamped folders ending in Z use UTC. Started is local launch time (CDT/CST), not completion time.')
         print('Protected = tracked files or Git-ignore cleanup exceptions (Yes/No); Missing/Unknown means protection could not be evaluated.')
         if analysis.get('analysis_error'):
             print(f"Log analysis unavailable: {analysis['analysis_error']}")
