@@ -343,6 +343,7 @@ if __name__ == "__main__":
     parser.add_argument('--step', action='append', help='Verilator step (build, sim, lint)')
     parser.add_argument('--SimTargetName', help='Simulation target name')
     parser.add_argument('--clean', action='store_true', help='Clean before building')
+    parser.add_argument('--no-build', action='store_true', help='Simulate a verified existing build; never compile')
     parser.add_argument('--flags', action='append', help='Additional Verilator flags; may be repeated')
     parser.add_argument('--file', dest='project_lint_file', action='append', help='Project-relative Verilator source file(s) for dependency-aware lint')
     parser.add_argument('--lint-file', action='append', help='Project-relative Verilator source file(s) for raw selected-file lint')
@@ -482,6 +483,7 @@ if __name__ == "__main__":
             args.extra_env,
             args.lint_file,
             args.project_lint_file,
+            args.no_build,
         )
     elif args.tool == 'vivado':
         help_vivado()

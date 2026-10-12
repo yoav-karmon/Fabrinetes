@@ -40,12 +40,24 @@ hdlforge vivado.build
 hdlforge vivado.build.runs.synth_example.run
 hdlforge vivado.build.runs.synth_example.latest.impl.impl_example.run
 hdlforge sim-verilator.sim --SimTargetName full_sim
+hdlforge sim-verilator.sim --SimTargetName full_sim --no-build --extra-env TESTCASE=arp_test
 hdlforge vivado.console.send --cmd 'open_checkpoint design.dcp'
 hdlforge --dry-run eval-cmd 'python3 script.py --argument value'
 hdlforge eval-cmd.help
 hdlforge eval-cmd-argv.help
 hdlforge aliases.testing.integration_test.sim.example.run_all
 ```
+
+For parallel Verilator tests, run `sim-verilator.build` once for the selected
+target, then use `sim-verilator.sim --no-build`. Each simulation must select a
+distinct output name (for example, `CONFIG_TEST_SUFFIX` in `--extra-env`).
+`--no-build` never invokes Verilator or make. It requires the build manifest
+and verifies source/include contents, project configuration, target/options
+and executable contents before and after the test. Changes fail the command
+instead of silently rebuilding. It cannot be combined with `--clean`.
+Shared simulation locks allow concurrent readers; an exclusive build lock
+prevents compilation during those reads. Duplicate active output paths fail.
+These locks coordinate HDLForge invocations, not external compiler commands.
 
 `continue` preserves the existing configured-run continuation behavior. `new`
 requests a new synthesis. Implementation selectors identify their synthesis,

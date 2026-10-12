@@ -10,6 +10,8 @@ import subprocess
 import sys
 import warnings
 from pathlib import Path
+
+from verilator_build_guard import VerilatorBuildGuard
 from typing import List, Dict, Any
 
 
@@ -273,7 +275,7 @@ def verify_sim_target(SimTargetName, verilator_settings):
     return sim_targets_dict[SimTargetName]
 
 
-def Verilator(c, project, step=None, clean=False, SimTargetName=None, flags=None, extra_env=None, lint_file=None, project_lint_file=None):
+def Verilator(c, project, step=None, clean=False, SimTargetName=None, flags=None, extra_env=None, lint_file=None, project_lint_file=None, no_build=False):
     # Import shared utilities
     from environment import capture_environment_variables
     from display import print_task_args
@@ -286,6 +288,8 @@ def Verilator(c, project, step=None, clean=False, SimTargetName=None, flags=None
 
     ALLOWED_STEPS = {"step": ["sim", "build", "lint"], "extra_env": ["DEBUG=1"]}
     cli_flags = _split_cli_flags(flags)
+    if no_build and (clean or step not in (["sim"], "sim")):
+        raise ValueError("--no-build requires sim and cannot be combined with --clean")
 
     if isinstance(step, str):  # Convert single input to list
         step = [step]
@@ -455,10 +459,8 @@ def Verilator(c, project, step=None, clean=False, SimTargetName=None, flags=None
             case "build" | "sim":
                 try:
                     print(f"[i] Verilator step: {s}", flush=True)
-                    print(f"[i] Compiling Verilator sources into: {build_dir}", flush=True)
                     veruilator_sources_file = _resolve_verilator_source_files(SOURCES_DICT_LIST)
                     sys.stdout.flush()
-                    print(f"\n================start of verilator output : build================", flush=True)
                     # Suppress the specific message before importing cocotb.runner
                     warnings.filterwarnings(
                         "ignore",
@@ -476,109 +478,126 @@ def Verilator(c, project, step=None, clean=False, SimTargetName=None, flags=None
                         working_path,
                     )
                     combined_build_args = [*build_args, *cli_flags]
-                    
-                    runner.build(
-                            verilog_sources=veruilator_sources_file,
-                            hdl_toplevel=f"{top_module}",
-                            waves=True,
-                            always=True, 
-                            verbose=False, 
-                            build_dir=f"{build_dir}",   
-                            defines=defines,  
-                            includes=includes_paths_list,
-                            parameters=parameters,
-                            log_file=log_file,  # Use default logging
-                            build_args=combined_build_args,
-                            clean=clean   # force rebuild
-                        )
-                    print(f"================end of verilator output : build================\n", flush=True)
-                    print(f"[+] Verilator build completed", flush=True)
-                    
-                    if s == "sim":
-                        if SimTargetName == "full_sim" and test_name is None:
-                            exit(
-                                "[!x!]  SimTargetName 'full_sim' requires TESTCASE "
-                                'through --env-var \'{"TESTCASE":"arp_test"}\' '
-                                'or --extra-env "TESTCASE=arp_test".'
-                            )
-                        # Clean test directory before simulation to avoid stale logs
-                        test_output_dir = build_dir / run_dir_name
-                        if test_output_dir.exists():
-                            import shutil
-                            print(f"[i] Cleaning test directory: {test_output_dir}", flush=True)
-                            try:
-                                # Remove all contents but keep the directory
-                                for item in test_output_dir.iterdir():
-                                    if item.is_dir():
-                                        shutil.rmtree(item)
-                                    else:
-                                        item.unlink()
-                                print(f"[i] Test directory cleaned", flush=True)
-                            except Exception as e:
-                                print(f"[!x!] Warning: Failed to clean test directory: {e}", flush=True)
-                        
-                        print(f"[i] Verilator simulation started:", flush=True)
-                        print(f"\n================start of verilator output : sim================", flush=True)  
-                        runner.test(
-                            hdl_toplevel=f"{top_module}",
-                            test_module=f"{python_file_path.stem}",  
-                            testcase=test_name,          
-                            build_dir=f"{build_dir}",   
-                            extra_env=extra_env,
-                            test_dir=f"{build_dir}/{run_dir_name}",      # Directory for test outputs
-                            waves=True                  # enables dump.vcd
-                        )
-                        print(f"================end of verilator output : sim================\n", flush=True)
-                        print(f"[i] Verilator simulation completed", flush=True)
-                        
-                        # Check for VCD file generation
-                        vcd_file_path = build_dir / run_dir_name / "dump.vcd"
-                        
-                        if vcd_file_path.exists():
-                            print(f"[i] Found VCD file: {vcd_file_path}")
-                        else:
-                            print(f"[!x!] VCD file not found: {vcd_file_path}")
-                            print(f"[i] Simulation may not have generated VCD file (waves=True required)")
-                        
-                        # List all artifacts and logs that will be generated
-                        test_output_dir = build_dir / run_dir_name
-                        print(f"\n[i] Simulation artifacts location: {test_output_dir}")
-                        print(f"[i] Generated files:")
-                        print(f"    • {test_output_dir}/dump.vcd                    - Waveform data (VCD format)")
-                        print(f"    • {test_output_dir}/results.xml                  - Cocotb test results (XML)")
-                        print(f"    • {test_output_dir}/cocotb_verilator_output.log - Cocotb simulation log")
-                        print(f"    • {test_output_dir}/{run_dir_name}_results.md  - Test report (if generated by test)")
-                        print(f"    • {test_output_dir}/{run_dir_name}_packets.pcap - Packet capture (if generated by test)")
-                        print(f"    • {test_output_dir}/{run_dir_name}_tshark_output.txt - Tshark validation (if generated by test)")
-                        print(f"    • {test_output_dir}/captures/                    - Per-interface captures (if generated by test)")
-                        print("", flush=True)
 
-                        results_xml_path = test_output_dir / "results.xml"
-                        _validate_cocotb_results(results_xml_path, test_name)
-
-                        if not SimTarget.get("post_sim_collect", True):
-                            print(
-                                "[i] Skipping post_sim_collect; disabled by sim target config",
-                                flush=True,
-                            )
-                        else:
-                            # TEST_PATH = directory containing the test script
-                            test_path = str(python_file_path.parent.resolve())
-                            try:
-                                from TEST_UTILS.report_utils import post_sim_collect
-                                dest = post_sim_collect(
-                                    run_dir=str(test_output_dir),
-                                    test_path=test_path,
-                                    test_name=run_dir_name,
+                    request = dict(project=str(Path(project).resolve()), target=SimTargetName,
+                                   top_module=top_module, build_args=combined_build_args,
+                                   includes=[str(path) for path in includes_paths_list],
+                                   sources=[str(path) for path in veruilator_sources_file])
+                    output = build_dir / run_dir_name if s == "sim" else None
+                    with VerilatorBuildGuard(build_dir, request, veruilator_sources_file,
+                                             includes_paths_list, no_build, output) as guard:
+                        if not no_build:
+                            print(f"[i] Compiling Verilator sources into: {build_dir}", flush=True)
+                            print("\n================start of verilator output : build================", flush=True)
+                            runner.build(
+                                    verilog_sources=veruilator_sources_file,
+                                    hdl_toplevel=f"{top_module}",
+                                    waves=True,
+                                    always=True,
+                                    verbose=False,
+                                    build_dir=f"{build_dir}",
+                                    defines=defines,
+                                    includes=includes_paths_list,
+                                    parameters=parameters,
+                                    log_file=log_file,  # Use default logging
+                                    build_args=combined_build_args,
+                                    clean=clean   # force rebuild
                                 )
-                                print(f"[i] Artifacts collected to: {dest}", flush=True)
-                            except ImportError:
-                                pass
-                            except Exception as e:
-                                print(f"[!] Artifact collection failed: {e}", flush=True)
-                    else:
-                        print(f"[i] Skipping Verilator simulation", flush=True)
-                        
+                            print(f"================end of verilator output : build================\n", flush=True)
+                            print(f"[+] Verilator build completed", flush=True)
+
+                            guard.record_build()
+                        if s == "sim":
+                            if SimTargetName == "full_sim" and test_name is None:
+                                exit(
+                                    "[!x!]  SimTargetName 'full_sim' requires TESTCASE "
+                                    'through --env-var \'{"TESTCASE":"arp_test"}\' '
+                                    'or --extra-env "TESTCASE=arp_test".'
+                                )
+                            # Clean test directory before simulation to avoid stale logs
+                            test_output_dir = build_dir / run_dir_name
+                            if test_output_dir.exists():
+                                import shutil
+                                print(f"[i] Cleaning test directory: {test_output_dir}", flush=True)
+                                try:
+                                    # Remove all contents but keep the directory
+                                    for item in test_output_dir.iterdir():
+                                        if item.is_dir():
+                                            shutil.rmtree(item)
+                                        else:
+                                            item.unlink()
+                                    print(f"[i] Test directory cleaned", flush=True)
+                                except Exception as e:
+                                    print(f"[!x!] Warning: Failed to clean test directory: {e}", flush=True)
+
+                            print(f"[i] Verilator simulation started:", flush=True)
+                            print(f"\n================start of verilator output : sim================", flush=True)
+                            runner.test(
+                                hdl_toplevel=f"{top_module}",
+                                hdl_toplevel_lang="verilog",
+                                parameters=parameters,
+                                verbose=False,
+                                test_module=f"{python_file_path.stem}",
+                                testcase=test_name,
+                                build_dir=f"{build_dir}",
+                                extra_env=extra_env,
+                                test_dir=f"{build_dir}/{run_dir_name}",      # Directory for test outputs
+                                waves=True                  # enables dump.vcd
+                            )
+                            print(f"================end of verilator output : sim================\n", flush=True)
+                            print(f"[i] Verilator simulation completed", flush=True)
+
+                            # Check for VCD file generation
+                            vcd_file_path = build_dir / run_dir_name / "dump.vcd"
+
+                            if vcd_file_path.exists():
+                                print(f"[i] Found VCD file: {vcd_file_path}")
+                            else:
+                                print(f"[!x!] VCD file not found: {vcd_file_path}")
+                                print(f"[i] Simulation may not have generated VCD file (waves=True required)")
+
+                            # List all artifacts and logs that will be generated
+                            test_output_dir = build_dir / run_dir_name
+                            print(f"\n[i] Simulation artifacts location: {test_output_dir}")
+                            print(f"[i] Generated files:")
+                            print(f"    • {test_output_dir}/dump.vcd                    - Waveform data (VCD format)")
+                            print(f"    • {test_output_dir}/results.xml                  - Cocotb test results (XML)")
+                            print(f"    • {test_output_dir}/cocotb_verilator_output.log - Cocotb simulation log")
+                            print(f"    • {test_output_dir}/{run_dir_name}_results.md  - Test report (if generated by test)")
+                            print(f"    • {test_output_dir}/{run_dir_name}_packets.pcap - Packet capture (if generated by test)")
+                            print(f"    • {test_output_dir}/{run_dir_name}_tshark_output.txt - Tshark validation (if generated by test)")
+                            print(f"    • {test_output_dir}/captures/                    - Per-interface captures (if generated by test)")
+                            print("", flush=True)
+
+                            results_xml_path = test_output_dir / "results.xml"
+                            _validate_cocotb_results(results_xml_path, test_name)
+
+                            if not SimTarget.get("post_sim_collect", True):
+                                print(
+                                    "[i] Skipping post_sim_collect; disabled by sim target config",
+                                    flush=True,
+                                )
+                            else:
+                                # TEST_PATH = directory containing the test script
+                                test_path = str(python_file_path.parent.resolve())
+                                try:
+                                    from TEST_UTILS.report_utils import post_sim_collect
+                                    # Sim outputs are private; publishing the shared latest
+                                    # report is a short serialized step after simulation.
+                                    guard.lock(str(python_file_path.parent / 'reports'), False)
+                                    dest = post_sim_collect(
+                                        run_dir=str(test_output_dir),
+                                        test_path=test_path,
+                                        test_name=run_dir_name,
+                                    )
+                                    print(f"[i] Artifacts collected to: {dest}", flush=True)
+                                except ImportError:
+                                    pass
+                                except Exception as e:
+                                    print(f"[!] Artifact collection failed: {e}", flush=True)
+                        else:
+                            print(f"[i] Skipping Verilator simulation", flush=True)
+
                 except Exception as e:
                     print("\n[!x!]  Verilator build/simulation failed!", flush=True)
                     print(f"Error: {e}", flush=True)

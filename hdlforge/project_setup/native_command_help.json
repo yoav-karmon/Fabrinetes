@@ -196,7 +196,9 @@
     "--input": null,
     "#--input": "Input",
     "--on-collision": null,
-    "#--on-collision": "On collision"
+    "#--on-collision": "On collision",
+    "--no-build": null,
+    "#--no-build": "Run simulation against a verified existing build without compilation"
   },
   "#values": "Descriptions for native tool and command choices.",
   "values": {
@@ -1231,7 +1233,11 @@
               "--extra-env": {
                 "arity": 1
               },
-              "#--extra-env": "Extra environment variables"
+              "#--extra-env": "Extra environment variables",
+              "--no-build": {
+                "arity": 0
+              },
+              "#--no-build": "Run verified built executable without compilation; reject changed inputs"
             }
           },
           "#sim": "Run the selected simulation target.",
