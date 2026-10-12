@@ -85,6 +85,14 @@ printf '%s\\0' "${COMPREPLY[@]}"
         self.assertEqual([value for value in self.complete(9, 'aliases.demo.alpha', '--project=') if value], [])
         self.assertEqual([value for value in self.complete(9, 'aliases.demo.alpha', '--help', '') if value], [])
 
+    def test_alias_tail_requests_bash_default_completion(self):
+        result, _ = complete_command(["aliases.demo.alpha"], "release/t", self.project.parent)
+        self.assertEqual(result.completions, [])
+        self.assertTrue(result.fallback)
+
+        eval_result, _ = complete_command(["eval-cmd-argv"], "release/t", self.project.parent)
+        self.assertFalse(eval_result.fallback)
+
     def test_spaced_flags_omit_used_options_and_keep_descriptions(self):
         display = '\n'.join(self.complete(63, 'settings.python.verify', '--json', ''))
         self.assertNotIn('--json', display)

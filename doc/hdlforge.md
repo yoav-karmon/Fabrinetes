@@ -83,6 +83,9 @@ Put HDLForge master flags before the alias name. After it, `--project`,
 `hdlforge --help aliases.release` for HDLForge help and
 `hdlforge aliases.release --help` for the script's help. Completion stops offering
 HDLForge flags after an alias. String shortcuts need no schema changes.
+When HDLForge has no candidates after a complete alias, Bash's default
+completion takes over. This provides normal file and directory selection for
+positional script arguments without making HDLForge interpret the alias tail.
 
 `eval-cmd SHELL_TEXT...` gives every remaining command part to Bash `eval`.
 Bash joins those parts with spaces and evaluates the resulting shell text. A

@@ -24,10 +24,11 @@ _hdlforge_runtime_complete() {
     fi
 
     COMPREPLY=()
-    local meta filenames nospace show_table start_index
+    local meta filenames nospace fallback show_table start_index
     meta="${lines[0]}"
     filenames=0
     nospace=0
+    fallback=0
     show_table=0
     start_index=0
 
@@ -36,6 +37,8 @@ _hdlforge_runtime_complete() {
         filenames="${filenames%% *}"
         nospace="${meta#*nospace=}"
         nospace="${nospace%% *}"
+        fallback="${meta#*fallback=}"
+        fallback="${fallback%% *}"
         show_table="${meta##*display=}"
         show_table="${show_table%% *}"
         start_index=1
@@ -58,4 +61,5 @@ _hdlforge_runtime_complete() {
 
     [[ "$filenames" == "1" ]] && compopt -o filenames 2>/dev/null
     [[ "$nospace" == "1" ]] && compopt -o nospace 2>/dev/null
+    [[ "$fallback" == "1" && ${#COMPREPLY[@]} -eq 0 ]] && compopt -o default 2>/dev/null
 }

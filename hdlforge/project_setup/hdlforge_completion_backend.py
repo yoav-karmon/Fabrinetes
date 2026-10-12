@@ -30,6 +30,7 @@ class CompletionResult:
     completions: list[str]
     filenames: bool = False
     nospace: bool = False
+    fallback: bool = False
 
 
 @dataclass
@@ -374,7 +375,7 @@ def complete_command(tokens: list[str], cur: str, cwd: Path) -> tuple[Completion
     prefix = ''
     if state['owns_tail']:
         # Tail arguments belong to the script, even --project=... and --help.
-        return CompletionResult([]), descriptions
+        return CompletionResult([], fallback=state['command'].startswith('aliases.')), descriptions
     if cur.startswith('--') and '=' in cur:
         flag, cur = cur.split('=', 1)
         pending = (flag, specs.get(flag, {}))
@@ -471,7 +472,7 @@ def main() -> int:
     cwd = Path(args.cwd)
 
     if not words:
-        print("__META__ filenames=0 nospace=0")
+        print("__META__ filenames=0 nospace=0 fallback=0")
         return 0
 
     cur = words[comp_cword] if comp_cword < len(words) else ""
@@ -487,7 +488,8 @@ def main() -> int:
     display_flags = state_display_flags(tokens_before_current, cur, cwd) if args.display_table and not result.filenames else {}
     extra_flags = [flag for flag in display_flags if flag not in result.completions]
     native.update(display_flags)
-    print(f"__META__ filenames={1 if result.filenames else 0} nospace={1 if result.nospace else 0} display={int(bool(extra_flags))}")
+    print(f"__META__ filenames={1 if result.filenames else 0} nospace={1 if result.nospace else 0} "
+          f"fallback={1 if result.fallback else 0} display={int(bool(extra_flags))}")
     for item in result.completions:
         print(item)
     if (args.describe or args.display_table) and not result.filenames:
