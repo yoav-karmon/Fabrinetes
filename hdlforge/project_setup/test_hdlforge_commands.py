@@ -24,6 +24,11 @@ class DottedCommandsTest(unittest.TestCase):
         self.assertIn('--allow-env-overwrite', result.stdout)
         self.assertNotIn('TOOL_STARTUP', result.stderr)
 
+    def test_terminal_status_bypasses_tee_pipeline(self):
+        launcher = self.wrapper.read_text()
+        self.assertIn('[[ "$hdlforge_follow_arg" == "--build_status"', launcher)
+        self.assertIn('exec python3 "$TASKS_DIR/tasks.py" "$@"', launcher)
+
     def test_eval_dry_run_does_not_execute_payload(self):
         marker = self.root / 'must-not-exist'
         result = self.run_command('--dry-run', 'eval-cmd', 'touch '+shlex.quote(str(marker)))
@@ -122,7 +127,7 @@ class DottedCommandsTest(unittest.TestCase):
         self.assertEqual(result.stdout, 'parent')
 
     def test_master_flags_exist_on_every_leaf(self):
-        for command in ('settings.show', 'vivado.console.start', 'sim-verilator.sim',
+        for command in ('settings.show.all', 'vivado.console.start', 'sim-verilator.sim',
                         'eval-cmd', 'eval-cmd-argv'):
             with self.subTest(command=command):
                 result = self.run_command(command+'.help')

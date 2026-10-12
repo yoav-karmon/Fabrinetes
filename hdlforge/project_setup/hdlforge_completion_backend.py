@@ -10,7 +10,7 @@ import textwrap
 from dataclasses import dataclass
 from pathlib import Path
 
-from table_formatter import create_matrix_table_from_data
+from table_formatter import create_mapping_table_from_data
 from vivado_build_selector import first_path_component, parse_selector, selector_choices
 from vivado_build_config import ARTIFACT_FLAGS, build_names, synthesis_timestamps
 from vivado_run_tree import discover_runs, run_tree
@@ -425,11 +425,12 @@ def completion_description(data: dict, candidate: str) -> str:
     return " ".join(re.sub(r"[\x00-\x1f\x7f-\x9f]", " ", value).split())
 
 
-def completion_table(candidates: list[str], data: dict, columns: int) -> list[str]:
+def completion_table(candidates: list[str], data: dict, columns: int,
+                     item_header: str = "Command") -> list[str]:
     """Render display-only choices with HDLForge's bundled table formatter."""
     columns = max(30, columns)
     labels = candidates
-    command_width = max(len("Command"), max(len(item) for item in labels))
+    command_width = max(len(item_header), max(len(item) for item in labels))
     description_width = columns - command_width - 7
     rows = [[label, completion_description(data, item)] for label, item in zip(labels, candidates)]
     # Command tokens must remain whole. On narrow terminals put descriptions
@@ -441,8 +442,9 @@ def completion_table(candidates: list[str], data: dict, columns: int) -> list[st
             lines.extend(textwrap.wrap('# ' + description, width=columns - 2,
                                        initial_indent='  ', subsequent_indent='  '))
     else:
-        rendered = create_matrix_table_from_data(["Command", "Description"], rows,
-                                                col_wrapped_limits={1: description_width})
+        rendered = create_mapping_table_from_data(
+            [item_header, "Description"], rows,
+            col_wrapped_limits={1: description_width})
         lines = rendered.splitlines()
     # Readline must not arrange the rendered lines in multiple columns.
     return [line.ljust(columns // 2 + 1) for line in lines]
@@ -505,8 +507,18 @@ def main() -> int:
                 if description:
                     print(f"__DESC__\t{item}\t{description}")
         if args.display_table and (result.completions or extra_flags):
-            for line in completion_table([*result.completions, *extra_flags], data or {}, args.columns):
-                print(f"__TABLE__\t{line}")
+            display_items = [*result.completions, *extra_flags]
+            commands = [item for item in display_items if not item.startswith('-')]
+            flags = [item for item in display_items if item.startswith('-')]
+            if commands:
+                for line in completion_table(commands, data or {}, args.columns):
+                    print(f"__TABLE__\t{line}")
+            if flags:
+                if commands:
+                    print("__TABLE__\t")
+                print("__TABLE__\tMaster flags:")
+                for line in completion_table(flags, data or {}, args.columns, 'Flag'):
+                    print(f"__TABLE__\t{line}")
     return 0
 
 

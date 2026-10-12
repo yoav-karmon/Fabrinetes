@@ -11,6 +11,7 @@ import shlex
 import signal
 import time
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 from table_formatter import create_matrix_table_from_data
 from vivado_build_log import enrich
@@ -27,6 +28,24 @@ class BuildStopped(Exception):
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def central_now() -> str:
+    """Return current Chicago wall-clock time with CDT/CST designation."""
+    return datetime.now(ZoneInfo('America/Chicago')).strftime('%Y-%m-%d %H:%M:%S %Z')
+
+
+def central_timestamp(value: str | None) -> str:
+    """Convert a saved ISO timestamp to Chicago wall-clock time."""
+    if not value:
+        return '-'
+    try:
+        timestamp = datetime.fromisoformat(value)
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        return '-'
+    return timestamp.astimezone(ZoneInfo('America/Chicago')).strftime('%Y-%m-%d %H:%M:%S %Z')
 
 
 def launch_elapsed(row: dict) -> str:
@@ -70,7 +89,8 @@ def unobserved_run(row: dict) -> bool:
 def status_hierarchy(rows: list[dict]) -> list[tuple[dict, str]]:
     ###########################################################################
     # Keep each synthesis attempt directly above its implementations, including
-    # manually launched children without parent_launch_id. Active groups lead.
+    # manually launched children without parent_launch_id. Show newest synthesis
+    # groups first, then newest implementation attempts below each parent.
     ###########################################################################
     groups = {}
     for row in rows:
@@ -79,15 +99,21 @@ def status_hierarchy(rows: list[dict]) -> list[tuple[dict, str]]:
             synthesis = synthesis.rpartition('.')[0]
         key = (row.get('current_synthesis', synthesis), row.get('synth_timestamp') or row.get('run_id', '-'))
         groups.setdefault(key, []).append(row)
-    ordered = sorted(groups.values(), key=lambda group: (
-        not any(row.get('active') for row in group),
-        min(row.get('started_at', '') for row in group),
-        run_selection(group[0]),
-    ))
+    def synthesis_started(group: list[dict]) -> str:
+        parent = next((row for row in group if row.get('stage') == 'synth'), None)
+        newest = parent or max(group, key=lambda row: row.get('started_at', ''))
+        return newest.get('started_at', '')
+
+    ordered = sorted(groups.values(), key=synthesis_started, reverse=True)
     result = []
     for group in ordered:
-        group.sort(key=lambda row: (row.get('stage') != 'synth', row.get('started_at', ''), run_selection(row)))
         parent = next((row for row in group if row.get('stage') == 'synth'), None)
+        children = sorted(
+            (row for row in group if row is not parent),
+            key=lambda row: (row.get('started_at', ''), run_selection(row)),
+            reverse=True,
+        )
+        group = ([parent] if parent else []) + children
         prefix = run_selection(parent) + '.' if parent else ''
         for row in group:
             label = run_selection(row)
@@ -281,10 +307,11 @@ class BuildRegistry:
                 *[worker.get(key, '-') for key in ('rss', 'peak', 'threads')],
                 detail.get('LOG_AGE_SECONDS', '-') if row['active'] else '-',
                 artifact_protection(row['output']),
+                central_timestamp(row.get('started_at')),
             ])
-        print(f"Build status | {utc_now()}")
+        print(f"Build status | {central_now()}")
         print(create_matrix_table_from_data(
-            ['Run', 'Vivado PID', 'Stage', 'Status', 'Vivado state', 'W/CW/E', 'WNS(ns)', 'TNS(ns)', 'WHS(ns)', 'THS(ns)', 'Log phase', 'Elapsed', 'RAM used(MB)', 'Peak RAM(MB)', 'Threads', 'Log idle(s)', 'Protected'],
+            ['Run', 'Vivado PID', 'Stage', 'Status', 'Vivado state', 'W/CW/E', 'WNS(ns)', 'TNS(ns)', 'WHS(ns)', 'THS(ns)', 'Log phase', 'Elapsed', 'RAM used(MB)', 'Peak RAM(MB)', 'Threads', 'Log idle(s)', 'Protected', 'Started (Central)'],
             table,
         ))
         print('Protected = tracked files or Git-ignore cleanup exceptions (Yes/No); Missing/Unknown means protection could not be evaluated.')

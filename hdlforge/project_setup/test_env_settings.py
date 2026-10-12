@@ -31,7 +31,7 @@ class SettingsLauncherTest(unittest.TestCase):
 
     def test_show_includes_all_groups_and_active_identity(self):
         before = self.config.read_bytes()
-        result = self.invoke('settings.show', '--json')
+        result = self.invoke('settings.show.all', '--json')
         self.assertEqual(result.returncode, 0, result.stderr)
         report = json.loads(result.stdout)
         self.assertEqual(set(report['settings']), set(model.SCOPES))
@@ -43,7 +43,7 @@ class SettingsLauncherTest(unittest.TestCase):
     def test_path_import_changes_only_selected_field(self):
         before = json.loads(self.config.read_text())
         self.input_file.write_text(json.dumps(['/usr/bin', '/bin', '/usr/bin']))
-        result = self.invoke('settings.path.import', '--input', str(self.input_file), '--json')
+        result = self.invoke('settings.import.path', '--input', str(self.input_file), '--json')
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         expected = deepcopy(before)
         expected['settings']['env']['test-host']['test-user']['path'] = ['/usr/bin', '/bin']
@@ -53,9 +53,9 @@ class SettingsLauncherTest(unittest.TestCase):
     def test_path_dry_run_never_writes(self):
         self.input_file.write_text('["/new/path"]')
         before = self.config.read_bytes()
-        for action in ('import-dry-run', 'merge-dry-run'):
+        for action in ('dry-run', 'merge-dry-run'):
             with self.subTest(action=action):
-                result = self.invoke('settings.path.' + action, '--input', str(self.input_file), '--json')
+                result = self.invoke('settings.import.path.' + action, '--input', str(self.input_file), '--json')
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn('/new/path', json.loads(result.stdout)['diff'])
                 self.assertEqual(self.config.read_bytes(), before)
@@ -63,7 +63,7 @@ class SettingsLauncherTest(unittest.TestCase):
     def test_global_dry_run_previews_mutation(self):
         self.input_file.write_text('["/new/path"]')
         before = self.config.read_bytes()
-        result = self.invoke('--dry-run', 'settings.pythonpath.import', '--input', str(self.input_file), '--json')
+        result = self.invoke('--dry-run', 'settings.import.pythonpath', '--input', str(self.input_file), '--json')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout)['status'], 'DRY RUN')
         self.assertEqual(self.config.read_bytes(), before)
@@ -76,7 +76,7 @@ class SettingsLauncherTest(unittest.TestCase):
         data['shared'] = {'pythonpath': ['/inherited']}
         self.config.write_text(json.dumps(data))
         self.input_file.write_text('["/existing", "/incoming"]')
-        result = self.invoke('settings.pythonpath.merge', '--input', str(self.input_file))
+        result = self.invoke('settings.import.pythonpath.merge', '--input', str(self.input_file))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.read_entry()['pythonpath'], ['/existing', '/incoming'])
         self.assertEqual(self.read_entry()['pythonpath_import'], ['shared.pythonpath'])
@@ -84,7 +84,7 @@ class SettingsLauncherTest(unittest.TestCase):
     def test_invalid_path_input_does_not_write(self):
         self.input_file.write_text('[3]')
         before = self.config.read_bytes()
-        result = self.invoke('settings.path.import', '--input', str(self.input_file))
+        result = self.invoke('settings.import.path', '--input', str(self.input_file))
         self.assertEqual(result.returncode, 2, result.stderr)
         self.assertEqual(self.config.read_bytes(), before)
 
@@ -94,27 +94,89 @@ class SettingsLauncherTest(unittest.TestCase):
         project = child / 'child.hdlforge.json'
         project.write_text('{}')
         self.project.joinpath('input.json').write_text('["/usr/bin"]')
-        result = self.invoke('--project', str(project), 'settings.path.import', '--input', 'input.json')
+        result = self.invoke('--project', str(project), 'settings.import.path', '--input', 'input.json')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.read_entry()['path'], ['/usr/bin'])
         self.assertEqual(project.read_text(), '{}')
 
     def test_python_global_defaults_import_and_user_inheritance(self):
         requirements = dict(version='3.12', packages=['scapy==2.7.0'])
+        data = json.loads(self.config.read_text())
+        data['settings']['env']['repo-requirement'] = {'python_settings': requirements}
+        self.config.write_text(json.dumps(data))
         self.input_file.write_text(json.dumps(requirements))
-        result = self.invoke('settings.python.import', '--server', 'default', '--input', str(self.input_file))
+        result = self.invoke('settings.import.python', '--server', 'default', '--input', str(self.input_file))
         self.assertEqual(result.returncode, 0, result.stderr)
-        result = self.invoke('settings.python.print-as-json')
+        result = self.invoke('settings.show.python.json')
         self.assertEqual(result.returncode, 0, result.stderr)
         report = json.loads(result.stdout)
         self.assertEqual(report['effective'], requirements)
         self.assertEqual(report['sources']['version'], 'settings.env.default.python_settings.version')
 
+    def test_os_and_system_package_imports_are_server_user_settings(self):
+        data = json.loads(self.config.read_text())
+        data['settings']['env']['repo-requirement'] = {
+            'os_settings': dict(id='ubuntu', version_id='24.04', architecture='x86_64'),
+            'system_packages': ['git'],
+        }
+        self.config.write_text(json.dumps(data))
+        os_settings = dict(id='ubuntu', version_id='24.04', architecture='x86_64')
+        self.input_file.write_text(json.dumps(os_settings))
+        result = self.invoke('settings.import.os', '--input', str(self.input_file))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.input_file.write_text(json.dumps(['git=1:2.43.0', 'jq=1.7.1']))
+        result = self.invoke('settings.import.system-packages', '--input', str(self.input_file))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        entry = self.read_entry()
+        self.assertEqual(entry['os_settings'], os_settings)
+        self.assertEqual(entry['system_packages'], ['git=1:2.43.0'])
+
+    def test_import_uses_repo_requirements_and_preserves_manual_extras(self):
+        data = json.loads(self.config.read_text())
+        data['settings']['env']['repo-requirement'] = {
+            'python_settings': dict(version='3.12', packages=['cocotb==1.9.1']),
+            'system_packages': ['git'],
+        }
+        entry = data['settings']['env']['test-host']['test-user']
+        entry['python_settings'] = dict(version='3.11', packages=['manual-tool==4'])
+        entry['system_packages'] = ['manual-package=5']
+        self.config.write_text(json.dumps(data))
+        self.input_file.write_text(json.dumps(dict(version='3.12.3', packages=[
+            'cocotb==1.9.1', 'unrequested==2',
+        ])))
+        result = self.invoke('settings.import.python', '--input', str(self.input_file))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.input_file.write_text(json.dumps(['git=1:2.43.0', 'jq=1.7.1']))
+        result = self.invoke('settings.import.system-packages', '--input', str(self.input_file))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        entry = self.read_entry()
+        self.assertEqual(entry['python_settings'], dict(
+            version='3.12.3', packages=['cocotb==1.9.1', 'manual-tool==4']))
+        self.assertEqual(entry['system_packages'], ['git=1:2.43.0', 'manual-package=5'])
+
+    def test_unchanged_os_dry_run_shows_current_and_incoming_values(self):
+        os_settings = dict(id='ubuntu', version_id='24.04', architecture='x86_64')
+        data = json.loads(self.config.read_text())
+        data['settings']['env']['test-host']['test-user']['os_settings'] = os_settings
+        self.config.write_text(json.dumps(data))
+        self.input_file.write_text(json.dumps(os_settings))
+        result = self.invoke('settings.import.os.dry-run', '--input', str(self.input_file))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('No changes.', result.stdout)
+        self.assertIn('Value comparison (current vs import candidate):', result.stdout)
+        self.assertIn('Setting', result.stdout)
+        self.assertIn('Current', result.stdout)
+        self.assertIn('Match', result.stdout)
+        self.assertIn('Import candidate', result.stdout)
+        self.assertIn('id', result.stdout)
+        self.assertIn('ubuntu', result.stdout)
+        self.assertNotIn('+---', result.stdout)
+
     def test_new_dotted_user_entry_and_list_json(self):
         self.input_file.write_text('["/usr/bin"]')
-        result = self.invoke('settings.path.import', '--server', 'another-host', '--user', 'user.name', '--input', str(self.input_file))
+        result = self.invoke('settings.import.path', '--server', 'another-host', '--user', 'user.name', '--input', str(self.input_file))
         self.assertEqual(result.returncode, 0, result.stderr)
-        result = self.invoke('settings.path.list-json')
+        result = self.invoke('settings.show.path.list-json')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout)['path']['another-host']['user.name']['path'], ['/usr/bin'])
         data = json.loads(self.config.read_text())
@@ -124,7 +186,7 @@ class SettingsLauncherTest(unittest.TestCase):
         data = json.loads(self.config.read_text())
         data['settings']['env']['test-host']['test-user']['path'].append(str(self.root / 'missing'))
         self.config.write_text(json.dumps(data))
-        result = self.invoke('settings.path.verify', '--json')
+        result = self.invoke('settings.validate.path', '--json')
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertEqual(json.loads(result.stdout)['checks'][-1]['status'], 'FAIL')
 
@@ -134,28 +196,28 @@ class SettingsLauncherTest(unittest.TestCase):
         source.write_text('Host example\n  HostName example.internal\n')
         source.parent.joinpath('id_private').write_text('PRIVATE-KEY-NOT-TO-COPY')
         before = self.config.read_bytes()
-        result = self.invoke('settings.ssh-config.import-dry-run', '--json')
+        result = self.invoke('settings.import.ssh-config.dry-run', '--json')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('example.internal', json.loads(result.stdout)['diff'])
         self.assertFalse(self.project.joinpath('environment').exists())
         self.assertEqual(self.config.read_bytes(), before)
-        result = self.invoke('settings.ssh-config.import')
+        result = self.invoke('settings.import.ssh-config')
         self.assertEqual(result.returncode, 0, result.stderr)
         target = self.project / self.read_entry()['ssh_config_file']
         self.assertEqual(target.read_text(), source.read_text())
         self.assertEqual([path.name for path in target.parent.iterdir()], ['config'])
-        result = self.invoke('settings.ssh-config.verify', '--json')
+        result = self.invoke('settings.validate.ssh-config', '--json')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout)['status'], 'PASS')
 
     def test_ssh_merge_conflict_does_not_change_either_file(self):
         source = self.root / 'ssh.conf'
         source.write_text('Host example\n HostName original\n')
-        self.assertEqual(self.invoke('settings.ssh-config.import', '--input', str(source)).returncode, 0)
+        self.assertEqual(self.invoke('settings.import.ssh-config', '--input', str(source)).returncode, 0)
         target = self.project / self.read_entry()['ssh_config_file']
         before, ssh_before = self.config.read_bytes(), target.read_bytes()
         source.write_text('Host example\n HostName incoming\n')
-        result = self.invoke('settings.ssh-config.merge', '--input', str(source))
+        result = self.invoke('settings.import.ssh-config.merge', '--input', str(source))
         self.assertEqual(result.returncode, 2, result.stderr)
         self.assertIn('conflict', result.stderr)
         self.assertEqual(self.config.read_bytes(), before)
@@ -177,9 +239,12 @@ class SettingsLauncherTest(unittest.TestCase):
         data = json.loads(self.config.read_text())
         defaults = dict(version='3.12', packages=['old==1'])
         data['settings']['env']['default'] = {'python_settings': defaults}
+        data['settings']['env']['repo-requirement'] = {
+            'python_settings': dict(version='3.12', packages=['new==2']),
+        }
         self.config.write_text(json.dumps(data))
         self.input_file.write_text(json.dumps(dict(version='3.12', packages=['new==2'])))
-        result = self.invoke('settings.python.merge', '--input', str(self.input_file))
+        result = self.invoke('settings.import.python.merge', '--input', str(self.input_file))
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         settings = json.loads(self.config.read_text())['settings']['env']
         self.assertEqual(settings['default']['python_settings'], defaults)
@@ -187,13 +252,23 @@ class SettingsLauncherTest(unittest.TestCase):
 
     def test_local_capture_dry_run_is_explicit_and_read_only(self):
         before = self.config.read_bytes()
-        result = self.invoke('settings.pythonpath.import-dry-run', '--json')
+        result = self.invoke('settings.import.pythonpath.dry-run', '--json')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout)['status'], 'DRY RUN')
         self.assertEqual(self.config.read_bytes(), before)
 
 
 class SettingsModelTest(unittest.TestCase):
+    def test_path_comparison_uses_unique_values_not_list_positions(self):
+        rows = env_settings.value_comparisons(
+            'path', ['/first', '/second', '/first', '/removed'], ['/second', '/first', '/added'])
+        self.assertEqual(rows, [
+            ['/first', 'present', '==', 'present'],
+            ['/second', 'present', '==', 'present'],
+            ['/removed', 'present', '!=', '<missing>'],
+            ['/added', '<missing>', '!=', 'present'],
+        ])
+
     def test_merge_includes_inherited_python_packages(self):
         data = {'settings': {'env': {'default': {'python_settings': {'version': '3.12', 'packages': ['old==1']}}}}}
         result = model.propose(data, 'python', 'host', 'user', {'version': '3.12', 'packages': ['new==2']}, True, 'error')
@@ -228,14 +303,17 @@ class SettingsModelTest(unittest.TestCase):
             ssh.blocks('-----BEGIN OPENSSH PRIVATE KEY-----\nnot-a-config\n')
 
     def test_settings_actions_are_real_routes_with_matching_completion(self):
-        actions = ('show', 'import', 'import-dry-run', 'merge', 'merge-dry-run', 'print-as-json', 'lint-user-settings', 'list-json', 'verify')
         for scope in model.SCOPES:
             with self.subTest(scope=scope):
-                candidates = complete_command([], 'settings.' + scope + '.', Path.cwd())[0].completions
-                self.assertTrue(all('settings.' + scope + '.' + action in candidates for action in actions))
-                self.assertEqual(parse(['settings.' + scope + '.merge'], Path.cwd())['args'], ['--tool', 'env_settings', scope, 'merge'])
-                self.assertIn('--input', complete_command(['settings.' + scope + '.import'], '--', Path.cwd())[0].completions)
-                self.assertNotIn('--input', complete_command(['settings.' + scope + '.verify'], '--', Path.cwd())[0].completions)
+                self.assertIn('settings.show.' + scope, complete_command([], 'settings.show.', Path.cwd())[0].completions)
+                self.assertIn('settings.import.' + scope, complete_command([], 'settings.import.', Path.cwd())[0].completions)
+                self.assertIn('settings.validate.' + scope, complete_command([], 'settings.validate.', Path.cwd())[0].completions)
+                show_candidates = complete_command([], 'settings.show.' + scope + '.', Path.cwd())[0].completions
+                self.assertIn('settings.show.' + scope + '.json', show_candidates)
+                self.assertIn('settings.show.' + scope + '.list-json', show_candidates)
+                self.assertEqual(parse(['settings.import.' + scope + '.merge'], Path.cwd())['args'], ['--tool', 'env_settings', scope, 'merge'])
+                self.assertIn('--input', complete_command(['settings.import.' + scope], '--', Path.cwd())[0].completions)
+                self.assertNotIn('--input', complete_command(['settings.validate.' + scope], '--', Path.cwd())[0].completions)
 
 
 if __name__ == '__main__':

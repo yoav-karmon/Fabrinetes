@@ -11,20 +11,43 @@ import unittest
 from unittest.mock import patch
 
 from vivado_build_layout import edit_run, new_identity, read_run, write_run
-from vivado_build_registry import BuildRegistry, BuildStopped, artifact_protection, run_selection, status_hierarchy
+from vivado_build_registry import BuildRegistry, BuildStopped, artifact_protection, central_now, central_timestamp, run_selection, status_hierarchy
 
 
 class RegistryCleanupTest(unittest.TestCase):
-    def test_status_hierarchy_keeps_active_child_below_completed_parent(self):
+    def test_status_clock_uses_central_daylight_or_standard_time(self):
+        self.assertRegex(
+            central_now(),
+            r'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} C[DS]T$',
+        )
+
+    def test_each_run_timestamp_is_converted_to_central_time(self):
+        self.assertEqual(
+            central_timestamp('2026-10-12T18:22:46.389712+00:00'),
+            '2026-10-12 13:22:46 CDT',
+        )
+        self.assertEqual(
+            central_timestamp('2026-12-12T18:22:46+00:00'),
+            '2026-12-12 12:22:46 CST',
+        )
+        self.assertEqual(central_timestamp(None), '-')
+
+    def test_status_hierarchy_sorts_synth_groups_and_children_newest_first(self):
         parent = dict(selector='old_synth', current_synthesis='cme.synth', stage='synth',
                       synth_timestamp='parent-id', run_id='parent-id', active=False, started_at='2026-10-01')
         child = dict(selector='cme.synth.impl', current_synthesis='cme.synth', stage='impl',
                      synth_timestamp='parent-id', run_id='child-id', active=True, started_at='2026-10-03')
-        other = dict(parent, synth_timestamp='other-id', run_id='other-id', started_at='2026-09-01')
-        displayed = status_hierarchy([child, other, parent])
-        self.assertEqual([row['run_id'] for row, _ in displayed], ['parent-id', 'child-id', 'other-id'])
+        older_child = dict(child, run_id='older-child-id', active=False, started_at='2026-10-02')
+        newer_parent = dict(parent, synth_timestamp='new-parent-id', run_id='new-parent-id',
+                            started_at='2026-10-04')
+        displayed = status_hierarchy([child, newer_parent, older_child, parent])
+        self.assertEqual(
+            [row['run_id'] for row, _ in displayed],
+            ['new-parent-id', 'parent-id', 'child-id', 'older-child-id'],
+        )
         self.assertEqual([label for _, label in displayed],
-                         ['cme.synth.parent-id', '    impl.child-id', 'cme.synth.other-id'])
+                         ['cme.synth.new-parent-id', 'cme.synth.parent-id',
+                          '    impl.child-id', '    impl.older-child-id'])
 
     def test_orphan_implementation_keeps_full_identity(self):
         row = dict(selector='cme.synth.impl', stage='impl', synth_timestamp='missing-parent', run_id='child')

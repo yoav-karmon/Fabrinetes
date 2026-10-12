@@ -70,12 +70,12 @@ printf '%s\\0' "${COMPREPLY[@]}"
         self.assertEqual(self.complete(63, "aliases.demo.al"), ["aliases.demo.alpha"])
 
     def test_double_tab_lists_flags_at_root_group_and_exact_command(self):
-        for word in ('', 'settings.', 'settings.python.verify'):
+        for word in ('', 'settings.', 'settings.validate.python'):
             with self.subTest(word=word):
                 display = '\n'.join(self.complete(63, word))
                 self.assertIn('--project', display)
                 self.assertIn('Project file path', display)
-                self.assertEqual('--json' in display, word == 'settings.python.verify')
+                self.assertEqual('--json' in display, word == 'settings.validate.python')
                 self.assertNotIn('--project', self.complete(9, word))
 
     def test_alias_tail_does_not_offer_hdlforge_flags(self):
@@ -94,11 +94,11 @@ printf '%s\\0' "${COMPREPLY[@]}"
         self.assertFalse(eval_result.fallback)
 
     def test_spaced_flags_omit_used_options_and_keep_descriptions(self):
-        display = '\n'.join(self.complete(63, 'settings.python.verify', '--json', ''))
+        display = '\n'.join(self.complete(63, 'settings.validate.python', '--json', ''))
         self.assertNotIn('--json', display)
         self.assertIn('--project', display)
         self.assertIn('Project file path', display)
-        flags = self.complete(9, 'settings.python.verify', '')
+        flags = self.complete(9, 'settings.validate.python', '')
         self.assertIn('--json', flags)
         self.assertIn('--project', flags)
 

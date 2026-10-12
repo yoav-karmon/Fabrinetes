@@ -2079,77 +2079,102 @@
       "settings": {
         "commands": {
           "show": {
-            "dispatch": [
-              "--tool",
-              "env_settings",
-              "all",
-              "show"
-            ],
-            "flags": {
-              "--server": {
-                "arity": 1
-              },
-              "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
-              "--user": {
-                "arity": 1
-              },
-              "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
-              "--json": {
-                "arity": 0
-              },
-              "#--json": "Print the report as JSON."
-            }
-          },
-          "#show": "Show all environment settings, server/user, sources, defaults and active paths.",
-          "print-as-json": {
-            "dispatch": [
-              "--tool",
-              "env_settings",
-              "all",
-              "print-as-json"
-            ],
-            "flags": {
-              "--server": {
-                "arity": 1
-              },
-              "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
-              "--user": {
-                "arity": 1
-              },
-              "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
-              "--json": {
-                "arity": 0
-              },
-              "#--json": "Print the report as JSON."
-            }
-          },
-          "#print-as-json": "Print selected configured/effective settings as JSON.",
-          "list-json": {
-            "dispatch": [
-              "--tool",
-              "env_settings",
-              "all",
-              "list-json"
-            ],
-            "flags": {
-              "--server": {
-                "arity": 1
-              },
-              "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
-              "--user": {
-                "arity": 1
-              },
-              "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
-              "--json": {
-                "arity": 0
-              },
-              "#--json": "Print the report as JSON."
-            }
-          },
-          "#list-json": "List all saved server/user entries and defaults for this setting as JSON.",
-          "path": {
             "commands": {
-              "show": {
+              "all": {
+                "dispatch": [
+                  "--tool",
+                  "env_settings",
+                  "all",
+                  "show"
+                ],
+                "flags": {
+                  "--server": {
+                    "arity": 1
+                  },
+                  "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                  "--user": {
+                    "arity": 1
+                  },
+                  "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                  "--json": {
+                    "arity": 0
+                  },
+                  "#--json": "Print the report as JSON."
+                }
+              },
+              "#all": "Show all environment settings, server/user, sources, defaults and active values.",
+              "os": {
+                "dispatch": [
+                  "--tool",
+                  "env_settings",
+                  "os",
+                  "show"
+                ],
+                "flags": {
+                  "--server": {
+                    "arity": 1
+                  },
+                  "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                  "--user": {
+                    "arity": 1
+                  },
+                  "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                  "--json": {
+                    "arity": 0
+                  },
+                  "#--json": "Print the report as JSON."
+                },
+                "commands": {
+                  "json": {
+                    "dispatch": [
+                      "--tool",
+                      "env_settings",
+                      "os",
+                      "print-as-json"
+                    ],
+                    "flags": {
+                      "--server": {
+                        "arity": 1
+                      },
+                      "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                      "--user": {
+                        "arity": 1
+                      },
+                      "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                      "--json": {
+                        "arity": 0
+                      },
+                      "#--json": "Print the report as JSON."
+                    }
+                  },
+                  "#json": "Print selected configured/effective settings as JSON.",
+                  "list-json": {
+                    "dispatch": [
+                      "--tool",
+                      "env_settings",
+                      "os",
+                      "list-json"
+                    ],
+                    "flags": {
+                      "--server": {
+                        "arity": 1
+                      },
+                      "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                      "--user": {
+                        "arity": 1
+                      },
+                      "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                      "--json": {
+                        "arity": 0
+                      },
+                      "#--json": "Print the report as JSON."
+                    }
+                  },
+                  "#list-json": "List all saved server/user entries and defaults for this setting as JSON."
+                }
+              },
+              "#os": "Show operating-system settings.",
+              "path": {
                 "dispatch": [
                   "--tool",
                   "env_settings",
@@ -2169,111 +2194,72 @@
                     "arity": 0
                   },
                   "#--json": "Print the report as JSON."
-                }
-              },
-              "#show": "Show configured and effective settings with their sources.",
-              "import": {
-                "dispatch": [
-                  "--tool",
-                  "env_settings",
-                  "path",
-                  "import"
-                ],
-                "flags": {
-                  "--server": {
-                    "arity": 1
+                },
+                "commands": {
+                  "print-shell": {
+                    "dispatch": [
+                      "--tool",
+                      "path_manager",
+                      "init-base-path"
+                    ],
+                    "flags": {}
                   },
-                  "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
-                  "--user": {
-                    "arity": 1
-                  },
-                  "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
-                  "--json": {
-                    "arity": 0
-                  },
-                  "#--json": "Print the report as JSON.",
-                  "--input": {
-                    "arity": 1,
-                    "provider": "files"
-                  },
-                  "#--input": "Source JSON (paths or Python requirements), or SSH config text; otherwise capture local settings."
-                }
-              },
-              "#import": "Replace the selected setting from --input or the active local environment.",
-              "import-dry-run": {
-                "dispatch": [
-                  "--tool",
-                  "env_settings",
-                  "path",
-                  "import-dry-run"
-                ],
-                "flags": {
-                  "--server": {
-                    "arity": 1
-                  },
-                  "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
-                  "--user": {
-                    "arity": 1
-                  },
-                  "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
-                  "--json": {
-                    "arity": 0
-                  },
-                  "#--json": "Print the report as JSON.",
-                  "--input": {
-                    "arity": 1,
-                    "provider": "files"
-                  },
-                  "#--input": "Source JSON (paths or Python requirements), or SSH config text; otherwise capture local settings."
-                }
-              },
-              "#import-dry-run": "Preview import changes without writing.",
-              "merge": {
-                "dispatch": [
-                  "--tool",
-                  "env_settings",
-                  "path",
-                  "merge"
-                ],
-                "flags": {
-                  "--server": {
-                    "arity": 1
-                  },
-                  "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
-                  "--user": {
-                    "arity": 1
-                  },
-                  "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
-                  "--json": {
-                    "arity": 0
-                  },
-                  "#--json": "Print the report as JSON.",
-                  "--input": {
-                    "arity": 1,
-                    "provider": "files"
-                  },
-                  "#--input": "Source JSON (paths or Python requirements), or SSH config text; otherwise capture local settings.",
-                  "--on-collision": {
-                    "arity": 1,
-                    "values": {
-                      "error": {},
-                      "#error": "Reject conflicting values (default).",
-                      "existing": {},
-                      "#existing": "Keep existing conflicting values.",
-                      "incoming": {},
-                      "#incoming": "Use incoming conflicting values."
+                  "#print-shell": "Print a shell export for the active search path.",
+                  "json": {
+                    "dispatch": [
+                      "--tool",
+                      "env_settings",
+                      "path",
+                      "print-as-json"
+                    ],
+                    "flags": {
+                      "--server": {
+                        "arity": 1
+                      },
+                      "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                      "--user": {
+                        "arity": 1
+                      },
+                      "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                      "--json": {
+                        "arity": 0
+                      },
+                      "#--json": "Print the report as JSON."
                     }
                   },
-                  "#--on-collision": "Resolve Python version/package or SSH Host conflicts explicitly."
+                  "#json": "Print selected configured/effective settings as JSON.",
+                  "list-json": {
+                    "dispatch": [
+                      "--tool",
+                      "env_settings",
+                      "path",
+                      "list-json"
+                    ],
+                    "flags": {
+                      "--server": {
+                        "arity": 1
+                      },
+                      "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                      "--user": {
+                        "arity": 1
+                      },
+                      "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                      "--json": {
+                        "arity": 0
+                      },
+                      "#--json": "Print the report as JSON."
+                    }
+                  },
+                  "#list-json": "List all saved server/user entries and defaults for this setting as JSON."
                 }
               },
-              "#merge": "Merge into the selected setting, preserving unrelated data.",
-              "merge-dry-run": {
+              "#path": "Show PATH settings.",
+              "python": {
                 "dispatch": [
                   "--tool",
                   "env_settings",
-                  "path",
-                  "merge-dry-run"
+                  "python",
+                  "show"
                 ],
                 "flags": {
                   "--server": {
@@ -2287,32 +2273,285 @@
                   "--json": {
                     "arity": 0
                   },
-                  "#--json": "Print the report as JSON.",
-                  "--input": {
-                    "arity": 1,
-                    "provider": "files"
-                  },
-                  "#--input": "Source JSON (paths or Python requirements), or SSH config text; otherwise capture local settings.",
-                  "--on-collision": {
-                    "arity": 1,
-                    "values": {
-                      "error": {},
-                      "#error": "Reject conflicting values (default).",
-                      "existing": {},
-                      "#existing": "Keep existing conflicting values.",
-                      "incoming": {},
-                      "#incoming": "Use incoming conflicting values."
+                  "#--json": "Print the report as JSON."
+                },
+                "commands": {
+                  "json": {
+                    "dispatch": [
+                      "--tool",
+                      "env_settings",
+                      "python",
+                      "print-as-json"
+                    ],
+                    "flags": {
+                      "--server": {
+                        "arity": 1
+                      },
+                      "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                      "--user": {
+                        "arity": 1
+                      },
+                      "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                      "--json": {
+                        "arity": 0
+                      },
+                      "#--json": "Print the report as JSON."
                     }
                   },
-                  "#--on-collision": "Resolve Python version/package or SSH Host conflicts explicitly."
+                  "#json": "Print selected configured/effective settings as JSON.",
+                  "list-json": {
+                    "dispatch": [
+                      "--tool",
+                      "env_settings",
+                      "python",
+                      "list-json"
+                    ],
+                    "flags": {
+                      "--server": {
+                        "arity": 1
+                      },
+                      "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                      "--user": {
+                        "arity": 1
+                      },
+                      "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                      "--json": {
+                        "arity": 0
+                      },
+                      "#--json": "Print the report as JSON."
+                    }
+                  },
+                  "#list-json": "List all saved server/user entries and defaults for this setting as JSON."
                 }
               },
-              "#merge-dry-run": "Preview merge changes without writing.",
-              "print-as-json": {
+              "#python": "Show Python settings.",
+              "pythonpath": {
                 "dispatch": [
                   "--tool",
                   "env_settings",
-                  "path",
+                  "pythonpath",
+                  "show"
+                ],
+                "flags": {
+                  "--server": {
+                    "arity": 1
+                  },
+                  "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                  "--user": {
+                    "arity": 1
+                  },
+                  "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                  "--json": {
+                    "arity": 0
+                  },
+                  "#--json": "Print the report as JSON."
+                },
+                "commands": {
+                  "print-shell": {
+                    "dispatch": [
+                      "--tool",
+                      "path_manager",
+                      "init-base-pythonpath"
+                    ],
+                    "flags": {}
+                  },
+                  "#print-shell": "Print a shell export for the active search path.",
+                  "json": {
+                    "dispatch": [
+                      "--tool",
+                      "env_settings",
+                      "pythonpath",
+                      "print-as-json"
+                    ],
+                    "flags": {
+                      "--server": {
+                        "arity": 1
+                      },
+                      "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                      "--user": {
+                        "arity": 1
+                      },
+                      "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                      "--json": {
+                        "arity": 0
+                      },
+                      "#--json": "Print the report as JSON."
+                    }
+                  },
+                  "#json": "Print selected configured/effective settings as JSON.",
+                  "list-json": {
+                    "dispatch": [
+                      "--tool",
+                      "env_settings",
+                      "pythonpath",
+                      "list-json"
+                    ],
+                    "flags": {
+                      "--server": {
+                        "arity": 1
+                      },
+                      "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                      "--user": {
+                        "arity": 1
+                      },
+                      "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                      "--json": {
+                        "arity": 0
+                      },
+                      "#--json": "Print the report as JSON."
+                    }
+                  },
+                  "#list-json": "List all saved server/user entries and defaults for this setting as JSON."
+                }
+              },
+              "#pythonpath": "Show PYTHONPATH settings.",
+              "ssh-config": {
+                "dispatch": [
+                  "--tool",
+                  "env_settings",
+                  "ssh-config",
+                  "show"
+                ],
+                "flags": {
+                  "--server": {
+                    "arity": 1
+                  },
+                  "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                  "--user": {
+                    "arity": 1
+                  },
+                  "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                  "--json": {
+                    "arity": 0
+                  },
+                  "#--json": "Print the report as JSON."
+                },
+                "commands": {
+                  "json": {
+                    "dispatch": [
+                      "--tool",
+                      "env_settings",
+                      "ssh-config",
+                      "print-as-json"
+                    ],
+                    "flags": {
+                      "--server": {
+                        "arity": 1
+                      },
+                      "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                      "--user": {
+                        "arity": 1
+                      },
+                      "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                      "--json": {
+                        "arity": 0
+                      },
+                      "#--json": "Print the report as JSON."
+                    }
+                  },
+                  "#json": "Print selected configured/effective settings as JSON.",
+                  "list-json": {
+                    "dispatch": [
+                      "--tool",
+                      "env_settings",
+                      "ssh-config",
+                      "list-json"
+                    ],
+                    "flags": {
+                      "--server": {
+                        "arity": 1
+                      },
+                      "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                      "--user": {
+                        "arity": 1
+                      },
+                      "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                      "--json": {
+                        "arity": 0
+                      },
+                      "#--json": "Print the report as JSON."
+                    }
+                  },
+                  "#list-json": "List all saved server/user entries and defaults for this setting as JSON."
+                }
+              },
+              "#ssh-config": "Show SSH configuration settings.",
+              "system-packages": {
+                "dispatch": [
+                  "--tool",
+                  "env_settings",
+                  "system-packages",
+                  "show"
+                ],
+                "flags": {
+                  "--server": {
+                    "arity": 1
+                  },
+                  "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                  "--user": {
+                    "arity": 1
+                  },
+                  "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                  "--json": {
+                    "arity": 0
+                  },
+                  "#--json": "Print the report as JSON."
+                },
+                "commands": {
+                  "json": {
+                    "dispatch": [
+                      "--tool",
+                      "env_settings",
+                      "system-packages",
+                      "print-as-json"
+                    ],
+                    "flags": {
+                      "--server": {
+                        "arity": 1
+                      },
+                      "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                      "--user": {
+                        "arity": 1
+                      },
+                      "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                      "--json": {
+                        "arity": 0
+                      },
+                      "#--json": "Print the report as JSON."
+                    }
+                  },
+                  "#json": "Print selected configured/effective settings as JSON.",
+                  "list-json": {
+                    "dispatch": [
+                      "--tool",
+                      "env_settings",
+                      "system-packages",
+                      "list-json"
+                    ],
+                    "flags": {
+                      "--server": {
+                        "arity": 1
+                      },
+                      "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                      "--user": {
+                        "arity": 1
+                      },
+                      "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                      "--json": {
+                        "arity": 0
+                      },
+                      "#--json": "Print the report as JSON."
+                    }
+                  },
+                  "#list-json": "List all saved server/user entries and defaults for this setting as JSON."
+                }
+              },
+              "#system-packages": "Show system-package settings.",
+              "json": {
+                "dispatch": [
+                  "--tool",
+                  "env_settings",
+                  "all",
                   "print-as-json"
                 ],
                 "flags": {
@@ -2330,35 +2569,12 @@
                   "#--json": "Print the report as JSON."
                 }
               },
-              "#print-as-json": "Print selected configured/effective settings as JSON.",
-              "lint-user-settings": {
-                "dispatch": [
-                  "--tool",
-                  "env_settings",
-                  "path",
-                  "lint-user-settings"
-                ],
-                "flags": {
-                  "--server": {
-                    "arity": 1
-                  },
-                  "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
-                  "--user": {
-                    "arity": 1
-                  },
-                  "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
-                  "--json": {
-                    "arity": 0
-                  },
-                  "#--json": "Print the report as JSON."
-                }
-              },
-              "#lint-user-settings": "Validate the selected user configuration without remote access.",
+              "#json": "Print all selected configured/effective settings as JSON.",
               "list-json": {
                 "dispatch": [
                   "--tool",
                   "env_settings",
-                  "path",
+                  "all",
                   "list-json"
                 ],
                 "flags": {
@@ -2376,49 +2592,21 @@
                   "#--json": "Print the report as JSON."
                 }
               },
-              "#list-json": "List all saved server/user entries and defaults for this setting as JSON.",
-              "verify": {
-                "dispatch": [
-                  "--tool",
-                  "env_settings",
-                  "path",
-                  "verify"
-                ],
-                "flags": {
-                  "--server": {
-                    "arity": 1
-                  },
-                  "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
-                  "--user": {
-                    "arity": 1
-                  },
-                  "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
-                  "--json": {
-                    "arity": 0
-                  },
-                  "#--json": "Print the report as JSON."
-                }
-              },
-              "#verify": "Verify the active local environment against its selected settings.",
-              "print-shell": {
+              "#list-json": "List all saved server/user entries and defaults as JSON.",
+              "environment": {
                 "dispatch": [
                   "--tool",
                   "path_manager",
-                  "init-base-path"
+                  "show-all"
                 ],
                 "flags": {}
               },
-              "#print-shell": "Print a shell export for the active search path."
-            }
-          },
-          "#path": "Executable search paths (PATH).",
-          "python": {
-            "commands": {
-              "show": {
+              "#environment": "Show the legacy full environment configuration.",
+              "vscode": {
                 "dispatch": [
                   "--tool",
                   "env_settings",
-                  "python",
+                  "vscode",
                   "show"
                 ],
                 "flags": {
@@ -2434,761 +2622,60 @@
                     "arity": 0
                   },
                   "#--json": "Print the report as JSON."
-                }
-              },
-              "#show": "Show configured and effective settings with their sources.",
-              "import": {
-                "dispatch": [
-                  "--tool",
-                  "env_settings",
-                  "python",
-                  "import"
-                ],
-                "flags": {
-                  "--server": {
-                    "arity": 1
-                  },
-                  "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
-                  "--user": {
-                    "arity": 1
-                  },
-                  "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
-                  "--json": {
-                    "arity": 0
-                  },
-                  "#--json": "Print the report as JSON.",
-                  "--input": {
-                    "arity": 1,
-                    "provider": "files"
-                  },
-                  "#--input": "Source JSON (paths or Python requirements), or SSH config text; otherwise capture local settings."
-                }
-              },
-              "#import": "Replace the selected setting from --input or the active local environment.",
-              "import-dry-run": {
-                "dispatch": [
-                  "--tool",
-                  "env_settings",
-                  "python",
-                  "import-dry-run"
-                ],
-                "flags": {
-                  "--server": {
-                    "arity": 1
-                  },
-                  "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
-                  "--user": {
-                    "arity": 1
-                  },
-                  "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
-                  "--json": {
-                    "arity": 0
-                  },
-                  "#--json": "Print the report as JSON.",
-                  "--input": {
-                    "arity": 1,
-                    "provider": "files"
-                  },
-                  "#--input": "Source JSON (paths or Python requirements), or SSH config text; otherwise capture local settings."
-                }
-              },
-              "#import-dry-run": "Preview import changes without writing.",
-              "merge": {
-                "dispatch": [
-                  "--tool",
-                  "env_settings",
-                  "python",
-                  "merge"
-                ],
-                "flags": {
-                  "--server": {
-                    "arity": 1
-                  },
-                  "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
-                  "--user": {
-                    "arity": 1
-                  },
-                  "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
-                  "--json": {
-                    "arity": 0
-                  },
-                  "#--json": "Print the report as JSON.",
-                  "--input": {
-                    "arity": 1,
-                    "provider": "files"
-                  },
-                  "#--input": "Source JSON (paths or Python requirements), or SSH config text; otherwise capture local settings.",
-                  "--on-collision": {
-                    "arity": 1,
-                    "values": {
-                      "error": {},
-                      "#error": "Reject conflicting values (default).",
-                      "existing": {},
-                      "#existing": "Keep existing conflicting values.",
-                      "incoming": {},
-                      "#incoming": "Use incoming conflicting values."
+                },
+                "commands": {
+                  "json": {
+                    "dispatch": [
+                      "--tool",
+                      "env_settings",
+                      "vscode",
+                      "print-as-json"
+                    ],
+                    "flags": {
+                      "--server": {
+                        "arity": 1
+                      },
+                      "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                      "--user": {
+                        "arity": 1
+                      },
+                      "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                      "--json": {
+                        "arity": 0
+                      },
+                      "#--json": "Print the report as JSON."
                     }
                   },
-                  "#--on-collision": "Resolve Python version/package or SSH Host conflicts explicitly."
-                }
-              },
-              "#merge": "Merge into the selected setting, preserving unrelated data.",
-              "merge-dry-run": {
-                "dispatch": [
-                  "--tool",
-                  "env_settings",
-                  "python",
-                  "merge-dry-run"
-                ],
-                "flags": {
-                  "--server": {
-                    "arity": 1
-                  },
-                  "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
-                  "--user": {
-                    "arity": 1
-                  },
-                  "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
-                  "--json": {
-                    "arity": 0
-                  },
-                  "#--json": "Print the report as JSON.",
-                  "--input": {
-                    "arity": 1,
-                    "provider": "files"
-                  },
-                  "#--input": "Source JSON (paths or Python requirements), or SSH config text; otherwise capture local settings.",
-                  "--on-collision": {
-                    "arity": 1,
-                    "values": {
-                      "error": {},
-                      "#error": "Reject conflicting values (default).",
-                      "existing": {},
-                      "#existing": "Keep existing conflicting values.",
-                      "incoming": {},
-                      "#incoming": "Use incoming conflicting values."
+                  "#json": "Print selected configured/effective settings as JSON.",
+                  "list-json": {
+                    "dispatch": [
+                      "--tool",
+                      "env_settings",
+                      "vscode",
+                      "list-json"
+                    ],
+                    "flags": {
+                      "--server": {
+                        "arity": 1
+                      },
+                      "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                      "--user": {
+                        "arity": 1
+                      },
+                      "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                      "--json": {
+                        "arity": 0
+                      },
+                      "#--json": "Print the report as JSON."
                     }
                   },
-                  "#--on-collision": "Resolve Python version/package or SSH Host conflicts explicitly."
+                  "#list-json": "List all saved server/user entries and defaults for this setting as JSON."
                 }
               },
-              "#merge-dry-run": "Preview merge changes without writing.",
-              "print-as-json": {
-                "dispatch": [
-                  "--tool",
-                  "env_settings",
-                  "python",
-                  "print-as-json"
-                ],
-                "flags": {
-                  "--server": {
-                    "arity": 1
-                  },
-                  "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
-                  "--user": {
-                    "arity": 1
-                  },
-                  "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
-                  "--json": {
-                    "arity": 0
-                  },
-                  "#--json": "Print the report as JSON."
-                }
-              },
-              "#print-as-json": "Print selected configured/effective settings as JSON.",
-              "lint-user-settings": {
-                "dispatch": [
-                  "--tool",
-                  "env_settings",
-                  "python",
-                  "lint-user-settings"
-                ],
-                "flags": {
-                  "--server": {
-                    "arity": 1
-                  },
-                  "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
-                  "--user": {
-                    "arity": 1
-                  },
-                  "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
-                  "--json": {
-                    "arity": 0
-                  },
-                  "#--json": "Print the report as JSON."
-                }
-              },
-              "#lint-user-settings": "Validate the selected user configuration without remote access.",
-              "list-json": {
-                "dispatch": [
-                  "--tool",
-                  "env_settings",
-                  "python",
-                  "list-json"
-                ],
-                "flags": {
-                  "--server": {
-                    "arity": 1
-                  },
-                  "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
-                  "--user": {
-                    "arity": 1
-                  },
-                  "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
-                  "--json": {
-                    "arity": 0
-                  },
-                  "#--json": "Print the report as JSON."
-                }
-              },
-              "#list-json": "List all saved server/user entries and defaults for this setting as JSON.",
-              "verify": {
-                "dispatch": [
-                  "--tool",
-                  "env_settings",
-                  "python",
-                  "verify"
-                ],
-                "flags": {
-                  "--server": {
-                    "arity": 1
-                  },
-                  "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
-                  "--user": {
-                    "arity": 1
-                  },
-                  "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
-                  "--json": {
-                    "arity": 0
-                  },
-                  "#--json": "Print the report as JSON."
-                }
-              },
-              "#verify": "Verify the active local environment against its selected settings."
+              "#vscode": "Show VS Code extensions and repository workspace settings."
             }
           },
-          "#python": "Python interpreter version and package requirements with server/user defaults.",
-          "pythonpath": {
-            "commands": {
-              "show": {
-                "dispatch": [
-                  "--tool",
-                  "env_settings",
-                  "pythonpath",
-                  "show"
-                ],
-                "flags": {
-                  "--server": {
-                    "arity": 1
-                  },
-                  "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
-                  "--user": {
-                    "arity": 1
-                  },
-                  "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
-                  "--json": {
-                    "arity": 0
-                  },
-                  "#--json": "Print the report as JSON."
-                }
-              },
-              "#show": "Show configured and effective settings with their sources.",
-              "import": {
-                "dispatch": [
-                  "--tool",
-                  "env_settings",
-                  "pythonpath",
-                  "import"
-                ],
-                "flags": {
-                  "--server": {
-                    "arity": 1
-                  },
-                  "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
-                  "--user": {
-                    "arity": 1
-                  },
-                  "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
-                  "--json": {
-                    "arity": 0
-                  },
-                  "#--json": "Print the report as JSON.",
-                  "--input": {
-                    "arity": 1,
-                    "provider": "files"
-                  },
-                  "#--input": "Source JSON (paths or Python requirements), or SSH config text; otherwise capture local settings."
-                }
-              },
-              "#import": "Replace the selected setting from --input or the active local environment.",
-              "import-dry-run": {
-                "dispatch": [
-                  "--tool",
-                  "env_settings",
-                  "pythonpath",
-                  "import-dry-run"
-                ],
-                "flags": {
-                  "--server": {
-                    "arity": 1
-                  },
-                  "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
-                  "--user": {
-                    "arity": 1
-                  },
-                  "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
-                  "--json": {
-                    "arity": 0
-                  },
-                  "#--json": "Print the report as JSON.",
-                  "--input": {
-                    "arity": 1,
-                    "provider": "files"
-                  },
-                  "#--input": "Source JSON (paths or Python requirements), or SSH config text; otherwise capture local settings."
-                }
-              },
-              "#import-dry-run": "Preview import changes without writing.",
-              "merge": {
-                "dispatch": [
-                  "--tool",
-                  "env_settings",
-                  "pythonpath",
-                  "merge"
-                ],
-                "flags": {
-                  "--server": {
-                    "arity": 1
-                  },
-                  "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
-                  "--user": {
-                    "arity": 1
-                  },
-                  "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
-                  "--json": {
-                    "arity": 0
-                  },
-                  "#--json": "Print the report as JSON.",
-                  "--input": {
-                    "arity": 1,
-                    "provider": "files"
-                  },
-                  "#--input": "Source JSON (paths or Python requirements), or SSH config text; otherwise capture local settings.",
-                  "--on-collision": {
-                    "arity": 1,
-                    "values": {
-                      "error": {},
-                      "#error": "Reject conflicting values (default).",
-                      "existing": {},
-                      "#existing": "Keep existing conflicting values.",
-                      "incoming": {},
-                      "#incoming": "Use incoming conflicting values."
-                    }
-                  },
-                  "#--on-collision": "Resolve Python version/package or SSH Host conflicts explicitly."
-                }
-              },
-              "#merge": "Merge into the selected setting, preserving unrelated data.",
-              "merge-dry-run": {
-                "dispatch": [
-                  "--tool",
-                  "env_settings",
-                  "pythonpath",
-                  "merge-dry-run"
-                ],
-                "flags": {
-                  "--server": {
-                    "arity": 1
-                  },
-                  "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
-                  "--user": {
-                    "arity": 1
-                  },
-                  "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
-                  "--json": {
-                    "arity": 0
-                  },
-                  "#--json": "Print the report as JSON.",
-                  "--input": {
-                    "arity": 1,
-                    "provider": "files"
-                  },
-                  "#--input": "Source JSON (paths or Python requirements), or SSH config text; otherwise capture local settings.",
-                  "--on-collision": {
-                    "arity": 1,
-                    "values": {
-                      "error": {},
-                      "#error": "Reject conflicting values (default).",
-                      "existing": {},
-                      "#existing": "Keep existing conflicting values.",
-                      "incoming": {},
-                      "#incoming": "Use incoming conflicting values."
-                    }
-                  },
-                  "#--on-collision": "Resolve Python version/package or SSH Host conflicts explicitly."
-                }
-              },
-              "#merge-dry-run": "Preview merge changes without writing.",
-              "print-as-json": {
-                "dispatch": [
-                  "--tool",
-                  "env_settings",
-                  "pythonpath",
-                  "print-as-json"
-                ],
-                "flags": {
-                  "--server": {
-                    "arity": 1
-                  },
-                  "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
-                  "--user": {
-                    "arity": 1
-                  },
-                  "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
-                  "--json": {
-                    "arity": 0
-                  },
-                  "#--json": "Print the report as JSON."
-                }
-              },
-              "#print-as-json": "Print selected configured/effective settings as JSON.",
-              "lint-user-settings": {
-                "dispatch": [
-                  "--tool",
-                  "env_settings",
-                  "pythonpath",
-                  "lint-user-settings"
-                ],
-                "flags": {
-                  "--server": {
-                    "arity": 1
-                  },
-                  "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
-                  "--user": {
-                    "arity": 1
-                  },
-                  "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
-                  "--json": {
-                    "arity": 0
-                  },
-                  "#--json": "Print the report as JSON."
-                }
-              },
-              "#lint-user-settings": "Validate the selected user configuration without remote access.",
-              "list-json": {
-                "dispatch": [
-                  "--tool",
-                  "env_settings",
-                  "pythonpath",
-                  "list-json"
-                ],
-                "flags": {
-                  "--server": {
-                    "arity": 1
-                  },
-                  "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
-                  "--user": {
-                    "arity": 1
-                  },
-                  "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
-                  "--json": {
-                    "arity": 0
-                  },
-                  "#--json": "Print the report as JSON."
-                }
-              },
-              "#list-json": "List all saved server/user entries and defaults for this setting as JSON.",
-              "verify": {
-                "dispatch": [
-                  "--tool",
-                  "env_settings",
-                  "pythonpath",
-                  "verify"
-                ],
-                "flags": {
-                  "--server": {
-                    "arity": 1
-                  },
-                  "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
-                  "--user": {
-                    "arity": 1
-                  },
-                  "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
-                  "--json": {
-                    "arity": 0
-                  },
-                  "#--json": "Print the report as JSON."
-                }
-              },
-              "#verify": "Verify the active local environment against its selected settings.",
-              "print-shell": {
-                "dispatch": [
-                  "--tool",
-                  "path_manager",
-                  "init-base-pythonpath"
-                ],
-                "flags": {}
-              },
-              "#print-shell": "Print a shell export for the active search path."
-            }
-          },
-          "#pythonpath": "Python module search paths (PYTHONPATH).",
-          "ssh-config": {
-            "commands": {
-              "show": {
-                "dispatch": [
-                  "--tool",
-                  "env_settings",
-                  "ssh-config",
-                  "show"
-                ],
-                "flags": {
-                  "--server": {
-                    "arity": 1
-                  },
-                  "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
-                  "--user": {
-                    "arity": 1
-                  },
-                  "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
-                  "--json": {
-                    "arity": 0
-                  },
-                  "#--json": "Print the report as JSON."
-                }
-              },
-              "#show": "Show configured and effective settings with their sources.",
-              "import": {
-                "dispatch": [
-                  "--tool",
-                  "env_settings",
-                  "ssh-config",
-                  "import"
-                ],
-                "flags": {
-                  "--server": {
-                    "arity": 1
-                  },
-                  "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
-                  "--user": {
-                    "arity": 1
-                  },
-                  "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
-                  "--json": {
-                    "arity": 0
-                  },
-                  "#--json": "Print the report as JSON.",
-                  "--input": {
-                    "arity": 1,
-                    "provider": "files"
-                  },
-                  "#--input": "Source JSON (paths or Python requirements), or SSH config text; otherwise capture local settings."
-                }
-              },
-              "#import": "Replace the selected setting from --input or the active local environment.",
-              "import-dry-run": {
-                "dispatch": [
-                  "--tool",
-                  "env_settings",
-                  "ssh-config",
-                  "import-dry-run"
-                ],
-                "flags": {
-                  "--server": {
-                    "arity": 1
-                  },
-                  "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
-                  "--user": {
-                    "arity": 1
-                  },
-                  "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
-                  "--json": {
-                    "arity": 0
-                  },
-                  "#--json": "Print the report as JSON.",
-                  "--input": {
-                    "arity": 1,
-                    "provider": "files"
-                  },
-                  "#--input": "Source JSON (paths or Python requirements), or SSH config text; otherwise capture local settings."
-                }
-              },
-              "#import-dry-run": "Preview import changes without writing.",
-              "merge": {
-                "dispatch": [
-                  "--tool",
-                  "env_settings",
-                  "ssh-config",
-                  "merge"
-                ],
-                "flags": {
-                  "--server": {
-                    "arity": 1
-                  },
-                  "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
-                  "--user": {
-                    "arity": 1
-                  },
-                  "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
-                  "--json": {
-                    "arity": 0
-                  },
-                  "#--json": "Print the report as JSON.",
-                  "--input": {
-                    "arity": 1,
-                    "provider": "files"
-                  },
-                  "#--input": "Source JSON (paths or Python requirements), or SSH config text; otherwise capture local settings.",
-                  "--on-collision": {
-                    "arity": 1,
-                    "values": {
-                      "error": {},
-                      "#error": "Reject conflicting values (default).",
-                      "existing": {},
-                      "#existing": "Keep existing conflicting values.",
-                      "incoming": {},
-                      "#incoming": "Use incoming conflicting values."
-                    }
-                  },
-                  "#--on-collision": "Resolve Python version/package or SSH Host conflicts explicitly."
-                }
-              },
-              "#merge": "Merge into the selected setting, preserving unrelated data.",
-              "merge-dry-run": {
-                "dispatch": [
-                  "--tool",
-                  "env_settings",
-                  "ssh-config",
-                  "merge-dry-run"
-                ],
-                "flags": {
-                  "--server": {
-                    "arity": 1
-                  },
-                  "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
-                  "--user": {
-                    "arity": 1
-                  },
-                  "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
-                  "--json": {
-                    "arity": 0
-                  },
-                  "#--json": "Print the report as JSON.",
-                  "--input": {
-                    "arity": 1,
-                    "provider": "files"
-                  },
-                  "#--input": "Source JSON (paths or Python requirements), or SSH config text; otherwise capture local settings.",
-                  "--on-collision": {
-                    "arity": 1,
-                    "values": {
-                      "error": {},
-                      "#error": "Reject conflicting values (default).",
-                      "existing": {},
-                      "#existing": "Keep existing conflicting values.",
-                      "incoming": {},
-                      "#incoming": "Use incoming conflicting values."
-                    }
-                  },
-                  "#--on-collision": "Resolve Python version/package or SSH Host conflicts explicitly."
-                }
-              },
-              "#merge-dry-run": "Preview merge changes without writing.",
-              "print-as-json": {
-                "dispatch": [
-                  "--tool",
-                  "env_settings",
-                  "ssh-config",
-                  "print-as-json"
-                ],
-                "flags": {
-                  "--server": {
-                    "arity": 1
-                  },
-                  "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
-                  "--user": {
-                    "arity": 1
-                  },
-                  "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
-                  "--json": {
-                    "arity": 0
-                  },
-                  "#--json": "Print the report as JSON."
-                }
-              },
-              "#print-as-json": "Print selected configured/effective settings as JSON.",
-              "lint-user-settings": {
-                "dispatch": [
-                  "--tool",
-                  "env_settings",
-                  "ssh-config",
-                  "lint-user-settings"
-                ],
-                "flags": {
-                  "--server": {
-                    "arity": 1
-                  },
-                  "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
-                  "--user": {
-                    "arity": 1
-                  },
-                  "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
-                  "--json": {
-                    "arity": 0
-                  },
-                  "#--json": "Print the report as JSON."
-                }
-              },
-              "#lint-user-settings": "Validate the selected user configuration without remote access.",
-              "list-json": {
-                "dispatch": [
-                  "--tool",
-                  "env_settings",
-                  "ssh-config",
-                  "list-json"
-                ],
-                "flags": {
-                  "--server": {
-                    "arity": 1
-                  },
-                  "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
-                  "--user": {
-                    "arity": 1
-                  },
-                  "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
-                  "--json": {
-                    "arity": 0
-                  },
-                  "#--json": "Print the report as JSON."
-                }
-              },
-              "#list-json": "List all saved server/user entries and defaults for this setting as JSON.",
-              "verify": {
-                "dispatch": [
-                  "--tool",
-                  "env_settings",
-                  "ssh-config",
-                  "verify"
-                ],
-                "flags": {
-                  "--server": {
-                    "arity": 1
-                  },
-                  "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
-                  "--user": {
-                    "arity": 1
-                  },
-                  "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
-                  "--json": {
-                    "arity": 0
-                  },
-                  "#--json": "Print the report as JSON."
-                }
-              },
-              "#verify": "Verify the active local environment against its selected settings."
-            }
-          },
-          "#ssh-config": "Repository SSH configuration files; no connections or key changes.",
+          "#show": "Inspect environment settings.",
           "install-shell": {
             "dispatch": [
               "--tool",
@@ -3225,15 +2712,1318 @@
             "flags": {}
           },
           "#lint-json": "Validate required JSON keys, values and configured input paths.",
-          "show-all": {
-            "dispatch": [
-              "--tool",
-              "path_manager",
-              "show-all"
-            ],
-            "flags": {}
+          "import": {
+            "commands": {
+              "os": {
+                "dispatch": [
+                  "--tool",
+                  "env_settings",
+                  "os",
+                  "import"
+                ],
+                "flags": {
+                  "--server": {
+                    "arity": 1
+                  },
+                  "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                  "--user": {
+                    "arity": 1
+                  },
+                  "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                  "--json": {
+                    "arity": 0
+                  },
+                  "#--json": "Print the report as JSON.",
+                  "--input": {
+                    "arity": 1,
+                    "provider": "files"
+                  },
+                  "#--input": "Source JSON (paths or Python requirements), or SSH config text; otherwise capture local settings."
+                },
+                "commands": {
+                  "dry-run": {
+                    "dispatch": [
+                      "--tool",
+                      "env_settings",
+                      "os",
+                      "import-dry-run"
+                    ],
+                    "flags": {
+                      "--server": {
+                        "arity": 1
+                      },
+                      "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                      "--user": {
+                        "arity": 1
+                      },
+                      "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                      "--json": {
+                        "arity": 0
+                      },
+                      "#--json": "Print the report as JSON.",
+                      "--input": {
+                        "arity": 1,
+                        "provider": "files"
+                      },
+                      "#--input": "Source JSON (paths or Python requirements), or SSH config text; otherwise capture local settings."
+                    }
+                  },
+                  "#dry-run": "Preview import without writing.",
+                  "merge": {
+                    "dispatch": [
+                      "--tool",
+                      "env_settings",
+                      "os",
+                      "merge"
+                    ],
+                    "flags": {
+                      "--server": {
+                        "arity": 1
+                      },
+                      "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                      "--user": {
+                        "arity": 1
+                      },
+                      "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                      "--json": {
+                        "arity": 0
+                      },
+                      "#--json": "Print the report as JSON.",
+                      "--input": {
+                        "arity": 1,
+                        "provider": "files"
+                      },
+                      "#--input": "Source JSON (paths or Python requirements), or SSH config text; otherwise capture local settings.",
+                      "--on-collision": {
+                        "arity": 1,
+                        "values": {
+                          "error": {},
+                          "#error": "Reject conflicting values (default).",
+                          "existing": {},
+                          "#existing": "Keep existing conflicting values.",
+                          "incoming": {},
+                          "#incoming": "Use incoming conflicting values."
+                        }
+                      },
+                      "#--on-collision": "Resolve Python version/package or SSH Host conflicts explicitly."
+                    }
+                  },
+                  "#merge": "Merge imported values with existing settings.",
+                  "merge-dry-run": {
+                    "dispatch": [
+                      "--tool",
+                      "env_settings",
+                      "os",
+                      "merge-dry-run"
+                    ],
+                    "flags": {
+                      "--server": {
+                        "arity": 1
+                      },
+                      "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                      "--user": {
+                        "arity": 1
+                      },
+                      "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                      "--json": {
+                        "arity": 0
+                      },
+                      "#--json": "Print the report as JSON.",
+                      "--input": {
+                        "arity": 1,
+                        "provider": "files"
+                      },
+                      "#--input": "Source JSON (paths or Python requirements), or SSH config text; otherwise capture local settings.",
+                      "--on-collision": {
+                        "arity": 1,
+                        "values": {
+                          "error": {},
+                          "#error": "Reject conflicting values (default).",
+                          "existing": {},
+                          "#existing": "Keep existing conflicting values.",
+                          "incoming": {},
+                          "#incoming": "Use incoming conflicting values."
+                        }
+                      },
+                      "#--on-collision": "Resolve Python version/package or SSH Host conflicts explicitly."
+                    }
+                  },
+                  "#merge-dry-run": "Preview merge without writing."
+                }
+              },
+              "#os": "Import os settings.",
+              "path": {
+                "dispatch": [
+                  "--tool",
+                  "env_settings",
+                  "path",
+                  "import"
+                ],
+                "flags": {
+                  "--server": {
+                    "arity": 1
+                  },
+                  "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                  "--user": {
+                    "arity": 1
+                  },
+                  "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                  "--json": {
+                    "arity": 0
+                  },
+                  "#--json": "Print the report as JSON.",
+                  "--input": {
+                    "arity": 1,
+                    "provider": "files"
+                  },
+                  "#--input": "Source JSON (paths or Python requirements), or SSH config text; otherwise capture local settings."
+                },
+                "commands": {
+                  "dry-run": {
+                    "dispatch": [
+                      "--tool",
+                      "env_settings",
+                      "path",
+                      "import-dry-run"
+                    ],
+                    "flags": {
+                      "--server": {
+                        "arity": 1
+                      },
+                      "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                      "--user": {
+                        "arity": 1
+                      },
+                      "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                      "--json": {
+                        "arity": 0
+                      },
+                      "#--json": "Print the report as JSON.",
+                      "--input": {
+                        "arity": 1,
+                        "provider": "files"
+                      },
+                      "#--input": "Source JSON (paths or Python requirements), or SSH config text; otherwise capture local settings."
+                    }
+                  },
+                  "#dry-run": "Preview import without writing.",
+                  "merge": {
+                    "dispatch": [
+                      "--tool",
+                      "env_settings",
+                      "path",
+                      "merge"
+                    ],
+                    "flags": {
+                      "--server": {
+                        "arity": 1
+                      },
+                      "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                      "--user": {
+                        "arity": 1
+                      },
+                      "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                      "--json": {
+                        "arity": 0
+                      },
+                      "#--json": "Print the report as JSON.",
+                      "--input": {
+                        "arity": 1,
+                        "provider": "files"
+                      },
+                      "#--input": "Source JSON (paths or Python requirements), or SSH config text; otherwise capture local settings.",
+                      "--on-collision": {
+                        "arity": 1,
+                        "values": {
+                          "error": {},
+                          "#error": "Reject conflicting values (default).",
+                          "existing": {},
+                          "#existing": "Keep existing conflicting values.",
+                          "incoming": {},
+                          "#incoming": "Use incoming conflicting values."
+                        }
+                      },
+                      "#--on-collision": "Resolve Python version/package or SSH Host conflicts explicitly."
+                    }
+                  },
+                  "#merge": "Merge imported values with existing settings.",
+                  "merge-dry-run": {
+                    "dispatch": [
+                      "--tool",
+                      "env_settings",
+                      "path",
+                      "merge-dry-run"
+                    ],
+                    "flags": {
+                      "--server": {
+                        "arity": 1
+                      },
+                      "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                      "--user": {
+                        "arity": 1
+                      },
+                      "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                      "--json": {
+                        "arity": 0
+                      },
+                      "#--json": "Print the report as JSON.",
+                      "--input": {
+                        "arity": 1,
+                        "provider": "files"
+                      },
+                      "#--input": "Source JSON (paths or Python requirements), or SSH config text; otherwise capture local settings.",
+                      "--on-collision": {
+                        "arity": 1,
+                        "values": {
+                          "error": {},
+                          "#error": "Reject conflicting values (default).",
+                          "existing": {},
+                          "#existing": "Keep existing conflicting values.",
+                          "incoming": {},
+                          "#incoming": "Use incoming conflicting values."
+                        }
+                      },
+                      "#--on-collision": "Resolve Python version/package or SSH Host conflicts explicitly."
+                    }
+                  },
+                  "#merge-dry-run": "Preview merge without writing."
+                }
+              },
+              "#path": "Import path settings.",
+              "python": {
+                "dispatch": [
+                  "--tool",
+                  "env_settings",
+                  "python",
+                  "import"
+                ],
+                "flags": {
+                  "--server": {
+                    "arity": 1
+                  },
+                  "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                  "--user": {
+                    "arity": 1
+                  },
+                  "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                  "--json": {
+                    "arity": 0
+                  },
+                  "#--json": "Print the report as JSON.",
+                  "--input": {
+                    "arity": 1,
+                    "provider": "files"
+                  },
+                  "#--input": "Source JSON (paths or Python requirements), or SSH config text; otherwise capture local settings."
+                },
+                "commands": {
+                  "dry-run": {
+                    "dispatch": [
+                      "--tool",
+                      "env_settings",
+                      "python",
+                      "import-dry-run"
+                    ],
+                    "flags": {
+                      "--server": {
+                        "arity": 1
+                      },
+                      "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                      "--user": {
+                        "arity": 1
+                      },
+                      "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                      "--json": {
+                        "arity": 0
+                      },
+                      "#--json": "Print the report as JSON.",
+                      "--input": {
+                        "arity": 1,
+                        "provider": "files"
+                      },
+                      "#--input": "Source JSON (paths or Python requirements), or SSH config text; otherwise capture local settings."
+                    }
+                  },
+                  "#dry-run": "Preview import without writing.",
+                  "merge": {
+                    "dispatch": [
+                      "--tool",
+                      "env_settings",
+                      "python",
+                      "merge"
+                    ],
+                    "flags": {
+                      "--server": {
+                        "arity": 1
+                      },
+                      "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                      "--user": {
+                        "arity": 1
+                      },
+                      "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                      "--json": {
+                        "arity": 0
+                      },
+                      "#--json": "Print the report as JSON.",
+                      "--input": {
+                        "arity": 1,
+                        "provider": "files"
+                      },
+                      "#--input": "Source JSON (paths or Python requirements), or SSH config text; otherwise capture local settings.",
+                      "--on-collision": {
+                        "arity": 1,
+                        "values": {
+                          "error": {},
+                          "#error": "Reject conflicting values (default).",
+                          "existing": {},
+                          "#existing": "Keep existing conflicting values.",
+                          "incoming": {},
+                          "#incoming": "Use incoming conflicting values."
+                        }
+                      },
+                      "#--on-collision": "Resolve Python version/package or SSH Host conflicts explicitly."
+                    }
+                  },
+                  "#merge": "Merge imported values with existing settings.",
+                  "merge-dry-run": {
+                    "dispatch": [
+                      "--tool",
+                      "env_settings",
+                      "python",
+                      "merge-dry-run"
+                    ],
+                    "flags": {
+                      "--server": {
+                        "arity": 1
+                      },
+                      "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                      "--user": {
+                        "arity": 1
+                      },
+                      "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                      "--json": {
+                        "arity": 0
+                      },
+                      "#--json": "Print the report as JSON.",
+                      "--input": {
+                        "arity": 1,
+                        "provider": "files"
+                      },
+                      "#--input": "Source JSON (paths or Python requirements), or SSH config text; otherwise capture local settings.",
+                      "--on-collision": {
+                        "arity": 1,
+                        "values": {
+                          "error": {},
+                          "#error": "Reject conflicting values (default).",
+                          "existing": {},
+                          "#existing": "Keep existing conflicting values.",
+                          "incoming": {},
+                          "#incoming": "Use incoming conflicting values."
+                        }
+                      },
+                      "#--on-collision": "Resolve Python version/package or SSH Host conflicts explicitly."
+                    }
+                  },
+                  "#merge-dry-run": "Preview merge without writing."
+                }
+              },
+              "#python": "Import python settings.",
+              "pythonpath": {
+                "dispatch": [
+                  "--tool",
+                  "env_settings",
+                  "pythonpath",
+                  "import"
+                ],
+                "flags": {
+                  "--server": {
+                    "arity": 1
+                  },
+                  "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                  "--user": {
+                    "arity": 1
+                  },
+                  "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                  "--json": {
+                    "arity": 0
+                  },
+                  "#--json": "Print the report as JSON.",
+                  "--input": {
+                    "arity": 1,
+                    "provider": "files"
+                  },
+                  "#--input": "Source JSON (paths or Python requirements), or SSH config text; otherwise capture local settings."
+                },
+                "commands": {
+                  "dry-run": {
+                    "dispatch": [
+                      "--tool",
+                      "env_settings",
+                      "pythonpath",
+                      "import-dry-run"
+                    ],
+                    "flags": {
+                      "--server": {
+                        "arity": 1
+                      },
+                      "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                      "--user": {
+                        "arity": 1
+                      },
+                      "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                      "--json": {
+                        "arity": 0
+                      },
+                      "#--json": "Print the report as JSON.",
+                      "--input": {
+                        "arity": 1,
+                        "provider": "files"
+                      },
+                      "#--input": "Source JSON (paths or Python requirements), or SSH config text; otherwise capture local settings."
+                    }
+                  },
+                  "#dry-run": "Preview import without writing.",
+                  "merge": {
+                    "dispatch": [
+                      "--tool",
+                      "env_settings",
+                      "pythonpath",
+                      "merge"
+                    ],
+                    "flags": {
+                      "--server": {
+                        "arity": 1
+                      },
+                      "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                      "--user": {
+                        "arity": 1
+                      },
+                      "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                      "--json": {
+                        "arity": 0
+                      },
+                      "#--json": "Print the report as JSON.",
+                      "--input": {
+                        "arity": 1,
+                        "provider": "files"
+                      },
+                      "#--input": "Source JSON (paths or Python requirements), or SSH config text; otherwise capture local settings.",
+                      "--on-collision": {
+                        "arity": 1,
+                        "values": {
+                          "error": {},
+                          "#error": "Reject conflicting values (default).",
+                          "existing": {},
+                          "#existing": "Keep existing conflicting values.",
+                          "incoming": {},
+                          "#incoming": "Use incoming conflicting values."
+                        }
+                      },
+                      "#--on-collision": "Resolve Python version/package or SSH Host conflicts explicitly."
+                    }
+                  },
+                  "#merge": "Merge imported values with existing settings.",
+                  "merge-dry-run": {
+                    "dispatch": [
+                      "--tool",
+                      "env_settings",
+                      "pythonpath",
+                      "merge-dry-run"
+                    ],
+                    "flags": {
+                      "--server": {
+                        "arity": 1
+                      },
+                      "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                      "--user": {
+                        "arity": 1
+                      },
+                      "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                      "--json": {
+                        "arity": 0
+                      },
+                      "#--json": "Print the report as JSON.",
+                      "--input": {
+                        "arity": 1,
+                        "provider": "files"
+                      },
+                      "#--input": "Source JSON (paths or Python requirements), or SSH config text; otherwise capture local settings.",
+                      "--on-collision": {
+                        "arity": 1,
+                        "values": {
+                          "error": {},
+                          "#error": "Reject conflicting values (default).",
+                          "existing": {},
+                          "#existing": "Keep existing conflicting values.",
+                          "incoming": {},
+                          "#incoming": "Use incoming conflicting values."
+                        }
+                      },
+                      "#--on-collision": "Resolve Python version/package or SSH Host conflicts explicitly."
+                    }
+                  },
+                  "#merge-dry-run": "Preview merge without writing."
+                }
+              },
+              "#pythonpath": "Import pythonpath settings.",
+              "ssh-config": {
+                "dispatch": [
+                  "--tool",
+                  "env_settings",
+                  "ssh-config",
+                  "import"
+                ],
+                "flags": {
+                  "--server": {
+                    "arity": 1
+                  },
+                  "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                  "--user": {
+                    "arity": 1
+                  },
+                  "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                  "--json": {
+                    "arity": 0
+                  },
+                  "#--json": "Print the report as JSON.",
+                  "--input": {
+                    "arity": 1,
+                    "provider": "files"
+                  },
+                  "#--input": "Source JSON (paths or Python requirements), or SSH config text; otherwise capture local settings."
+                },
+                "commands": {
+                  "dry-run": {
+                    "dispatch": [
+                      "--tool",
+                      "env_settings",
+                      "ssh-config",
+                      "import-dry-run"
+                    ],
+                    "flags": {
+                      "--server": {
+                        "arity": 1
+                      },
+                      "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                      "--user": {
+                        "arity": 1
+                      },
+                      "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                      "--json": {
+                        "arity": 0
+                      },
+                      "#--json": "Print the report as JSON.",
+                      "--input": {
+                        "arity": 1,
+                        "provider": "files"
+                      },
+                      "#--input": "Source JSON (paths or Python requirements), or SSH config text; otherwise capture local settings."
+                    }
+                  },
+                  "#dry-run": "Preview import without writing.",
+                  "merge": {
+                    "dispatch": [
+                      "--tool",
+                      "env_settings",
+                      "ssh-config",
+                      "merge"
+                    ],
+                    "flags": {
+                      "--server": {
+                        "arity": 1
+                      },
+                      "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                      "--user": {
+                        "arity": 1
+                      },
+                      "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                      "--json": {
+                        "arity": 0
+                      },
+                      "#--json": "Print the report as JSON.",
+                      "--input": {
+                        "arity": 1,
+                        "provider": "files"
+                      },
+                      "#--input": "Source JSON (paths or Python requirements), or SSH config text; otherwise capture local settings.",
+                      "--on-collision": {
+                        "arity": 1,
+                        "values": {
+                          "error": {},
+                          "#error": "Reject conflicting values (default).",
+                          "existing": {},
+                          "#existing": "Keep existing conflicting values.",
+                          "incoming": {},
+                          "#incoming": "Use incoming conflicting values."
+                        }
+                      },
+                      "#--on-collision": "Resolve Python version/package or SSH Host conflicts explicitly."
+                    }
+                  },
+                  "#merge": "Merge imported values with existing settings.",
+                  "merge-dry-run": {
+                    "dispatch": [
+                      "--tool",
+                      "env_settings",
+                      "ssh-config",
+                      "merge-dry-run"
+                    ],
+                    "flags": {
+                      "--server": {
+                        "arity": 1
+                      },
+                      "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                      "--user": {
+                        "arity": 1
+                      },
+                      "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                      "--json": {
+                        "arity": 0
+                      },
+                      "#--json": "Print the report as JSON.",
+                      "--input": {
+                        "arity": 1,
+                        "provider": "files"
+                      },
+                      "#--input": "Source JSON (paths or Python requirements), or SSH config text; otherwise capture local settings.",
+                      "--on-collision": {
+                        "arity": 1,
+                        "values": {
+                          "error": {},
+                          "#error": "Reject conflicting values (default).",
+                          "existing": {},
+                          "#existing": "Keep existing conflicting values.",
+                          "incoming": {},
+                          "#incoming": "Use incoming conflicting values."
+                        }
+                      },
+                      "#--on-collision": "Resolve Python version/package or SSH Host conflicts explicitly."
+                    }
+                  },
+                  "#merge-dry-run": "Preview merge without writing."
+                }
+              },
+              "#ssh-config": "Import ssh-config settings.",
+              "system-packages": {
+                "dispatch": [
+                  "--tool",
+                  "env_settings",
+                  "system-packages",
+                  "import"
+                ],
+                "flags": {
+                  "--server": {
+                    "arity": 1
+                  },
+                  "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                  "--user": {
+                    "arity": 1
+                  },
+                  "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                  "--json": {
+                    "arity": 0
+                  },
+                  "#--json": "Print the report as JSON.",
+                  "--input": {
+                    "arity": 1,
+                    "provider": "files"
+                  },
+                  "#--input": "Source JSON (paths or Python requirements), or SSH config text; otherwise capture local settings."
+                },
+                "commands": {
+                  "dry-run": {
+                    "dispatch": [
+                      "--tool",
+                      "env_settings",
+                      "system-packages",
+                      "import-dry-run"
+                    ],
+                    "flags": {
+                      "--server": {
+                        "arity": 1
+                      },
+                      "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                      "--user": {
+                        "arity": 1
+                      },
+                      "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                      "--json": {
+                        "arity": 0
+                      },
+                      "#--json": "Print the report as JSON.",
+                      "--input": {
+                        "arity": 1,
+                        "provider": "files"
+                      },
+                      "#--input": "Source JSON (paths or Python requirements), or SSH config text; otherwise capture local settings."
+                    }
+                  },
+                  "#dry-run": "Preview import without writing.",
+                  "merge": {
+                    "dispatch": [
+                      "--tool",
+                      "env_settings",
+                      "system-packages",
+                      "merge"
+                    ],
+                    "flags": {
+                      "--server": {
+                        "arity": 1
+                      },
+                      "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                      "--user": {
+                        "arity": 1
+                      },
+                      "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                      "--json": {
+                        "arity": 0
+                      },
+                      "#--json": "Print the report as JSON.",
+                      "--input": {
+                        "arity": 1,
+                        "provider": "files"
+                      },
+                      "#--input": "Source JSON (paths or Python requirements), or SSH config text; otherwise capture local settings.",
+                      "--on-collision": {
+                        "arity": 1,
+                        "values": {
+                          "error": {},
+                          "#error": "Reject conflicting values (default).",
+                          "existing": {},
+                          "#existing": "Keep existing conflicting values.",
+                          "incoming": {},
+                          "#incoming": "Use incoming conflicting values."
+                        }
+                      },
+                      "#--on-collision": "Resolve Python version/package or SSH Host conflicts explicitly."
+                    }
+                  },
+                  "#merge": "Merge imported values with existing settings.",
+                  "merge-dry-run": {
+                    "dispatch": [
+                      "--tool",
+                      "env_settings",
+                      "system-packages",
+                      "merge-dry-run"
+                    ],
+                    "flags": {
+                      "--server": {
+                        "arity": 1
+                      },
+                      "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                      "--user": {
+                        "arity": 1
+                      },
+                      "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                      "--json": {
+                        "arity": 0
+                      },
+                      "#--json": "Print the report as JSON.",
+                      "--input": {
+                        "arity": 1,
+                        "provider": "files"
+                      },
+                      "#--input": "Source JSON (paths or Python requirements), or SSH config text; otherwise capture local settings.",
+                      "--on-collision": {
+                        "arity": 1,
+                        "values": {
+                          "error": {},
+                          "#error": "Reject conflicting values (default).",
+                          "existing": {},
+                          "#existing": "Keep existing conflicting values.",
+                          "incoming": {},
+                          "#incoming": "Use incoming conflicting values."
+                        }
+                      },
+                      "#--on-collision": "Resolve Python version/package or SSH Host conflicts explicitly."
+                    }
+                  },
+                  "#merge-dry-run": "Preview merge without writing."
+                }
+              },
+              "#system-packages": "Import system-packages settings.",
+              "vscode": {
+                "dispatch": [
+                  "--tool",
+                  "env_settings",
+                  "vscode",
+                  "import"
+                ],
+                "flags": {
+                  "--server": {
+                    "arity": 1
+                  },
+                  "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                  "--user": {
+                    "arity": 1
+                  },
+                  "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                  "--json": {
+                    "arity": 0
+                  },
+                  "#--json": "Print the report as JSON.",
+                  "--input": {
+                    "arity": 1,
+                    "provider": "files"
+                  },
+                  "#--input": "Source JSON (paths or Python requirements), or SSH config text; otherwise capture local settings."
+                },
+                "commands": {
+                  "dry-run": {
+                    "dispatch": [
+                      "--tool",
+                      "env_settings",
+                      "vscode",
+                      "import-dry-run"
+                    ],
+                    "flags": {
+                      "--server": {
+                        "arity": 1
+                      },
+                      "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                      "--user": {
+                        "arity": 1
+                      },
+                      "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                      "--json": {
+                        "arity": 0
+                      },
+                      "#--json": "Print the report as JSON.",
+                      "--input": {
+                        "arity": 1,
+                        "provider": "files"
+                      },
+                      "#--input": "Source JSON (paths or Python requirements), or SSH config text; otherwise capture local settings."
+                    }
+                  },
+                  "#dry-run": "Preview import without writing.",
+                  "merge": {
+                    "dispatch": [
+                      "--tool",
+                      "env_settings",
+                      "vscode",
+                      "merge"
+                    ],
+                    "flags": {
+                      "--server": {
+                        "arity": 1
+                      },
+                      "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                      "--user": {
+                        "arity": 1
+                      },
+                      "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                      "--json": {
+                        "arity": 0
+                      },
+                      "#--json": "Print the report as JSON.",
+                      "--input": {
+                        "arity": 1,
+                        "provider": "files"
+                      },
+                      "#--input": "Source JSON (paths or Python requirements), or SSH config text; otherwise capture local settings.",
+                      "--on-collision": {
+                        "arity": 1,
+                        "values": {
+                          "error": {},
+                          "#error": "Reject conflicting values (default).",
+                          "existing": {},
+                          "#existing": "Keep existing conflicting values.",
+                          "incoming": {},
+                          "#incoming": "Use incoming conflicting values."
+                        }
+                      },
+                      "#--on-collision": "Resolve Python version/package or SSH Host conflicts explicitly."
+                    }
+                  },
+                  "#merge": "Merge imported values with existing settings.",
+                  "merge-dry-run": {
+                    "dispatch": [
+                      "--tool",
+                      "env_settings",
+                      "vscode",
+                      "merge-dry-run"
+                    ],
+                    "flags": {
+                      "--server": {
+                        "arity": 1
+                      },
+                      "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                      "--user": {
+                        "arity": 1
+                      },
+                      "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                      "--json": {
+                        "arity": 0
+                      },
+                      "#--json": "Print the report as JSON.",
+                      "--input": {
+                        "arity": 1,
+                        "provider": "files"
+                      },
+                      "#--input": "Source JSON (paths or Python requirements), or SSH config text; otherwise capture local settings.",
+                      "--on-collision": {
+                        "arity": 1,
+                        "values": {
+                          "error": {},
+                          "#error": "Reject conflicting values (default).",
+                          "existing": {},
+                          "#existing": "Keep existing conflicting values.",
+                          "incoming": {},
+                          "#incoming": "Use incoming conflicting values."
+                        }
+                      },
+                      "#--on-collision": "Resolve Python version/package or SSH Host conflicts explicitly."
+                    }
+                  },
+                  "#merge-dry-run": "Preview merge without writing."
+                }
+              },
+              "#vscode": "Import allowlisted installed VS Code extension versions."
+            }
           },
-          "#show-all": "Show all environment configuration"
+          "#import": "Import and merge repository environment settings.",
+          "validate": {
+            "commands": {
+              "os": {
+                "dispatch": [
+                  "--tool",
+                  "env_settings",
+                  "os",
+                  "verify"
+                ],
+                "flags": {
+                  "--server": {
+                    "arity": 1
+                  },
+                  "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                  "--user": {
+                    "arity": 1
+                  },
+                  "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                  "--json": {
+                    "arity": 0
+                  },
+                  "#--json": "Print the report as JSON."
+                },
+                "commands": {
+                  "lint": {
+                    "dispatch": [
+                      "--tool",
+                      "env_settings",
+                      "os",
+                      "lint-user-settings"
+                    ],
+                    "flags": {
+                      "--server": {
+                        "arity": 1
+                      },
+                      "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                      "--user": {
+                        "arity": 1
+                      },
+                      "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                      "--json": {
+                        "arity": 0
+                      },
+                      "#--json": "Print the report as JSON."
+                    }
+                  },
+                  "#lint": "Validate configured settings without checking the active environment."
+                }
+              },
+              "#os": "Validate os settings.",
+              "path": {
+                "dispatch": [
+                  "--tool",
+                  "env_settings",
+                  "path",
+                  "verify"
+                ],
+                "flags": {
+                  "--server": {
+                    "arity": 1
+                  },
+                  "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                  "--user": {
+                    "arity": 1
+                  },
+                  "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                  "--json": {
+                    "arity": 0
+                  },
+                  "#--json": "Print the report as JSON."
+                },
+                "commands": {
+                  "lint": {
+                    "dispatch": [
+                      "--tool",
+                      "env_settings",
+                      "path",
+                      "lint-user-settings"
+                    ],
+                    "flags": {
+                      "--server": {
+                        "arity": 1
+                      },
+                      "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                      "--user": {
+                        "arity": 1
+                      },
+                      "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                      "--json": {
+                        "arity": 0
+                      },
+                      "#--json": "Print the report as JSON."
+                    }
+                  },
+                  "#lint": "Validate configured settings without checking the active environment."
+                }
+              },
+              "#path": "Validate path settings.",
+              "python": {
+                "dispatch": [
+                  "--tool",
+                  "env_settings",
+                  "python",
+                  "verify"
+                ],
+                "flags": {
+                  "--server": {
+                    "arity": 1
+                  },
+                  "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                  "--user": {
+                    "arity": 1
+                  },
+                  "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                  "--json": {
+                    "arity": 0
+                  },
+                  "#--json": "Print the report as JSON."
+                },
+                "commands": {
+                  "lint": {
+                    "dispatch": [
+                      "--tool",
+                      "env_settings",
+                      "python",
+                      "lint-user-settings"
+                    ],
+                    "flags": {
+                      "--server": {
+                        "arity": 1
+                      },
+                      "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                      "--user": {
+                        "arity": 1
+                      },
+                      "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                      "--json": {
+                        "arity": 0
+                      },
+                      "#--json": "Print the report as JSON."
+                    }
+                  },
+                  "#lint": "Validate configured settings without checking the active environment."
+                }
+              },
+              "#python": "Validate python settings.",
+              "pythonpath": {
+                "dispatch": [
+                  "--tool",
+                  "env_settings",
+                  "pythonpath",
+                  "verify"
+                ],
+                "flags": {
+                  "--server": {
+                    "arity": 1
+                  },
+                  "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                  "--user": {
+                    "arity": 1
+                  },
+                  "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                  "--json": {
+                    "arity": 0
+                  },
+                  "#--json": "Print the report as JSON."
+                },
+                "commands": {
+                  "lint": {
+                    "dispatch": [
+                      "--tool",
+                      "env_settings",
+                      "pythonpath",
+                      "lint-user-settings"
+                    ],
+                    "flags": {
+                      "--server": {
+                        "arity": 1
+                      },
+                      "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                      "--user": {
+                        "arity": 1
+                      },
+                      "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                      "--json": {
+                        "arity": 0
+                      },
+                      "#--json": "Print the report as JSON."
+                    }
+                  },
+                  "#lint": "Validate configured settings without checking the active environment."
+                }
+              },
+              "#pythonpath": "Validate pythonpath settings.",
+              "ssh-config": {
+                "dispatch": [
+                  "--tool",
+                  "env_settings",
+                  "ssh-config",
+                  "verify"
+                ],
+                "flags": {
+                  "--server": {
+                    "arity": 1
+                  },
+                  "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                  "--user": {
+                    "arity": 1
+                  },
+                  "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                  "--json": {
+                    "arity": 0
+                  },
+                  "#--json": "Print the report as JSON."
+                },
+                "commands": {
+                  "lint": {
+                    "dispatch": [
+                      "--tool",
+                      "env_settings",
+                      "ssh-config",
+                      "lint-user-settings"
+                    ],
+                    "flags": {
+                      "--server": {
+                        "arity": 1
+                      },
+                      "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                      "--user": {
+                        "arity": 1
+                      },
+                      "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                      "--json": {
+                        "arity": 0
+                      },
+                      "#--json": "Print the report as JSON."
+                    }
+                  },
+                  "#lint": "Validate configured settings without checking the active environment."
+                }
+              },
+              "#ssh-config": "Validate ssh-config settings.",
+              "system-packages": {
+                "dispatch": [
+                  "--tool",
+                  "env_settings",
+                  "system-packages",
+                  "verify"
+                ],
+                "flags": {
+                  "--server": {
+                    "arity": 1
+                  },
+                  "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                  "--user": {
+                    "arity": 1
+                  },
+                  "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                  "--json": {
+                    "arity": 0
+                  },
+                  "#--json": "Print the report as JSON."
+                },
+                "commands": {
+                  "lint": {
+                    "dispatch": [
+                      "--tool",
+                      "env_settings",
+                      "system-packages",
+                      "lint-user-settings"
+                    ],
+                    "flags": {
+                      "--server": {
+                        "arity": 1
+                      },
+                      "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                      "--user": {
+                        "arity": 1
+                      },
+                      "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                      "--json": {
+                        "arity": 0
+                      },
+                      "#--json": "Print the report as JSON."
+                    }
+                  },
+                  "#lint": "Validate configured settings without checking the active environment."
+                }
+              },
+              "#system-packages": "Validate system-packages settings.",
+              "vscode": {
+                "dispatch": [
+                  "--tool",
+                  "env_settings",
+                  "vscode",
+                  "verify"
+                ],
+                "flags": {
+                  "--server": {
+                    "arity": 1
+                  },
+                  "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                  "--user": {
+                    "arity": 1
+                  },
+                  "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                  "--json": {
+                    "arity": 0
+                  },
+                  "#--json": "Print the report as JSON."
+                },
+                "commands": {
+                  "lint": {
+                    "dispatch": [
+                      "--tool",
+                      "env_settings",
+                      "vscode",
+                      "lint-user-settings"
+                    ],
+                    "flags": {
+                      "--server": {
+                        "arity": 1
+                      },
+                      "#--server": "Select a server entry (defaults to the active host); Use default for the global environment defaults.",
+                      "--user": {
+                        "arity": 1
+                      },
+                      "#--user": "Select a user entry (defaults to the active user); Use default for the selected server defaults.",
+                      "--json": {
+                        "arity": 0
+                      },
+                      "#--json": "Print the report as JSON."
+                    }
+                  },
+                  "#lint": "Validate configured settings without checking the active environment."
+                }
+              },
+              "#vscode": "Validate VS Code extensions and repository workspace settings."
+            }
+          },
+          "#validate": "Validate configured and active environment settings."
         }
       },
       "#settings": "Inspect, import, merge and validate environment settings for each server/user."

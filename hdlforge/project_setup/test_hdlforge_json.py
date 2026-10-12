@@ -182,6 +182,10 @@ class ProjectJsonTest(unittest.TestCase):
         generated = json.loads(self.project.read_text())['settings']['env']['default']
         self.assertEqual(generated['path'], [])
         self.assertIn('python_settings', generated)
+        self.assertIn('os_settings', generated)
+        self.assertIn('system_packages', generated)
+        self.assertIn('vscode', generated)
+        self.assertEqual({key for key in generated['vscode'] if not key.startswith('#')}, {'extensions', 'settings'})
 
 
 if __name__ == "__main__":

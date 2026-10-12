@@ -12,9 +12,12 @@ import tempfile
 
 import env_settings_model as model
 import env_settings_ssh as ssh
+import env_settings_system as system
+import env_settings_vscode as vscode
 import env_verification as python_settings
 import environment_defaults
 from hdlforge_json import unique_object, write_update
+from table_formatter import create_matrix_table_from_data
 
 
 ACTIONS = ('show', 'import', 'import-dry-run', 'merge', 'merge-dry-run',
@@ -44,9 +47,72 @@ def changes(before: str, after: str, name: str) -> str:
                                         fromfile=name, tofile=name + ' (proposed)'))
 
 
+def value_comparisons(scope: str, current: object, incoming: object) -> list[list[str]]:
+    """Compare dry-run values individually, matching package lists by name."""
+    missing = object()
+
+    def display(value: object) -> str:
+        if value is missing:
+            return '<missing>'
+        return value if isinstance(value, str) else json.dumps(value, sort_keys=True)
+
+    def rows(left: dict, right: dict) -> list[list[str]]:
+        result = []
+        for key in dict.fromkeys([*left, *right]):
+            old, new = left.get(key, missing), right.get(key, missing)
+            result.append([key, display(old), '==' if old == new else '!=', display(new)])
+        return result
+
+    if scope == 'python':
+        left = {'Python version': current.get('version', missing)}
+        right = {'Python version': incoming.get('version', missing)}
+        for value, target in ((current, left), (incoming, right)):
+            for requirement in value.get('packages', []):
+                name, _ = python_settings.package_requirement(requirement)
+                target[name] = requirement
+        return rows(left, right)
+    if scope == 'system-packages':
+        left = {system.package(value)[0]: value for value in current}
+        right = {system.package(value)[0]: value for value in incoming}
+        return rows(left, right)
+    if scope == 'vscode':
+        left = {'extension.' + vscode.extension(value)[0]: value for value in current.get('extensions', [])}
+        right = {'extension.' + vscode.extension(value)[0]: value for value in incoming.get('extensions', [])}
+        for value, target in ((current, left), (incoming, right)):
+            for name, setting in value.get('settings', {}).items():
+                if isinstance(setting, list):
+                    for item in dict.fromkeys(setting):
+                        target[f'setting.{name}[{item}]'] = 'present'
+                else:
+                    target['setting.' + name] = setting
+        return rows(left, right)
+    if isinstance(current, dict) and isinstance(incoming, dict):
+        return rows(current, incoming)
+    if isinstance(current, list) and isinstance(incoming, list):
+        # PATH-like lists are compared by unique value, not position. Their
+        # order remains visible in the JSON diff because search precedence is
+        # meaningful, but reordering must not masquerade as changed values.
+        return rows(dict.fromkeys(current, 'present'), dict.fromkeys(incoming, 'present'))
+    operator = '==' if current == incoming else '!='
+    return [['value', display(current), operator, display(incoming)]]
+
+
 def update(args: argparse.Namespace, data: dict, original: str) -> dict:
     """Prepare and validate all changes before writing the selected files."""
-    incoming = model.capture(args.scope, args.input)
+    field = {'os': 'os_settings', 'python': 'python_settings', 'ssh-config': 'ssh_config_file',
+             'system-packages': 'system_packages'}.get(args.scope, args.scope)
+    empty = {} if args.scope in ('os', 'python', 'vscode') else '' if args.scope == 'ssh-config' else []
+    current = model.entry(data, args.server, args.user).get(field, empty)
+    captured = model.capture(args.scope, args.input, args.repository)
+    incoming = captured
+    if args.scope in ('python', 'os', 'system-packages', 'vscode') and args.server != 'repo-requirement':
+        incoming = model.import_requirements(data, args.scope, incoming, current)
+    comparison_current, comparison_incoming = current, incoming
+    if args.scope == 'vscode':
+        required_settings = model.entry(data, 'repo-requirement', '').get('vscode', {}).get('settings', {})
+        active_settings = {name: captured.get('settings', {}).get(name) for name in required_settings}
+        comparison_current = {**current, 'settings': required_settings}
+        comparison_incoming = {**incoming, 'settings': active_settings}
     merge = args.action.startswith('merge')
     dry_run = args.dry_run or args.action.endswith('-dry-run')
     ssh_path, old_content, new_content = None, None, None
@@ -85,9 +151,12 @@ def update(args: argparse.Namespace, data: dict, original: str) -> dict:
                 else:
                     replace_text(ssh_path, new_content, old_content)
             raise
-    return dict(status='DRY RUN' if dry_run else 'UPDATED' if diff else 'UNCHANGED',
-                changed=bool(diff), diff=diff, scope=args.scope, server=args.server, user=args.user,
-                repository=str(args.repository))
+    report = dict(status='DRY RUN' if dry_run else 'UPDATED' if diff else 'UNCHANGED',
+                  changed=bool(diff), diff=diff, scope=args.scope, server=args.server, user=args.user,
+                  repository=str(args.repository))
+    if dry_run:
+        report.update(current=comparison_current, incoming=comparison_incoming)
+    return report
 
 
 def show_scope(args: argparse.Namespace, data: dict, scope: str) -> dict:
@@ -102,6 +171,12 @@ def show_scope(args: argparse.Namespace, data: dict, scope: str) -> dict:
                 report['active'] = []
         elif scope == 'python':
             report['active'] = dict(interpreter=sys.executable, version=platform.python_version())
+        elif scope == 'os':
+            report['active'] = system.os_release()
+        elif scope == 'system-packages':
+            report['active'] = system.installed_packages()
+        elif scope == 'vscode':
+            report['active'] = vscode.capture(args.repository)
     if scope == 'ssh-config' and report['effective']:
         path = ssh.config_path(args.repository, report['effective'])
         report['file'] = str(path)
@@ -127,6 +202,13 @@ def check(args: argparse.Namespace, data: dict) -> dict:
     elif args.action == 'verify':
         if args.scope == 'python':
             rows = python_settings.verify(report['effective'], platform.python_version())
+        elif args.scope == 'os':
+            rows = system.verify_os(report['effective'])
+        elif args.scope == 'system-packages':
+            rows = system.verify_packages(report['effective'])
+        elif args.scope == 'vscode':
+            required = model.entry(data, 'repo-requirement', '').get('vscode', {})
+            rows = vscode.verify(required, vscode.capture(args.repository))
         else:
             rows = model.verify_paths(report['effective'], args.repository, args.scope)
     report.update(status='PASS' if all(row['status'] == 'PASS' for row in rows) else 'FAIL', checks=rows)
@@ -169,6 +251,14 @@ def print_report(report: dict, as_json: bool) -> None:
     if 'diff' in report:
         print(f"{report['status']}: {report['scope']} for {report['server']}:{report['user']}")
         print(report['diff'] or 'No changes.', end='\n')
+        if 'current' in report:
+            print('\nValue comparison (current vs import candidate):')
+            print(create_matrix_table_from_data(
+                ['Setting', 'Current', 'Match', 'Import candidate'],
+                value_comparisons(report['scope'], report['current'], report['incoming']),
+                col_wrapped_limits={0: 80, 1: 60, 3: 60},
+                no_border=True,
+            ))
         return
     print(f"Environment settings: {report.get('server')}:{report.get('user')}")
     print(f"Repository JSON: {report.get('repository')}")

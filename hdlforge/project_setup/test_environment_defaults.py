@@ -40,8 +40,19 @@ class EnvironmentDefaultsTest(unittest.TestCase):
         self.assertEqual(value['path'], ['/global'])
 
     def test_missing_server_uses_global(self):
+        self.data['settings']['env']['repo-requirement'] = {
+            'system_packages': ['git=1'], 'variables': {'REQUIREMENT_ONLY': 'yes'}}
         value, _ = defaults.resolve(self.data, 'absent', 'absent')
         self.assertEqual(value, self.data['settings']['env']['default'])
+        self.assertNotIn('system_packages', value)
+        self.assertNotIn('REQUIREMENT_ONLY', value['variables'])
+
+    def test_repo_requirement_is_selected_only_as_literal_server(self):
+        requirement = {'system_packages': ['git=1']}
+        self.data['settings']['env']['repo-requirement'] = requirement
+        value, sources = defaults.resolve(self.data, 'repo-requirement', 'ignored')
+        self.assertEqual(value['system_packages'], ['git=1'])
+        self.assertEqual(sources['system_packages'], 'settings.env.repo-requirement.system_packages')
 
     def test_list_override_including_empty_is_explicit(self):
         self.data['settings']['env']['server']['user.name']['path'] = []
@@ -56,9 +67,11 @@ class EnvironmentDefaultsTest(unittest.TestCase):
         self.assertNotIn('new_setting', self.data['settings']['env']['server']['user.name'])
 
     def test_schema_update_does_not_materialize_defaults_in_users(self):
+        self.data['settings']['env']['repo-requirement'] = {'system_packages': ['git=1']}
         result, _ = normalize(self.data, 'paths', 'server', 'user.name')
         self.assertEqual(result['settings']['env']['server']['user.name'], self.data['settings']['env']['server']['user.name'])
         self.assertEqual(result['settings']['env']['server']['default'], self.data['settings']['env']['server']['default'])
+        self.assertNotIn('default', result['settings']['env']['repo-requirement'])
 
     def test_path_merge_keeps_inherited_paths(self):
         result = propose(self.data, 'path', 'server', 'user.name', ['/new'], True, 'error')
@@ -160,7 +173,7 @@ class EnvironmentDefaultsLauncherTest(unittest.TestCase):
     def test_server_default_can_be_edited_by_settings_manager(self):
         source = self.project / 'paths.json'
         source.write_text('["/usr/bin"]')
-        result = self.invoke('settings.path.import', '--user', 'default', '--input', str(source))
+        result = self.invoke('settings.import.path', '--user', 'default', '--input', str(source))
         self.assertEqual(result.returncode, 0, result.stderr)
         data = json.loads(self.config.read_text())['settings']['env']
         self.assertEqual(data['test-host']['default']['path'], ['/usr/bin'])
@@ -170,7 +183,7 @@ class EnvironmentDefaultsLauncherTest(unittest.TestCase):
         data = json.loads(self.config.read_text())
         data['settings']['env']['default']['future_setting'] = {'a': 9}
         self.config.write_text(json.dumps(data))
-        result = self.invoke('settings.show', '--json')
+        result = self.invoke('settings.show.all', '--json')
         self.assertEqual(result.returncode, 0, result.stderr)
         report = json.loads(result.stdout)
         self.assertEqual(report['effective_environment']['future_setting'], {'a': 9})

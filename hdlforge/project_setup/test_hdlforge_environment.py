@@ -188,7 +188,7 @@ class LauncherEnvironmentTest(unittest.TestCase):
         self.assertIn("already correct", second.stdout)
 
     def test_print_env_shows_path_provenance(self):
-        result = subprocess.run([str(self.wrapper), "settings.show"], cwd=self.project,
+        result = subprocess.run([str(self.wrapper), "settings.show.all"], cwd=self.project,
                                 env=self.env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Environment settings: test-host:test-user", result.stdout)

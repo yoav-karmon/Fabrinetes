@@ -76,10 +76,10 @@ class PythonRequirementsTest(unittest.TestCase):
         self.assertNotIn('path', result['settings']['env']['default']['python_settings'])
 
     def test_command_routing_help_and_completion(self):
-        result = parse(['settings.python.verify', '--json'], Path.cwd())
+        result = parse(['settings.validate.python', '--json'], Path.cwd())
         self.assertEqual(result['args'], ['--tool', 'env_settings', 'python', 'verify', '--json'])
-        matches = completion.complete_command([], 'settings.python.', Path.cwd())[0].completions
-        self.assertIn('settings.python.verify', matches)
+        matches = completion.complete_command([], 'settings.validate.', Path.cwd())[0].completions
+        self.assertIn('settings.validate.python', matches)
 
 
 class PythonVerificationLauncherTest(unittest.TestCase):
@@ -110,7 +110,7 @@ class PythonVerificationLauncherTest(unittest.TestCase):
         project.write_text(json.dumps({'settings': {'env': {
             'test-host': {'test-user': {'pythonpath': [str(packages)]}},
             'default': {'python_settings': {'version': '0.0', 'packages': ['absent']}}}}}))
-        result = self.invoke('--project', str(project), 'settings.python.verify', '--json')
+        result = self.invoke('--project', str(project), 'settings.validate.python', '--json')
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         report = json.loads(result.stdout)
         self.assertEqual(report['status'], 'PASS')
@@ -122,7 +122,7 @@ class PythonVerificationLauncherTest(unittest.TestCase):
         self.configure(['hdlforge-definitely-missing-package==1.0'], '0.0')
         path = self.project / 'sample.hdlforge.json'
         before = path.read_bytes()
-        result = self.invoke('settings.python.verify', '--json')
+        result = self.invoke('settings.validate.python', '--json')
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertEqual([row['status'] for row in json.loads(result.stdout)['checks']], ['FAIL', 'FAIL'])
         self.assertEqual(path.read_bytes(), before)
@@ -130,11 +130,11 @@ class PythonVerificationLauncherTest(unittest.TestCase):
         self.assertEqual(self.invoke('eval-cmd', 'true').returncode, 0)
 
     def test_missing_policy_and_dry_run(self):
-        result = self.invoke('settings.python.verify', '--json')
+        result = self.invoke('settings.validate.python', '--json')
         self.assertEqual(result.returncode, 2, result.stderr)
         self.assertEqual(json.loads(result.stdout)['status'], 'ERROR')
         self.configure()
-        result = self.invoke('--dry-run', 'settings.python.verify')
+        result = self.invoke('--dry-run', 'settings.validate.python')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('Result: PASS', result.stdout)
 
@@ -150,7 +150,7 @@ class PythonVerificationLauncherTest(unittest.TestCase):
     def test_uses_interpreter_selected_by_cli_path(self):
         self.configure()
         self.bin_dir.joinpath('python3').symlink_to(sys.executable)
-        result = self.invoke('--env-path', json.dumps([str(self.bin_dir)]), 'settings.python.verify', '--json')
+        result = self.invoke('--env-path', json.dumps([str(self.bin_dir)]), 'settings.validate.python', '--json')
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(json.loads(result.stdout)['active']['interpreter'], str(self.bin_dir / 'python3'))
 

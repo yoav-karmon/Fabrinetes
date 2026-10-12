@@ -95,13 +95,27 @@ class CompletionTreeTest(unittest.TestCase):
         self.assertNotIn('HDLFORGE_CALLED', text)
         self.assertNotIn('--no-print', text)
 
+    def test_help_renders_master_flags_as_mappings_inside_one_table_row(self):
+        text = help_text(parse([], Path.cwd()))
+        self.assertIn('Master flags:\n+', text)
+        self.assertIn('| Flag', text)
+        self.assertIn('| --project', text)
+        self.assertIn('| --env-var', text)
+        flag_table = text.split('Master flags:\n', 1)[1]
+        self.assertEqual(sum(line.startswith('+') for line in flag_table.splitlines()), 3)
+
     def test_path_management_is_folded_into_settings(self):
         self.assertNotIn('paths.', self.complete([]))
         with self.assertRaises(ValueError):
             parse(['paths.show'], Path.cwd())
-        for command in ('settings.show', 'settings.show-all', 'settings.install-shell',
+        for command in ('settings.install-shell',
                         'settings.update-repo', 'settings.update-json', 'settings.lint-json',
-                        'settings.path.print-shell', 'settings.pythonpath.print-shell'):
+                        'settings.show.all', 'settings.show.os', 'settings.show.path',
+                        'settings.show.python', 'settings.show.pythonpath',
+                        'settings.show.ssh-config', 'settings.show.system-packages',
+                        'settings.show.json', 'settings.show.list-json',
+                        'settings.show.environment', 'settings.show.python.json',
+                        'settings.show.path.print-shell', 'settings.show.pythonpath.print-shell'):
             with self.subTest(command=command):
                 self.assertTrue(parse([command], Path.cwd())['ready'])
 
@@ -197,6 +211,26 @@ class CompletionTreeTest(unittest.TestCase):
                 lines = completion.completion_table(candidates, data, columns)
                 for name in candidates:
                     self.assertTrue(any(name in line for line in lines))
+
+    def test_completion_table_can_label_a_distinct_flags_section(self):
+        candidates = ['--project', '--env-var']
+        data = {'__native_descriptions': {
+            '--project': 'Project file path',
+            '--env-var': 'Set variables from a JSON array or project key.',
+        }}
+        lines = completion.completion_table(candidates, data, 80, 'Flag')
+        self.assertTrue(any('| Flag' in line for line in lines))
+        self.assertEqual(sum('| --env-var' in line for line in lines), 1)
+        self.assertEqual(sum(line.lstrip().startswith('+') for line in lines), 3)
+
+    def test_all_completion_tables_use_one_outer_mapping_row(self):
+        candidates = ['settings.', 'vivado.']
+        data = {'__native_descriptions': {
+            'settings.': 'Inspect environment settings.',
+            'vivado.': 'Build and inspect Vivado projects.',
+        }}
+        lines = completion.completion_table(candidates, data, 80)
+        self.assertEqual(sum(line.lstrip().startswith('+') for line in lines), 3)
 
 
 if __name__ == "__main__":

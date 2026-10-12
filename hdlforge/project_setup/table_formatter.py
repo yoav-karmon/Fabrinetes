@@ -363,15 +363,21 @@ def _render_details_no_border(
 
 def _render_plain_table(headers: Sequence[Any], rows: Sequence[Sequence[Any]]) -> str:
     header_names, normalized_rows = _normalize_rows(headers, rows)
+    all_rows = [header_names, *normalized_rows]
     widths = [
-        max([len(header)] + [len(row[idx]) for row in normalized_rows])
-        for idx, header in enumerate(header_names)
+        max(len(line) for row in all_rows for line in (row[index].splitlines() or ['']))
+        for index in range(len(header_names))
     ]
-    lines = ["  ".join(header.ljust(widths[idx]) for idx, header in enumerate(header_names))]
-    lines.extend(
-        "  ".join(cell.ljust(widths[idx]) for idx, cell in enumerate(row))
-        for row in normalized_rows
-    )
+
+    def render_row(row: Sequence[str]) -> List[str]:
+        cells = [value.splitlines() or [''] for value in row]
+        return ["  ".join((values[line] if line < len(values) else '').ljust(widths[index])
+                          for index, values in enumerate(cells)).rstrip()
+                for line in range(max(len(values) for values in cells))]
+
+    lines = []
+    for row in all_rows:
+        lines.extend(render_row(row))
     return "\n".join(line.rstrip() for line in lines)
 
 
@@ -420,12 +426,34 @@ def create_matrix_table_from_data(
     rows: Sequence[Sequence[Any]],
     cell_wrapped_limit: Optional[int] = None,
     col_wrapped_limits: Optional[LimitMap] = None,
+    no_border: bool = False,
 ) -> str:
-    """Create a bordered multi-column table with explicit wrapping."""
+    """Create a multi-column table with explicit wrapping and optional borders."""
     table = TextTable(headers, rows)
     table.apply_cell_wrap(cell_wrapped_limit)
     table.apply_column_wrap(col_wrapped_limits or {})
-    return _render_matrix_table(table.headers, table.rows)
+    return _render_plain_table(table.headers, table.rows) if no_border else _render_matrix_table(table.headers, table.rows)
+
+
+def create_mapping_table_from_data(
+    headers: Sequence[Any],
+    rows: Sequence[Sequence[Any]],
+    col_wrapped_limits: Optional[LimitMap] = None,
+) -> str:
+    """Render mappings as aligned lines inside one bordered table row."""
+    table = TextTable(headers, rows)
+    table.apply_column_wrap(col_wrapped_limits or {})
+    merged_columns: Cells = [[] for _ in table.headers]
+    for row in table.rows:
+        cell_lines = [cell.splitlines() or [""] for cell in row]
+        row_height = max(len(lines) for lines in cell_lines)
+        for column, lines in enumerate(cell_lines):
+            merged_columns[column].extend([
+                lines[index] if index < len(lines) else ""
+                for index in range(row_height)
+            ])
+    merged_row = ["\n".join(lines) for lines in merged_columns]
+    return _render_matrix_table(table.headers, [merged_row])
 
 
 def create_named_tables_from_data(

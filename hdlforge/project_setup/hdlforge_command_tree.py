@@ -2,8 +2,10 @@
 import json
 import os
 from pathlib import Path
+import shutil
 import sys
 
+from table_formatter import create_mapping_table_from_data
 from vivado_build_selector import first_path_component, parse_selector, selector_choices
 from vivado_run_tree import discover_runs, run_tree, selected_run
 
@@ -318,10 +320,20 @@ def help_text(state: dict) -> str:
         lines.append('Commands:')
         lines.extend('  '+name+'  # '+description for name, description in choices.items())
     for label, group in [('Master flags', state['tree']['master_flags']), ('Command modifiers', node.get('flags', {}))]:
+        rows = [
+            [name + (' VALUE' if label == 'Command modifiers' and spec.get('arity') else ''),
+             group['#'+name]]
+            for name, spec in entries(group).items()
+            if not spec.get('hidden') and condition_matches(spec.get('when', {}), state['seen'], state['values'])
+        ]
+        if not rows:
+            continue
         lines.append(label+':')
-        lines.extend('  '+name+(' VALUE' if spec.get('arity') else '')+'  # '+group['#'+name]
-                     for name, spec in entries(group).items()
-                     if not spec.get('hidden') and condition_matches(spec.get('when', {}), state['seen'], state['values']))
+        columns = max(30, shutil.get_terminal_size(fallback=(160, 24)).columns)
+        flag_width = max(len('Flag'), max(len(row[0]) for row in rows))
+        description_width = max(16, columns - flag_width - 7)
+        lines.append(create_mapping_table_from_data(
+            ['Flag', 'Description'], rows, col_wrapped_limits={1: description_width}))
     return '\n'.join(lines)
 
 

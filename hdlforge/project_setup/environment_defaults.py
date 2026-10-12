@@ -24,7 +24,7 @@ def entries(data: dict) -> list[tuple[str, str, dict]]:
             continue
         if not isinstance(users, dict):
             raise ValueError(f'settings.env.{server} must be an object')
-        if server == 'default':
+        if server in ('default', 'repo-requirement'):
             result.append((server, 'default', users))
         else:
             for user, value in users.items():
@@ -39,8 +39,8 @@ def entries(data: dict) -> list[tuple[str, str, dict]]:
 def entry(data: dict, server: str, user: str, create: bool = False) -> dict:
     """Select one literal entry; a global default has the same shape as a user."""
     env = data.setdefault('settings', {}).setdefault('env', {}) if create else environments(data)
-    parent = env if server == 'default' else (env.setdefault(server, {}) if create else env.get(server, {}))
-    key = 'default' if server == 'default' else user
+    parent = env if server in ('default', 'repo-requirement') else (env.setdefault(server, {}) if create else env.get(server, {}))
+    key = server if server in ('default', 'repo-requirement') else user
     if not isinstance(parent, dict):
         raise ValueError(f'settings.env.{server} must be an object')
     value = parent.setdefault(key, {}) if create else parent.get(key, {})
@@ -56,6 +56,12 @@ def resolve(data: dict, server: str, user: str) -> tuple[dict, dict]:
     # adding another type-specific defaults implementation.                    #
     ###########################################################################
     layers = [('settings.env.default', entry(data, 'default', 'default'))]
+    if server == 'repo-requirement':
+        layers.append(('settings.env.repo-requirement', entry(data, server, user)))
+        result, sources = {}, {}
+        for location, layer in layers:
+            merge_object(result, layer, sources, location)
+        return result, sources
     if server != 'default':
         layers.append((f'settings.env.{server}.default', entry(data, server, 'default')))
         if user != 'default':
@@ -131,7 +137,8 @@ def repository_layers(data: dict, server: str, user: str) -> list[dict]:
     selected = entry(root, server, user, create=True)
     selected.clear()
     selected.update(value)
-    base = ('settings', 'env', 'default') if server == 'default' else ('settings', 'env', server, user)
+    base = (('settings', 'env', server) if server in ('default', 'repo-requirement')
+            else ('settings', 'env', server, user))
     layers = []
     for field in ('path', 'pythonpath', 'variables'):
         layers.extend(expand(root, (*base, field), field))

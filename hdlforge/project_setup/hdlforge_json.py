@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 
+from env_settings_system import os_release
 from hdlforge_command_tree import parse
 from env_verification import validate_settings
 import environment_defaults
@@ -22,7 +23,11 @@ from vivado_run_tree import discover_runs, run_tree
 
 ENV = {"path": [], "path_import": [], "pythonpath": [], "pythonpath_import": [],
        "variables": {}, "variables_import": [], "tools": {"vivado": "", "verilator": ""},
-       "python_settings": {"version": f"{sys.version_info.major}.{sys.version_info.minor}", "packages": []}}
+       "os_settings": os_release(),
+       "python_settings": {"version": f"{sys.version_info.major}.{sys.version_info.minor}", "packages": []},
+       "system_packages": [],
+       "vscode": {"#extension_format": "publisher.extension or publisher.extension@version",
+                  "extensions": [], "settings": {}}}
 TARGET = {"top_module": "", "python_file": "", "build_args": [], "lint_args": [],
           "defines": {}, "parameters": {}, "test_name": None, "post_sim_collect": True,
           "env": {"pythonpath": []}}
@@ -86,7 +91,7 @@ def normalize(data, scope, host, user):
         envs = result["settings"]["env"]
         fill(envs, {'default': ENV, host: {'default': {}, user: {}}}, "settings.env", changes, fill_empty=True)
         for server, users in objects(envs, 'settings.env'):
-            if server != 'default':
+            if server not in ('default', 'repo-requirement'):
                 fill(users, {'default': {}}, f'settings.env.{server}', changes, fill_empty=True)
         validate_settings(result)
     if scope in {"vivado", "vivado.build"}:

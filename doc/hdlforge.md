@@ -256,6 +256,10 @@ settings.env.default
 `env.default` and each server's `default` have exactly the same shape as a user
 entry. A missing server uses the global default; a missing user uses the server
 default plus global default. Existing users also inherit unspecified fields.
+`settings.env.repo-requirement` is a reserved direct repository-requirements
+object, not a server, user or additional default layer. It can be inspected by
+selecting `--server repo-requirement`; unknown or real servers never inherit
+it. Only `settings.env.default` is the global fallback.
 Objects merge recursively, so overriding one tool or variable retains the others.
 Arrays and scalar values replace the inherited value; an explicit empty list
 remains empty. An empty object overrides no nested fields. Null does not mean
@@ -273,7 +277,13 @@ For example (environment fragment):
     "pythonpath": [], "pythonpath_import": [],
     "variables": {"COMMON_FLAG": "enabled"}, "variables_import": [],
     "tools": {},
-    "python_settings": {"version": "3.12", "packages": ["cocotb==1.9.1"]}
+    "os_settings": {"id": "ubuntu", "version_id": "24.04", "architecture": "x86_64"},
+    "python_settings": {"version": "3.12", "packages": ["cocotb==1.9.1"]},
+    "system_packages": ["git=1:2.43.0-1ubuntu7.3", "jq=1.7.1-3ubuntu0.24.04.2"],
+    "vscode": {
+      "extensions": ["chrehall68.verilog-language-server", "mhutchie.git-graph@1.30.0"],
+      "settings": {"verilog.languageServer.server": "ctags"}
+    }
   },
   "build-server": {
     "default": {"variables": {"SERVER_FLAG": "enabled"}},
@@ -320,32 +330,42 @@ variables and PATH/PYTHONPATH cannot be replaced through `--env-var`.
 
 ## Environment settings management
 
-`settings` owns environment inspection and management. Every group has the
-same actions, supplied by the same command tree for execution, help and Tab:
+`settings` separates environment inspection, import and validation. The same
+scope names are available beneath each group where applicable:
 
 ```text
-hdlforge settings.show
-hdlforge settings.print-as-json
-hdlforge settings.list-json
-hdlforge settings.path.<action>
-hdlforge settings.python.<action>
-hdlforge settings.pythonpath.<action>
-hdlforge settings.ssh-config.<action>
+hdlforge settings.show.all
+hdlforge settings.show.os
+hdlforge settings.show.path
+hdlforge settings.show.python
+hdlforge settings.show.pythonpath
+hdlforge settings.show.ssh-config
+hdlforge settings.show.system-packages
+hdlforge settings.show.vscode
+hdlforge settings.show.json
+hdlforge settings.show.list-json
+hdlforge settings.show.environment
+hdlforge settings.import.<scope>
+hdlforge settings.import.<scope>.dry-run
+hdlforge settings.import.<scope>.merge
+hdlforge settings.import.<scope>.merge-dry-run
+hdlforge settings.validate.<scope>
+hdlforge settings.validate.<scope>.lint
 ```
 
 | Action | Behavior |
 |---|---|
-| `show` | Display the selected configuration, resolved values, sources and active local values. |
-| `import` | Replace only the selected setting from a file or local capture. |
-| `import-dry-run` | Show the import diff without writing. |
-| `merge` | Combine incoming settings with the selected entry. |
-| `merge-dry-run` | Show the merge diff without writing. |
+| `show.<scope>` | Display the selected configuration, resolved values, sources and active local values. |
+| `import.<scope>` | Import from a file or local capture; OS/Python/system-package discovery is limited by `repo-requirement`. |
+| `import.<scope>.dry-run` | Show the import diff without writing. |
+| `import.<scope>.merge` | Combine incoming settings with the selected entry. |
+| `import.<scope>.merge-dry-run` | Show the merge diff without writing. |
 | `print-as-json` | Emit the selected configuration and resolved values as JSON. |
-| `lint-user-settings` | Validate the selected configuration, resolving imports and shared environment defaults. |
+| `validate.<scope>.lint` | Validate the selected configuration, resolving imports and shared environment defaults. |
 | `list-json` | Emit all saved server/user entries for this group, including global and server defaults. |
-| `verify` | Compare settings with the active local environment; SSH verification is an offline structural check. |
+| `validate.<scope>` | Compare settings with the active local environment; SSH validation is an offline structural check. |
 
-`settings.show` includes all four groups, repository/project identity, and the
+`settings.show.all` includes all groups, repository/project identity, and the
 selected repository/project environment entries. `--server` and `--user` select
 literal keys; omitted values use the active host/user. `--server default`
 selects the global default for any settings group; `--user default` selects
@@ -364,9 +384,12 @@ Input formats and destinations:
 | Group | `--input` file | Capture when omitted | Repository destination |
 |---|---|---|---|
 | `path` | JSON array of paths | Active HDLForge `PATH` | `settings.env.<server>.<user>.path` |
+| `os` | JSON object with `id`, `version_id` and `architecture` | Active `/etc/os-release` and machine architecture | `settings.env.<server>.<user>.os_settings` |
 | `pythonpath` | JSON array of paths | Active HDLForge `PYTHONPATH` | `settings.env.<server>.<user>.pythonpath` |
 | `python` | JSON object with `version` and `packages` | Active interpreter version and installed distribution versions | `settings.env.<server>.<user>.python_settings` |
 | `ssh-config` | SSH configuration text | `~/.ssh/config` | Configured `ssh_config_file`, or `environment/ssh-configs/<server>/<user>/config` plus its JSON reference |
+| `system-packages` | JSON array of `name` or `name=version` | Installed Debian packages from `dpkg-query` | `settings.env.<server>.<user>.system_packages` |
+| `vscode` | JSON object with `extensions` and `settings` | Installed extension versions plus `.vscode/settings.json` | Host extensions plus repository-required workspace settings |
 
 Path/Python inputs may also be a `print-as-json` report; its `effective` value
 is imported. Captures describe the environment after HDLForge startup and
@@ -376,6 +399,14 @@ new values and removes exact duplicates. Python merge starts from effective
 defaults and merges packages by normalized distribution name. Python version
 and package-version conflicts fail unless `--on-collision existing` or
 `--on-collision incoming` is selected; default is `error`.
+
+OS, Python and system-package imports use `settings.env.repo-requirement` as
+an allowlist. They record the active values and versions only for keys or
+package names declared there. Extra values already present in a server/user
+entry are treated as manually maintained and preserved, but automatic import
+never discovers or adds new extras. Edit `repo-requirement` or a server/user
+entry by hand when additional repository requirements or host notes are
+intentional. The same filtering applies to import dry-runs and `--input` data.
 
 SSH import copies only the configuration text, never keys. Merge preserves
 literal `Host` sections and uses the same collision option for differing
@@ -393,18 +424,27 @@ packages, changes shell startup files, or connects to a remote server; the
 explicit `settings.install-shell` maintenance action below is separate.
 
 ```bash
-hdlforge settings.path.import-dry-run --input paths.json
-hdlforge settings.path.import --input paths.json
-hdlforge settings.python.merge --input requirements.json --on-collision incoming
-hdlforge settings.python.import --server default --input requirements.json
-hdlforge settings.python.import --server build-server --user default --input requirements.json
-hdlforge settings.ssh-config.merge-dry-run --input ./ssh-config
-hdlforge settings.python.verify
+hdlforge settings.import.path.dry-run --input paths.json
+hdlforge settings.import.path --input paths.json
+hdlforge settings.import.python.merge --input requirements.json --on-collision incoming
+hdlforge settings.import.python --server default --input requirements.json
+hdlforge settings.import.python --server build-server --user default --input requirements.json
+hdlforge settings.import.ssh-config.merge-dry-run --input ./ssh-config
+hdlforge settings.validate.python
+hdlforge settings.validate.os
+hdlforge settings.validate.system-packages
 ```
+
+OS and system-package settings use the same global-default, server-default and
+exact-user inheritance as every other environment field. System-package merge
+matches Debian package names and requires an explicit collision policy for
+different versions. Verification is read-only and compares against
+`/etc/os-release`, the machine architecture and `dpkg-query`; it never invokes
+APT or installs software.
 
 ### Python defaults and verification
 
-Run `hdlforge settings.python.verify` to check the active interpreter and
+Run `hdlforge settings.validate.python` to check the active interpreter and
 installed distribution versions. Add `--json` for a machine-readable report.
 This is an explicit, read-only check: other commands do not run it, and it
 never installs packages or changes Python. It checks distribution metadata,
@@ -442,10 +482,10 @@ for invalid or missing requirements. Read-only checks still run under
 ### Environment maintenance and compatibility
 
 ```bash
-hdlforge settings.show
-hdlforge settings.list-json
-hdlforge settings.path.print-shell
-hdlforge settings.pythonpath.print-shell
+hdlforge settings.show.all
+hdlforge settings.show.list-json
+hdlforge settings.show.path.print-shell
+hdlforge settings.show.pythonpath.print-shell
 hdlforge settings.install-shell
 hdlforge settings.update-repo --project repo.hdlforge.json
 ```
@@ -456,9 +496,9 @@ The two `print-shell` actions print shell exports from the evaluated environment
 an empty `{}` document, before environment bootstrap. It fills missing or empty
 shared defaults and adds empty server defaults/user entries for inheritance.
 Nonempty settings and unrelated fields are preserved. Normal startup is
-automatic; management actions are not prerequisites. The former `paths.*` group is folded into `settings.*`: use `settings.show`
-and `settings.show-all` for inspection, `settings.path.print-shell` and
-`settings.pythonpath.print-shell` for the former base-path export actions, and
+automatic; management actions are not prerequisites. The former `paths.*` group is folded into `settings.*`: use `settings.show.all`
+and `settings.show.environment` for inspection, `settings.show.path.print-shell` and
+`settings.show.pythonpath.print-shell` for the former base-path export actions, and
 `settings.install-shell`, `settings.update-repo`, `settings.update-json`, and
 `settings.lint-json` for maintenance.
 
