@@ -69,6 +69,25 @@ class PythonRequirementsTest(unittest.TestCase):
         self.assertEqual([row['status'] for row in rows], ['PASS', 'PASS', 'FAIL', 'FAIL', 'PASS'])
         self.assertIsNone(rows[3]['actual'])
 
+    def test_three_way_comparison_warns_without_mutating_policy(self):
+        user = dict(version='3.12.3', packages=['override==1', 'extra', 'Some_Package==2'])
+        repo = dict(version='3.12', packages=['override==2', 'missing', 'some-package==2'])
+        original = deepcopy((user, repo))
+        def lookup(name):
+            if name == 'missing':
+                raise metadata.PackageNotFoundError(name)
+            return {'override': '1', 'extra': '5', 'some-package': '2'}[name]
+        rows = {r['name']: r for r in verification.compare(user, repo, '3.12.3', lookup)}
+        self.assertEqual(rows['override']['status'], 'WARN')
+        self.assertTrue(rows['override']['local_matches_user'])
+        self.assertFalse(rows['override']['local_matches_repository'])
+        self.assertIsNone(rows['missing']['user'])
+        self.assertIsNone(rows['missing']['actual'])
+        self.assertEqual(rows['missing']['status'], 'WARN')
+        self.assertEqual(rows['extra']['status'], 'PASS')
+        self.assertEqual(rows['some-package']['status'], 'PASS')
+        self.assertEqual((user, repo), original)
+
     def test_path_schema_preserves_python_requirements(self):
         data = self.settings
         result, _ = normalize(data, 'paths', 'server', 'user')
@@ -123,11 +142,29 @@ class PythonVerificationLauncherTest(unittest.TestCase):
         path = self.project / 'sample.hdlforge.json'
         before = path.read_bytes()
         result = self.invoke('settings.validate.python', '--json')
-        self.assertEqual(result.returncode, 1, result.stderr)
-        self.assertEqual([row['status'] for row in json.loads(result.stdout)['checks']], ['FAIL', 'FAIL'])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([row['status'] for row in json.loads(result.stdout)['checks']], ['WARN', 'WARN'])
         self.assertEqual(path.read_bytes(), before)
         # Explicit verification does not introduce automatic checks on other commands.
         self.assertEqual(self.invoke('eval-cmd', 'true').returncode, 0)
+
+    def test_repository_only_package_is_advisory_in_cli(self):
+        self.configure([])
+        path = self.project / 'sample.hdlforge.json'
+        data = json.loads(path.read_text())
+        data['settings']['env']['repo-requirement'] = {
+            'python_settings': {'packages': ['hdlforge-definitely-missing-package==1.0']}}
+        path.write_text(json.dumps(data))
+        before = path.read_bytes()
+        result = self.invoke('settings.validate.python', '--json')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)
+        self.assertEqual(report['status'], 'WARN')
+        row = report['checks'][-1]
+        self.assertIsNone(row['user'])
+        self.assertEqual(row['repository'], '1.0')
+        self.assertIsNone(row['actual'])
+        self.assertEqual(path.read_bytes(), before)
 
     def test_missing_policy_and_dry_run(self):
         result = self.invoke('settings.validate.python', '--json')

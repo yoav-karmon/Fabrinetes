@@ -475,8 +475,16 @@ Verification runs after normal repository, project and CLI environment setup,
 using the selected `python3` and package search paths. Project overlays affect
 the interpreter environment, but requirements come from the root JSON. Reports
 identify the interpreter, selected host/user and source of each requirement.
-Exit status is `0` for success, `1` for mismatches or missing packages, and `2`
-for invalid or missing requirements. Read-only checks still run under
+Python verification compares installed versions with both the resolved user
+configuration and `settings.env.repo-requirement.python_settings`. Each row
+shows `actual`, `user`, `repository` and whether local versions match each.
+The union of both package lists is checked, so user overrides cannot hide a
+repository requirement. Package names normalize case, hyphens, underscores
+and dots. Missing packages, mismatched versions and differing declarations
+produce `WARN`, without installing packages or changing configuration.
+User-only packages are allowed. Exit status is `0` for PASS or advisory WARN,
+and `2` for invalid or missing configuration. Other validation scopes retain
+their existing exit-status behavior. Read-only checks still run under
 `--dry-run`; the flag prevents writes by import/merge.
 
 ### Environment maintenance and compatibility

@@ -201,7 +201,9 @@ def check(args: argparse.Namespace, data: dict) -> dict:
         rows = [dict(name=report['file'], status='PASS', detail='Offline structural check; no SSH directives executed')]
     elif args.action == 'verify':
         if args.scope == 'python':
-            rows = python_settings.verify(report['effective'], platform.python_version())
+            required = model.entry(data, 'repo-requirement', '').get('python_settings', {})
+            report['repository_requirements'] = required
+            rows = python_settings.compare(report['effective'], required, platform.python_version())
         elif args.scope == 'os':
             rows = system.verify_os(report['effective'])
         elif args.scope == 'system-packages':
@@ -211,7 +213,8 @@ def check(args: argparse.Namespace, data: dict) -> dict:
             rows = vscode.verify(required, vscode.capture(args.repository))
         else:
             rows = model.verify_paths(report['effective'], args.repository, args.scope)
-    report.update(status='PASS' if all(row['status'] == 'PASS' for row in rows) else 'FAIL', checks=rows)
+    status = 'FAIL' if any(row['status'] == 'FAIL' for row in rows) else 'WARN' if any(row['status'] == 'WARN' for row in rows) else 'PASS'
+    report.update(status=status, checks=rows)
     return report
 
 

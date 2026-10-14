@@ -78,3 +78,44 @@ def verify(settings: dict, actual_version: str, lookup=metadata.version) -> list
         rows.append(dict(name=name, required=version or 'installed', actual=actual,
                          status='PASS' if passed else 'FAIL'))
     return rows
+
+
+def compare(settings: dict, repository: dict, actual_version: str, lookup=metadata.version) -> list[dict]:
+    """Report installed/user/repository differences as read-only advisories."""
+    validate_layer(repository, 'settings.env.repo-requirement.python_settings')
+    def packages(layer):
+        result = {}
+        for value in layer.get('packages', []):
+            name, version = package_requirement(value)
+            result[re.sub(r'[-_.]+', '-', name).lower()] = version or 'installed'
+        return result
+
+    user = {'Python': settings['version'], **packages(settings)}
+    repo = {'Python': repository.get('version'), **packages(repository)}
+    rows = []
+    for name in dict.fromkeys([*user, *repo]):
+        actual = actual_version
+        if name != 'Python':
+            try:
+                actual = lookup(name)
+            except metadata.PackageNotFoundError:
+                actual = None
+        configured, required = user.get(name), repo.get(name)
+        def matches(expected):
+            if expected is None:
+                return None
+            if actual is None:
+                return False
+            if name == 'Python':
+                return actual.split('.')[:len(expected.split('.'))] == expected.split('.')
+            return expected == 'installed' or actual == expected
+        local_user, local_repo = matches(configured), matches(required)
+        # Missing user entries and differing pins remain visible even when the
+        # installed version happens to satisfy the repository requirement.
+        differing_policy = required is not None and configured != required
+        if name == 'Python' and required is not None and configured is not None:
+            differing_policy = configured.split('.')[:len(required.split('.'))] != required.split('.')
+        rows.append(dict(name=name, actual=actual, user=configured, repository=required,
+                         local_matches_user=local_user, local_matches_repository=local_repo,
+                         status='WARN' if differing_policy or local_user is False or local_repo is False else 'PASS'))
+    return rows
